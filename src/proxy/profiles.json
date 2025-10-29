@@ -1,0 +1,565 @@
+{
+  "profiles": {
+    "firefox-windows": {
+        "set": [],
+        "replace": [
+        [
+          "User-Agent",
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:143.0) Gecko/20100101 Firefox/143.0"
+        ],
+        [
+          "Accept-Language",
+          "en-US,en;q=0.9"
+        ],
+        [
+          "Connection",
+          "keep-alive"
+        ]
+        ],
+        "replaceArbitrary": [
+        [
+          "Viewport-Width",
+          "1920"
+        ]
+        ],
+        "replaceDynamic": [
+        [
+            "Accept", {
+                "default": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,\\*/\\*;q=0.8",
+                "\\*/\\*": "\\*/\\*",
+                "image/": "image/avif,image/webp,image/png,image/svg+xml,image/*;q=0.8,\\*/\\*;q=0.5",
+                "text/css": "text/css,\\*/\\*;q=0.1",
+                "text/html": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,\\*/\\*;q=0.8",
+                "text/plain": "text/plain,\\*/\\*;q=0.01",
+                "application/font": "application/font-woff2;q=1.0,application/font-woff;q=0.9,\\*/\\*;q=0.8",
+                "application/json": "application/json,text/plain,\\*/\\*",
+                "text/vnd.reddit.partial+html": "text/vnd.reddit.partial+html,text/html;q=0.9",
+                "text/vnd.reddit.hybrid+html": "text/vnd.reddit.hybrid+html,text/html;q=0.9"
+            }
+        ]
+        ],
+        "remove": [
+            "Sec-CH-UA",
+            "Sec-CH-UA-Mobile",
+            "Sec-CH-UA-Platform",
+            "sec-ch-ua-full-version",
+            "sec-ch-ua-arch",
+            "sec-ch-ua-platform-version",
+            "sec-ch-ua-bitness",
+            "sec-ch-ua-wow64",
+            "sec-ch-ua-form-factors",
+            "sec-ch-ua-full-version-list",
+            "sec-ch-ua-model",
+            "sec-ch-device-memory",
+            "sec-ch-dpr",
+            "sec-ch-prefers-color-scheme",
+            "sec-ch-viewport-width",
+            "sec-ch-prefers-reduced-motion",
+            "sec-ch-prefers-reduced-transparency",
+            "x-client-id",
+            "x-amzn-trace-id",
+            "x-browser-validation",
+            "x-browser-year", "mobile", "platform", "platformVersion", "architecture", "bitness", "model", "uaFullVersion"
+        ],
+        "append": [],
+        "pass": [
+            "Accept-Encoding",
+            "Cookie",
+            "Authorization",
+            "sec-fetch-dest",
+            "sec-fetch-mode",
+            "sec-fetch-site",
+            "sec-fetch-user",
+            "access-control-request-headers",
+            "content-length",
+            "content-type",
+            "origin",
+            "referer",
+            "te",
+            "access-control-request-method"
+        ],
+        "fingerprint": {
+                "name": "Firefox 143 - Windows 10",
+                "browser_type": "firefox",
+                "browser_version": "143.0",
+                "os": "Windows",
+                "os_version": "10.0",
+                "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:143.0) Gecko/20100101 Firefox/143.0",
+                "platform": "Win32",
+                "vendor": "",
+                "vendorSub": "",
+                "productSub": "20100101",
+                "oscpu": "Windows NT 10.0; Win64; x64",
+                "buildID": "20100101",
+                "hardware_concurrency": 8,
+                "device_memory": 8,
+                "max_touch_points": 0,
+                "screen_resolution": "1920x1080",
+                "screen_avail_width": 1920,
+                "screen_avail_height": 1040,
+                "screen_avail_top": 0,
+                "screen_avail_left": 0,
+                "color_depth": 24,
+                "pixel_depth": 24,
+                "timezone": "America/New_York",
+                "timezone_offset": 300,
+                "languages": [
+                "en-US",
+                "en"
+            ],
+            "canvas_hash": "firefox_win10_canvas_v1",
+            "webgl_vendor": "Google Inc. (Intel)",
+            "webgl_renderer": "ANGLE (Intel, Intel(R) UHD Graphics 630 Direct3D11 vs_5_0 ps_5_0, D3D11)",
+            "webgl_hash": "firefox_win10_webgl_v1",
+            "audio_hash": "firefox_win10_audio_v1",
+            "audio_context": {
+                "sample_rate": 48000,
+                "channel_count": 2,
+                "max_channel_count": 2,
+                "number_of_inputs": 1,
+                "number_of_outputs": 0
+            },
+            "do_not_track": null,
+            "cookie_enabled": true,
+            "webdriver": false,
+            "plugins": "PDF Viewer",
+            "mimeTypes": [
+                "application/pdf"
+            ],
+            "storage_quota": 107374182400,
+            "webrtc_local_ips": [
+                "192.168.1.100"
+            ],
+            "enable_headers_spoof": true,
+            "enable_canvas_spoof": true,
+            "enable_webgl_spoof": true,
+            "enable_audio_spoof": true,
+            "enable_timezone_spoof": true,
+            "enable_automation_evasion": true,
+            "enable_webrtc_spoof": true,
+            "enable_performance_spoof": true,
+            "enable_plugin_spoof": true,
+            "enable_storage_spoof": true,
+            "enable_element_spoofing": true,
+            "enable_dom_evasion": true,
+            "enable_iframe_protection": true,
+            "enable_viewport_spoof": true,
+            "enable_font_spoof": true,
+            "enable_network_spoof": true,
+            "viewport_rounding": 200,
+            "viewport_width": null,
+            "viewport_height": null,
+            "debug": false
+        },
+        "tls": {
+            "tls_version_min": "TLSv1.2",
+            "tls_version_max": "TLSv1.3",
+            "cipher_suites": [
+                "TLS_AES_128_GCM_SHA256",
+                "TLS_CHACHA20_POLY1305_SHA256",
+                "TLS_AES_256_GCM_SHA384",
+                "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+                "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+                "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256",
+                "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256",
+                "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384",
+                "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
+                "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA",
+                "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA",
+                "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA",
+                "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA",
+                "TLS_RSA_WITH_AES_128_GCM_SHA256",
+                "TLS_RSA_WITH_AES_256_GCM_SHA384",
+                "TLS_RSA_WITH_AES_128_CBC_SHA",
+                "TLS_RSA_WITH_AES_256_CBC_SHA"
+            ],
+            "extensions": [
+                "server_name",
+                "extended_master_secret",
+                "renegotiation_info",
+                "supported_groups",
+                "ec_point_formats",
+                "session_ticket",
+                "application_layer_protocol_negotiation",
+                "status_request",
+                "delegated_credentials",
+                "key_share",
+                "supported_versions",
+                "signature_algorithms",
+                "psk_key_exchange_modes",
+                "record_size_limit"
+            ],
+            "supported_groups": [
+                "x25519",
+                "secp256r1",
+                "secp384r1",
+                "secp521r1",
+                "ffdhe2048",
+                "ffdhe3072"
+            ],
+            "signature_algorithms": [
+                "ecdsa_secp256r1_sha256",
+                "ecdsa_secp384r1_sha384",
+                "ecdsa_secp521r1_sha512",
+                "rsa_pss_rsae_sha256",
+                "rsa_pss_rsae_sha384",
+                "rsa_pss_rsae_sha512",
+                "rsa_pkcs1_sha256",
+                "rsa_pkcs1_sha384",
+                "rsa_pkcs1_sha512",
+                "ecdsa_sha1",
+                "rsa_pkcs1_sha1"
+            ],
+            "alpn_protocols": ["h2", "http/1.1"],
+            "compression_methods": [0],
+            "ja3_hash": "771,4865-4867-4866-49195-49199-52393-52392-49196-49200-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-34-51-43-13-45-28-21,29-23-24-25-256-257,0",
+            "ja4_hash": "t13d1516h2_8daaf6152771_02713d6af862"
+        }
+    },
+    "edge-windows": {
+        "set": [],
+        "replace": [
+        [
+          "User-Agent",
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0"
+        ]
+        ],
+        "replaceArbitrary": [],
+        "replaceDynamic": [
+        [
+            "Accept",
+            {
+                "default": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,\\*/\\*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+                "\\*/\\*": "\\*/\\*",
+                "image/": "image/avif,image/webp,image/apng,image/svg+xml,image/\\*;\\*;q=0.8",
+                "text/css": "text/css,\\*/\\*;q=0.1",
+                "text/html": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,\\*/\\*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+                "text/plain": "text/plain, \\*/\\*; q=0.01",
+                "application/json": "application/json"
+            }
+        ]
+        ],
+        "remove": [
+            "Accept-Encoding"
+        ],
+      
+        "pass": [
+            "Accept-Encoding",
+            "Cookie",
+            "Authorization",
+            "sec-fetch-dest",
+            "sec-fetch-mode",
+            "sec-fetch-site",
+            "sec-fetch-user",
+            "access-control-request-headers",
+            "content-length",
+            "content-type",
+            "origin",
+            "referer",
+            "te",
+            "access-control-request-method"
+        ],
+        "append": [],
+        "fingerprint": {
+            "name": "Edge 141 - Windows 10",
+            "browser_type": "edge",
+            "browser_version": "141.0.0.0",
+            "os": "Windows",
+            "os_version": "10.0",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0",
+            "platform": "Win32",
+            "vendor": "Google Inc.",
+            "vendorSub": "",
+            "productSub": "20030107",
+            "hardware_concurrency": 8,
+            "device_memory": 8,
+            "max_touch_points": 0,
+            "screen_resolution": "1920x1080",
+            "screen_avail_width": 1920,
+            "screen_avail_height": 1040,
+            "screen_avail_top": 0,
+            "screen_avail_left": 0,
+            "color_depth": 24,
+            "pixel_depth": 24,
+            "timezone": "America/New_York",
+            "timezone_offset": 300,
+            "languages": ["en-US", "en"],
+            "canvas_hash": "edge_win10_canvas_v1",
+            "webgl_vendor": "Google Inc. (NVIDIA)",
+            "webgl_renderer": "ANGLE (NVIDIA, NVIDIA GeForce GTX 1660 Ti Direct3D11 vs_5_0 ps_5_0)",
+            "webgl_hash": "edge_win10_webgl_v1",
+            "audio_hash": "edge_win10_audio_v1",
+            "audio_context": {
+                "sample_rate": 48000,
+                "channel_count": 2,
+                "max_channel_count": 2,
+                "number_of_inputs": 1,
+                "number_of_outputs": 0
+            },
+            "do_not_track": null,
+            "cookie_enabled": true,
+            "webdriver": false,
+            "plugins": "PDF Viewer",
+            "storage_quota": 107374182400,
+            "webrtc_local_ips": ["192.168.1.100"],
+            "sec_ch_ua": "\"Not A(Brand\";v=\"8\", \"Chromium\";v=\"141\", \"Microsoft Edge\";v=\"141\"",
+            "sec_ch_ua_mobile": "?0",
+            "sec_ch_ua_platform": "\"Windows\"",
+            "sec_ch_ua_full_version": "\"141.0.0.0\"",
+            "sec_ch_ua_arch": "\"x86\"",
+            "sec_ch_ua_platform_version": "\"15.0.0\"",
+            "sec_ch_ua_bitness": "\"64\"",
+            "enable_headers_spoof": true,
+            "enable_canvas_spoof": true,
+            "enable_webgl_spoof": true,
+            "enable_audio_spoof": true,
+            "enable_timezone_spoof": true,
+            "enable_automation_evasion": true,
+            "enable_webrtc_spoof": true,
+            "enable_performance_spoof": true,
+            "enable_plugin_spoof": true,
+            "enable_storage_spoof": true,
+            "enable_element_spoofing": true,
+            "enable_dom_evasion": true,
+            "enable_iframe_protection": true,
+            "enable_viewport_spoof": true,
+            "viewport_rounding": 200,
+            "debug": false
+        },
+        "tls": {
+            "tls_version_min": "TLSv1.2",
+            "tls_version_max": "TLSv1.3",
+            "cipher_suites": [
+            "TLS_AES_128_GCM_SHA256",
+            "TLS_AES_256_GCM_SHA384",
+            "TLS_CHACHA20_POLY1305_SHA256",
+            "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+            "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+            "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384",
+            "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
+            "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256",
+            "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256",
+            "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA",
+            "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA",
+            "TLS_RSA_WITH_AES_128_GCM_SHA256",
+            "TLS_RSA_WITH_AES_256_GCM_SHA384",
+            "TLS_RSA_WITH_AES_128_CBC_SHA",
+            "TLS_RSA_WITH_AES_256_CBC_SHA"
+            ],
+            "extensions": [
+            "server_name",
+            "extended_master_secret",
+            "renegotiation_info",
+            "supported_groups",
+            "ec_point_formats",
+            "session_ticket",
+            "application_layer_protocol_negotiation",
+            "status_request",
+            "signature_algorithms",
+            "signed_certificate_timestamp",
+            "key_share",
+            "psk_key_exchange_modes",
+            "supported_versions",
+            "compress_certificate",
+            "application_settings"
+            ],
+            "supported_groups": [
+            "x25519",
+            "secp256r1",
+            "secp384r1"
+            ],
+            "signature_algorithms": [
+            "ecdsa_secp256r1_sha256",
+            "rsa_pss_rsae_sha256",
+            "rsa_pkcs1_sha256",
+            "ecdsa_secp384r1_sha384",
+            "rsa_pss_rsae_sha384",
+            "rsa_pkcs1_sha384",
+            "rsa_pss_rsae_sha512",
+            "rsa_pkcs1_sha512"
+            ],
+            "alpn_protocols": ["h2", "http/1.1"],
+            "compression_methods": [0],
+            "ja3_hash": "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-21,29-23-24,0",
+            "ja4_hash": "t13d1516h2_8daaf6152771_02713d6af862"
+        }
+    },
+    "chrome-windows": {
+        "set": [],
+        "replace": [
+        [
+            "User-Agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"
+        ]
+        ],
+        "replaceArbitrary": [],
+        "replaceDynamic": [
+        [
+            "Accept", {
+                "default": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,\\*/\\*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+                "\\*/\\*": "\\*/\\*",
+                "image/": "image/avif,image/webp,image/apng,image/svg+xml,image/\\*;\\*;q=0.8",
+                "text/css": "text/css,\\*/\\*;q=0.1",
+                "text/html": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,\\*/\\*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+                "text/plain": "text/plain, \\*/\\*; q=0.01",
+                "application/json": "application/json",
+                "text/vnd.reddit.partial+html": "text/vnd.reddit.partial+html, text/html;q=0.9",
+                "text/vnd.reddit.hybrid+html": "text/vnd.reddit.hybrid+html, text/html;q=0.9",
+                "protobuf": "protobuf",
+                "application/json;odata=verbose": "application/json;odata=verbose",
+                "application/vnd.github": "application/vnd.github.v3+json, application/json"
+            }
+        ]
+        ],
+        "remove": [
+            "Accept-Encoding"
+        ],
+        "append": [
+        []
+        ],
+        "pass": [
+            "Accept-Encoding",
+            "Cookie",
+            "Authorization",
+            "sec-fetch-dest",
+            "sec-fetch-mode",
+            "sec-fetch-site",
+            "sec-fetch-user",
+            "access-control-request-headers",
+            "content-length",
+            "content-type",
+            "origin",
+            "referer",
+            "te",
+            "access-control-request-method"
+        ],
+        "fingerprint": {
+            "name": "Chrome 141 - Windows 10",
+            "browser_type": "chrome",
+            "browser_version": "141.0.0.0",
+            "os": "Windows",
+            "os_version": "10.0",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
+            "platform": "Win32",
+            "vendor": "Google Inc.",
+            "vendorSub": "",
+            "productSub": "20030107",
+            "hardware_concurrency": 8,
+            "device_memory": 8,
+            "max_touch_points": 0,
+            "screen_resolution": "1920x1080",
+            "screen_avail_width": 1920,
+            "screen_avail_height": 1040,
+            "screen_avail_top": 0,
+            "screen_avail_left": 0,
+            "color_depth": 24,
+            "pixel_depth": 24,
+            "timezone": "America/New_York",
+            "timezone_offset": 300,
+            "languages": ["en-US", "en"],
+            "canvas_hash": "chrome_win10_canvas_v1",
+            "webgl_vendor": "Google Inc. (NVIDIA)",
+            "webgl_renderer": "ANGLE (NVIDIA, NVIDIA GeForce GTX 1660 Ti Direct3D11 vs_5_0 ps_5_0)",
+            "webgl_hash": "chrome_win10_webgl_v1",
+            "audio_hash": "chrome_win10_audio_v1",
+            "audio_context": {
+                "sample_rate": 48000,
+                "channel_count": 2,
+                "max_channel_count": 2,
+                "number_of_inputs": 1,
+                "number_of_outputs": 0
+            },
+            "do_not_track": null,
+            "cookie_enabled": true,
+            "webdriver": false,
+            "plugins": "PDF Viewer",
+            "storage_quota": 107374182400,
+            "webrtc_local_ips": ["192.168.1.100"],
+            "sec_ch_ua": "\"Not A(Brand\";v=\"8\", \"Chromium\";v=\"141\", \"Google Chrome\";v=\"141\"",
+            "sec_ch_ua_mobile": "?0",
+            "sec_ch_ua_platform": "\"Windows\"",
+            "sec_ch_ua_full_version": "\"141.0.0.0\"",
+            "sec_ch_ua_arch": "\"x86\"",
+            "sec_ch_ua_platform_version": "\"15.0.0\"",
+            "sec_ch_ua_bitness": "\"64\"",
+            "enable_headers_spoof": true,
+            "enable_canvas_spoof": true,
+            "enable_webgl_spoof": true,
+            "enable_audio_spoof": true,
+            "enable_timezone_spoof": true,
+            "enable_automation_evasion": true,
+            "enable_webrtc_spoof": true,
+            "enable_performance_spoof": true,
+            "enable_plugin_spoof": true,
+            "enable_storage_spoof": true,
+            "enable_element_spoofing": true,
+            "enable_dom_evasion": true,
+            "enable_iframe_protection": true,
+            "enable_viewport_spoof": true,
+            "viewport_rounding": 200,
+            "debug": false
+        },
+        "tls": {
+            "tls_version_min": "TLSv1.2",
+            "tls_version_max": "TLSv1.3",
+            "cipher_suites": [
+                "TLS_AES_128_GCM_SHA256",
+                "TLS_AES_256_GCM_SHA384",
+                "TLS_CHACHA20_POLY1305_SHA256",
+                "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+                "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+                "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384",
+                "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
+                "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256",
+                "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256",
+                "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA",
+                "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA",
+                "TLS_RSA_WITH_AES_128_GCM_SHA256",
+                "TLS_RSA_WITH_AES_256_GCM_SHA384",
+                "TLS_RSA_WITH_AES_128_CBC_SHA",
+                "TLS_RSA_WITH_AES_256_CBC_SHA"
+            ],
+            "extensions": [
+                "server_name",
+                "extended_master_secret",
+                "renegotiation_info",
+                "supported_groups",
+                "ec_point_formats",
+                "session_ticket",
+                "application_layer_protocol_negotiation",
+                "status_request",
+                "signature_algorithms",
+                "signed_certificate_timestamp",
+                "key_share",
+                "psk_key_exchange_modes",
+                "supported_versions",
+                "compress_certificate",
+                "application_settings"
+            ],
+            "supported_groups": [
+                "x25519",
+                "secp256r1",
+                "secp384r1"
+            ],
+            "signature_algorithms": [
+                "ecdsa_secp256r1_sha256",
+                "rsa_pss_rsae_sha256",
+                "rsa_pkcs1_sha256",
+                "ecdsa_secp384r1_sha384",
+                "rsa_pss_rsae_sha384",
+                "rsa_pkcs1_sha384",
+                "rsa_pss_rsae_sha512",
+                "rsa_pkcs1_sha512"
+            ],
+            "alpn_protocols": ["h2", "http/1.1"],
+            "compression_methods": [0],
+            "ja3_hash": "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-21,29-23-24,0",
+            "ja4_hash": "t13d1516h2_8daaf6152771_02713d6af862"
+        }
+    }
+  },
+  "hosts": {
+    "api.example.com": "mobile",
+    "exampleBank.com": "stealth"
+  }
+}

@@ -194,14 +194,27 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
-# Cursor
-#  Cursor is an AI-powered code editor. `.cursorignore` specifies files/directories to
-#  exclude from AI features like autocomplete and code analysis. Recommended for sensitive data
-#  refer to https://docs.cursor.com/context/ignore-files
-.cursorignore
-.cursorindexingignore
 
 # Marimo
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Project-specific
+# HAR files contain network traffic data with potentially sensitive information
+*.har
+
+# eBPF compiled artifacts
+src/ebpf/*.o
+src/ebpf/*.ko
+src/ebpf/ttl_editor
+
+# VM images and ISOs
+*.iso
+*.qcow2
+*.vmdk
+*.vdi
+*.vhd
+*.vhdx
+*.ova
+*.ovf
