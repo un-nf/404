@@ -36,6 +36,7 @@ $ pip install mitmproxy
 ```
 
 *Configure your browser (or machine) to use localhost:8080 (127.0.0.1:8080) as an HTTP/S proxy.*
+
 ***Important:*** **This tool is a TLS-terminating proxy (man-in-the-middle) and has access to your plaintext HTTPS data (usernames, passwords, certain message protocols, etc.) do NOT share your CA cert with *anyone* for *anything, ever*.**
 
 #### 2. Install mitmproxy CA cert
