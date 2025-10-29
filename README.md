@@ -1,5 +1,6 @@
 # 404 v.01
 Privacy tool.
+
 **We are not a VPN. We do *not* log, track, collect, or *touch* any of your data. We do not route your traffic anywhere. We host no network infrastructure. Your machine does all the work. We do not hide your data. We do not offer Onion routing. We are not affiliated with the Tor Project.**
 
 ## Quick consent & warning
