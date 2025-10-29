@@ -6,8 +6,6 @@ This project is not a charity for random pull requests. Random, anonymous PRs fr
 
 If you want to help, **join the team**. If you can't join the team, there are useful, safer ways to contribute short of code-ownership: detailed issues, reproducible test cases, and design proposals. We value long-term collaborators over one-off patches.
 
----
-
 ## TL;DR
 
 **We do not want:**
@@ -18,8 +16,6 @@ If you want to help, **join the team**. If you can't join the team, there are us
 - If you can't join, open an issue, file a detailed bug, propose an RFC, or submit test cases/examples rather than direct code changes.
 
 **Contact to apply:** `404mesh@proton.me`
-
----
 
 ## Why Not Random PRs?
 
@@ -37,8 +33,6 @@ A product-ready package needs an auditable, test-covered codebase. Random PRs in
 ### Relicensing & Packaging Complications
 If we decide later to change the license, dual-license, or build a commercial offering, every contributor's copyright needs to be accounted for. Without contributor agreements that explicitly license their contributions to the project owner, relicensing is technically and practically blocked.
 
----
-
 ## GPLv3 Implications
 
 This repo is distributed under GPLv3. GPLv3 has practical consequences you need to understand before contributing:
@@ -52,8 +46,6 @@ When you submit code, you are effectively adding your copyright to the project. 
 **Why this matters for 404:** We may want flexibility (commercial support, different distribution models, or dual-licensing) as the project matures. Accepting many anonymous GPLv3 contributions without clear assignment/licensing agreements permanently narrows future options and increases legal overhead.
 
 > **Short legal note:** I'm not a lawyer. This is my understanding of how contributor copyright interacts with GPLv3. For binding legal advice, consult counsel.
-
----
 
 ## How You Can Contribute Without Becoming a Team Member
 
@@ -72,8 +64,6 @@ Write a clear design doc or RFC for a new feature or experiment (use the `docs/r
 Produce a one-page threat model, or a short audit checklist for a subsystem (header munging, CA handling, logging).
 
 We will review and, when feasible, incorporate non-code contributions or give guidance on how to proceed safely.
-
----
 
 ## How to Join the Team
 
