@@ -60,10 +60,10 @@ $ mitmproxy -s header_profile.py <args>
 # Documentation @ https://docs.mitmproxy.org/stable/
 ```
 
-**Note: FireFox works much better.**
+**Note: Firefox works much better.**
 *During preliminary tests, certain login flows in Chrome/Chromium browsers broke. This breakage is not due to mismatching headers (that I can tell), as login flows still do not work when spoofing a Chrome profile.*
 
-*Login flows on FireFox are much more stable for reasons that are not clear to me. Would love some insight.*
+*Login flows on Firefox are much more stable for reasons that are not clear to me. Would love some insight.*
 
 ## Why should I install and run this on my machine?
 
@@ -85,9 +85,9 @@ If you do not understand JavaScript, or if you don't take the time to look throu
 
 ### Things will break
 
-Routing your traffic through this proxy now means your browser *will* break. Chrome most certainly does not like it when you route traffic through this proxy. As mentioned earlier, FireFox is much more forgiving.
+Routing your traffic through this proxy now means your browser *will* break. Chrome most certainly does not like it when you route traffic through this proxy. As mentioned earlier, Firefox is much more forgiving.
 
-Your web page will look... strange. Most sites *will* be readable, but if the server thinks it's talking to FireFox, your Chrome page will not load 100% properly. Again, breakage is much less frequent in FireFox. Experimenting witn the JavaScript for canvas/webGL may improve functionality.
+Your web page will look... strange. Most sites *will* be readable, but if the server thinks it's talking to Firefox, your Chrome page will not load 100% properly. Again, breakage is much less frequent in Firefox. Experimenting witn the JavaScript for canvas/webGL may improve functionality.
 
 I do not know the long term effects on account usage. I have been logging-in via this proxy using my personal Google, Microsoft, and Apple accounts and have experienced no retaliation (bans and whatnot). That is *not* to say you will have the same experience. **I *strongly* recommend that you use alternate/disposable accounts if you're going to be testing OAuth or other login flows.**
 
