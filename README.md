@@ -10,7 +10,7 @@ By running this software you accept and understand that:
 - The proxy decrypts HTTPS for rewriting/testing. It can see ***passwords*** and ***session tokens***.
 - You will not use your primary accounts.
 - You will not share your CA certificate with anyone.
-- This is research software - no warranty, no guarantees, minimal support, 
+- This is research software - no warranty, no guarantees, minimal support.
 - If you find a security issue report it to 404mesh@proton.me
 
 ## How do I install and run this on my machine?
@@ -39,7 +39,7 @@ $ pip install mitmproxy
 
 *Configure your browser (or machine) to use localhost:8080 (127.0.0.1:8080) as an HTTP/S proxy.*
 
-***Important:*** **This tool is a TLS-terminating proxy (man-in-the-middle) and has access to your plaintext HTTPS data (usernames, passwords, certain message protocols, etc.) do NOT share your CA cert with *anyone* for *anything, ever*.**
+***Important:*** **This tool is a TLS-terminating proxy (man-in-the-middle) and has access to your plaintext HTTPS data (usernames, passwords, certain message protocols, etc.). Do NOT share your CA cert with *anyone* for *anything, ever*.**
 
 #### 2. Install mitmproxy CA cert
 
