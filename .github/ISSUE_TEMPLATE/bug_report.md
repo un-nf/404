@@ -1,13 +1,4 @@
 ---
-name: Bug report
-about: Create a report to help us improve
-title: ''
-labels: ''
-assignees: ''
-
----
-
----
 name: Bug Report
 about: Report a reproducible issue with 404
 title: '[BUG] '

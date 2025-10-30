@@ -3,7 +3,9 @@ Privacy tool.
 
 **We are not a VPN. We do *not* log, track, collect, or *touch* any of your data. We do not route your traffic anywhere. We host no network infrastructure. Your machine does all the work. We do not hide your data. We do not offer Onion routing. We are not affiliated with the Tor Project.**
 
-[Join the Discord for support!](https://discord.gg/XGxf7thW)
+[Join the Discord for support!](https://discord.gg/G7rUYrZqS2)
+
+*Alternative community options coming soon!*
 
 ## Quick consent & warning
 By running this software you accept and understand that:
