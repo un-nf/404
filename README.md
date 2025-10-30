@@ -59,7 +59,7 @@ $ mitmproxy
 3. Close original mitmproxy instance and run
 
 ```bash
-$ mitmproxy -s header_profile.py <args>
+$ mitmproxy -s src\proxy\header_profile.py <args>
 
 # All mitmproxy CLI rules apply.
 # Documentation @ https://docs.mitmproxy.org/stable/
