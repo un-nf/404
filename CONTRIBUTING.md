@@ -13,7 +13,7 @@ If you want to help, **join the team**. If you can't join the team, there are us
 
 **We want:**
 - Developers who are willing to commit: join the team, sign contributor agreements, and help carry the design, security, and maintenance burden.
-- If you can't join, open an issue, file a detailed bug, propose an RFC, or submit test cases/examples rather than direct code changes.
+- If you can't join, open an issue, file a detailed bug, or submit test cases/examples rather than direct code changes.
 
 **Contact to apply:** `404mesh@proton.me`
 
@@ -57,8 +57,8 @@ Clear description, reproduction steps, expected vs actual behavior, and sanitize
 ### Submit Test Artifacts
 Sanitized pcaps, small test pages, or sample flows that reproduce fingerprinting or header problems.
 
-### Design Proposals / RFCs
-Write a clear design doc or RFC for a new feature or experiment (use the `docs/rfcs/` folder). Long-form thought and reproducible design is gold.
+### Design Proposals
+Write a clear design doc. Long-form thought and reproducible design is gold.
 
 ### Threat Models & Audits
 Produce a one-page threat model, or a short audit checklist for a subsystem (header munging, CA handling, logging).
