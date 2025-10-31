@@ -33,19 +33,19 @@ A product-ready package needs an auditable, test-covered codebase. Random PRs in
 ### Relicensing & Packaging Complications
 If we decide later to change the license, dual-license, or build a commercial offering, every contributor's copyright needs to be accounted for. Without contributor agreements that explicitly license their contributions to the project owner, relicensing is technically and practically blocked.
 
-## GPLv3 Implications
+## AGPLv3 Implications
 
-This repo is distributed under GPLv3. GPLv3 has practical consequences you need to understand before contributing:
+This repo is distributed under AGPLv3. AGPLv3 has practical consequences you need to understand before contributing:
 
 ### Viral Copyleft
-Code distributed under GPLv3 requires derivative works to be licensed under GPLv3 as well. If we accept code from contributors under GPLv3, that code becomes part of the copyleft pool.
+Code distributed under AGPLv3 requires derivative works to be licensed under AGPLv3 as well. If we accept code from contributors under AGPLv3, that code becomes part of the copyleft pool.
 
 ### Contributor Provenance Matters
 When you submit code, you are effectively adding your copyright to the project. This is not cosmetic — it affects what the project can legally become later. We want you to be a part of the project, just reach out!
 
-**Why this matters for 404:** We may want flexibility (commercial support, different distribution models, or dual-licensing) as the project matures. Accepting many anonymous GPLv3 contributions without clear assignment/licensing agreements permanently narrows future options and increases legal overhead.
+**Why this matters for 404:** We may want flexibility (commercial support, different distribution models, or dual-licensing) as the project matures. Accepting many anonymous AGPLv3 contributions without clear assignment/licensing agreements permanently narrows future options and increases legal overhead.
 
-> **Short legal note:** I'm not a lawyer. This is my understanding of how contributor copyright interacts with GPLv3. For binding legal advice, consult counsel.
+> **Short legal note:** I'm not a lawyer. This is my understanding of how contributor copyright interacts with AGPLv3. For binding legal advice, consult counsel.
 
 ## How You Can Contribute Without Becoming a Team Member
 
