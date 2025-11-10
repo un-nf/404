@@ -1,6 +1,8 @@
 # 404 v.02
 Privacy tool.
 
+> NEW: eBPF support for TCP/IP packet header modification.
+
 **We are not a VPN. We do *not* log, track, collect, or *touch* any of your data. We do not route your traffic anywhere. We host no network infrastructure. Your machine does all the work. We do not hide your data.**
 
 [Join the Discord for support!](https://discord.gg/G7rUYrZqS2)
