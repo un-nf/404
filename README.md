@@ -110,7 +110,7 @@ $ sudo tc filter add dev <interface> egress bpf da obj ttl_editor.o sec classifi
 
 ```
 
-#### 4b. Configure a Linux VM (if not using Linux) - for packet-level fingerprinting
+#### 4b. Configure a Linux VM (if not using Linux)
 
 **VM Setup:**
 
