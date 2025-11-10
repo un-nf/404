@@ -48,7 +48,7 @@ class JSInjector:
 
     def load(self, loader):
         try:
-            script_dir = Path(__file__).parent.parent
+            script_dir = Path(__file__).parent.parent / 'JS'
             layer_files = {
                 'preflight': script_dir / 'preflight.js',
                 'config': script_dir / 'config_layer.js',

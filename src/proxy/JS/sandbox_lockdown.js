@@ -1,4 +1,4 @@
-/* Sandbox Freeze Script
+/* Sandbox freeze script
 
 Copyright (C) 2025 - 404 Contributors
 
