@@ -16,7 +16,7 @@ $ # Manual compilation
 $ clang -O2 -g -target bpf -D__TARGET_ARCH_x86 -I/usr/include/ -I/usr/include/linux -c TTLEDIT-STABLE.c -o <output>.o
 
 ```
-
+ 
 Dependencies: `clang`, `llvm`, `libbpf-dev`, `linux-headers-$(uname -r)`, `iproute2`
 
 ## Usage
@@ -27,7 +27,7 @@ Attach to network interface (replace `<interface>` with `eth0`, `wlan0`, etc.):
 $ sudo tc qdisc add dev <interface> clsact
 $ sudo tc filter add dev <interface> egress bpf da obj ttl_editor.o sec classifier
 ```
-
+ 
 Remove:
 
 ```bash
