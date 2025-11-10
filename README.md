@@ -1,7 +1,7 @@
-# 404 v.01
+# 404 v.02
 Privacy tool.
 
-**We are not a VPN. We do *not* log, track, collect, or *touch* any of your data. We do not route your traffic anywhere. We host no network infrastructure. Your machine does all the work. We do not hide your data. We do not offer Onion routing. We are not affiliated with the Tor Project.**
+**We are not a VPN. We do *not* log, track, collect, or *touch* any of your data. We do not route your traffic anywhere. We host no network infrastructure. Your machine does all the work. We do not hide your data.**
 
 [Join the Discord for support!](https://discord.gg/G7rUYrZqS2)
 
@@ -55,8 +55,11 @@ Choose mitmproxy method:
 ```bash
 $ mitmproxy
 ```
-2. In browser, navigate to https://mitm.it - Follow instructions to install CA cert
-3. Close original mitmproxy instance and run
+2. In browser, navigate to https://mitm.it - **Follow instructions** to install CA cert
+
+#### 3. Run mitmproxy w/ addon
+
+1. Close original mitmproxy instance and run:
 
 ```bash
 $ mitmproxy -s src\proxy\header_profile.py <args>
@@ -65,10 +68,82 @@ $ mitmproxy -s src\proxy\header_profile.py <args>
 # Documentation @ https://docs.mitmproxy.org/stable/
 ```
 
-**Note: Firefox works much better.**
-*During preliminary tests, certain login flows in Chrome/Chromium browsers broke. This breakage is not due to mismatching headers (that I can tell), as login flows still do not work when spoofing a Chrome profile.*
+*UX Firefox is much more stable for reasons that are not clear to me. Would love some insight.*
 
-*Login flows on Firefox are much more stable for reasons that are not clear to me. Would love some insight.*
+#### 4a. Attach eBPF program to TC egress hook
+
+> The eBPF `ttl_editor` modifies packet-level fingerprints (TTL, TCP window size, sequence numbers, etc.). This requires a Linux kernel.
+
+**Build eBPF program**
+
+```bash
+$ cd src/ebpf
+$ make deps-install  # shows dependency installation command
+$ make               # compiles ttl_editor.o
+$ 
+$ # Manual compilation
+$ clang -O2 -g -target bpf -D__TARGET_ARCH_x86 -I/usr/include/ -I/usr/include/linux -c TTLEDIT-STABLE.c -o <output>.o
+
+```
+
+**Kernel requirements:**
+- CONFIG_BPF=y, CONFIG_BPF_SYSCALL=y, CONFIG_NET_CLS_BPF=y, CONFIG_NET_ACT_BPF=y
+- Install: `clang`, `llvm`, `libbpf-dev`, `linux-headers-$(uname -r)`, `iproute2`
+
+**Attach to network interface:**
+```bash
+$ sudo tc qdisc add dev <interface> clsact
+$ sudo tc filter add dev <interface> egress bpf da obj ttl_editor.o sec classifier
+
+```
+
+#### 4b. Configure a Linux VM (if not using Linux) - for packet-level fingerprinting
+
+**VM Setup:**
+- Linux kernel 4.15+ (5.4+ recommended)
+- Two network adapters:
+  1. `Bridged` - connects `VM/Guest` to internet
+  2. `Host-Only` - creates private network between `Host` and `VM/Guest`
+
+**Build eBPF program:**
+> See 4a.
+
+**Attach to network interface:**
+> See 4a.
+
+**Route host traffic through VM:**
+
+> Currently, IP/TCP packet header values are assigned via global variables at the top of `src/ebpf/ttl_editor.c`.
+
+On `Linux VM` (Guest):
+```bash
+# Enable IP forwarding
+$ sudo sysctl -w net.ipv4.ip_forward=1
+$ echo "net.ipv4.ip_forward=1" | sudo tee -a /etc/sysctl.conf
+$ sudo sysctl -w net.ipv6.conf.all.forwarding=1
+$ echo "net.ipv6.conf.all.forwarding=1" | sudo tee -a /etc/sysctl.conf
+
+# Allow forwarding on Host-Only interface
+$ sudo iptables -A FORWARD -i <host-only-interface> -j ACCEPT
+$ sudo iptables -A FORWARD -o <host-only-interface> -j ACCEPT
+$ sudo ip6tables -A FORWARD -i <host-only-interface> -j ACCEPT
+$ sudo ip6tables -A FORWARD -o <host-only-interface> -j ACCEPT
+
+# Enable NAT/masquerading on Bridged interface
+$ sudo iptables -t nat -A POSTROUTING -o <bridged-interface> -j MASQUERADE
+$ sudo ip6tables -t nat -A POSTROUTING -o <bridged-interface> -j MASQUERADE
+```
+
+On Host machine:
+- Set default gateway to `VM/Guest` Host-Only adapter IP address
+- (Windows: Network adapter settings → Properties → TCP/IPv4 → Gateway)
+- (Linux/Mac: `sudo route add default gw <vm-host-only-ip>`)
+
+> Some additional tinkering may be required. Feel free to leave a comment or open an issue with suggestions on improving the setup process. 
+
+*If you have any experience developing with the Linux kernel, I am interested in building a minimal kernel with only the key elements, but beyond my scope (for the time being) and would love some assistance or guidance.*
+
+*VM images coming eventually. I am using VMWare to host a Deb-Bookworm distribution. Works mildly well, but really heavy. Definitely going to be looking into distributing the VMs as dedicated server images, not gerry-rigged forwarding machines with desktop environments.*
 
 ## Why should I install and run this on my machine?
 
@@ -84,6 +159,23 @@ A small win, I am getting consistent values from the following fingerprinting we
 3. https://coveryourtracks.eff.org/
 4. https://whatismybrowser.com/
 
+> As of v.02, this project also provides tooling to modify outgoing network packet headers by attaching to the traffic control (tc) egress hook. Currently, the following is implemented:
+
+**IPv4:**
+- TTL (Time To Live) → forced to 255
+- TOS (Type of Service) → set to 0x10
+- IP ID (Identification) → randomized per packet
+- TCP window size → 65535
+- TCP initial sequence number → randomized
+- TCP window scale → 2
+- TCP MSS (Maximum Segment Size) → 1404
+- TCP timestamps → randomized
+
+**IPv6:**
+- Hop limit → forced to 255
+- Flow label → randomized
+- TCP parameters (same as IPv4)
+
 ## Why *shouldn't* I install and run this on my machine?
 
 If you do not understand JavaScript, or if you don't take the time to look through the code, there is almost no point in you downloading this proxy. The point of this is not to be a privacy proxy. **Not yet.** This repository, in its current state, is experimental and intended only for educational, research, and development purposes. 
@@ -92,9 +184,9 @@ If you do not understand JavaScript, or if you don't take the time to look throu
 
 Routing your traffic through this proxy now means your browser *will* break. Chrome most certainly does not like it when you route traffic through this proxy. As mentioned earlier, Firefox is much more forgiving.
 
-Your web page will look... strange. Most sites *will* be readable, but if the server thinks it's talking to Firefox, your Chrome page will not load 100% properly. Again, breakage is much less frequent in Firefox. Experimenting witn the JavaScript for canvas/webGL may improve functionality.
+Your web page will look... strange. Most sites *will* be readable, but if the server thinks it's talking to Firefox, your Chrome page will not load 100% properly. Breakage is much less frequent in Firefox. Experimenting witn the JavaScript for canvas/webGL may improve functionality.
 
-I do not know the long term effects on account usage. I have been logging-in via this proxy using my personal Google, Microsoft, and Apple accounts and have experienced no retaliation (bans and whatnot). That is *not* to say you will have the same experience. **I *strongly* recommend that you use alternate/disposable accounts if you're going to be testing OAuth or other login flows.**
+I do not know the long term effects on account usage. I have been logging-in via this proxy using my personal Google, Microsoft, and Apple accounts for the last 6-ish months, and I have experienced no retaliation (bans and whatnot). That is *not* to say you will have the same experience. **I *strongly* recommend that you use alternate/disposable accounts if you're going to be testing OAuth or other login flows.**
 
 I am not a cybersecurity engineer. I hammered this together and may have missed something important. Feel free to reach out with security vulnerabilities @ 404mesh@proton.me
 
