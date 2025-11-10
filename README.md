@@ -76,10 +76,12 @@ $ mitmproxy -s src\proxy\header_profile.py <args>
 
 #### 4a. Compile & attach eBPF program to TC egress hook (if using Linux)
 
-> The eBPF `ttl_editor` modifies packet-level fingerprints (TTL, TCP window size, sequence numbers, etc.). This requires a Linux kernel.
+*The eBPF `ttl_editor` modifies packet-level fingerprints (TTL, TCP window size, sequence numbers, etc.). This requires a Linux kernel.*
 
 **Build eBPF program**
-
+> Currently, IP/TCP packet header values are assigned via global variables at the top of `src/ebpf/ttl_editor.c`.
+>
+> Modify these to desired values *before* compiling.
 ```bash
 $ $ cd src/ebpf
 $ make deps-install  # shows dependency installation command
@@ -115,8 +117,6 @@ $ sudo tc filter add dev <interface> egress bpf da obj ttl_editor.o sec classifi
 > See 4a.
 
 **Route host traffic through VM:**
-
-> Currently, IP/TCP packet header values are assigned via global variables at the top of `src/ebpf/ttl_editor.c`.
 
 On `Linux VM` (Guest):
 ```bash
