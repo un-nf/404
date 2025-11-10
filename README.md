@@ -24,6 +24,7 @@ As of now, the only requirement is `mitmproxy` (and thus, a compatible `Python` 
 #### 1. Install venv
 
 venv installation (WINDOWS):
+
 In 404 directory:
 
 ```cmd
@@ -33,6 +34,7 @@ In 404 directory:
 ```
 
 venv installation (MacOS):
+
 In 404 directory:
 
 ```bash
