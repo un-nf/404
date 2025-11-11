@@ -82,6 +82,8 @@ $ mitmproxy -s src\proxy\header_profile.py <args>
 
 *The eBPF `ttl_editor` modifies packet-level fingerprints (TTL, TCP window size, sequence numbers, etc.). This requires a Linux kernel.*
 
+![tcpdump output](https://raw.githubusercontent.com/un-nf/404/refs/heads/main/.github/IMAGES/tcpdump_output.png "tcpdump output")
+
 **Build eBPF program**
 > Currently, IP/TCP packet header values are assigned via global variables at the top of `src/ebpf/ttl_editor.c`.
 >
