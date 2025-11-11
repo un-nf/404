@@ -54,6 +54,8 @@ Currently, IP/TCP packet header values are assigned via global variables at the 
 - Flow label → randomized
 - TCP parameters (same as IPv4)
 
+![tcpdump output](https://github.com/un-nf/404/.github/IMAGES/tcpdump_output.png "tcpdump output")
+
 ### Limitations:
 
 In its current state, this eBPF program does *not* map to the values being passed from `profiles.json`. This is a *major* pitfall of the current version. Future patch will fix this. This eBPF program serves as POC.
