@@ -54,8 +54,6 @@ Currently, IP/TCP packet header values are assigned via global variables at the 
 - Flow label → randomized
 - TCP parameters (same as IPv4)
 
-- https://raw.githubusercontent.com/un-nf/404/refs/heads/main/.github/IMAGES/tcpdump_output.png
-
 ![tcpdump output](https://raw.githubusercontent.com/un-nf/404/refs/heads/main/.github/IMAGES/tcpdump_output.png "tcpdump output")
 
 ### Limitations:
