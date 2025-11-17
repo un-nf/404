@@ -16,20 +16,17 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
-# Header profile addon for mitmproxy
-# Handles browser profile selection and header manipulation.
-
 from mitmproxy import ctx
 from mitmproxy.http import Headers
-import json
-import os
-import re
-import time
+import json       
+import os         
+import re         
+import time       
 from typing import Dict, List, Tuple, Optional, Any
 
 DEFAULT_PROFILE = "firefox-windows"
 
-PROFILE_ROTATION_INTERVAL = 300
+PROFILE_ROTATION_INTERVAL = 300  
 
 MAX_PROFILE_FILE_SIZE = 10 * 1024 * 1024
 
@@ -46,25 +43,30 @@ _PROFILES: Dict[str, ProfileDict] = {}
 _PROFILES_BY_HOST: Dict[str, str] = {}
 
 _FALLBACK_PROFILE: ProfileDict = {
-    "set": [],
-    "replace": [],
-    "remove": [],
-    "append": [],
-    "pass": [],
-    "replaceArbitrary": [],
-    "replaceDynamic": [],
-    "fingerprint": {}
+    "set": [],                
+    "replace": [],            
+    "remove": [],             
+    "append": [],             
+    "pass": [],               
+    "replaceArbitrary": [],   
+    "replaceDynamic": [],     
+    "fingerprint": {}         
 }
 
 def headers_to_list(hdrs: Headers) -> List[Tuple[str, str]]:
-    """Convert mitmproxy Headers to list."""
+    """
+    Convert mitmproxy Headers object to Python list of tuples
+    """
     try:
+
         headers = list(hdrs.items(multi=True))
     except TypeError:
+
         headers = list(hdrs.items())
 
     result = []
     for name, value in headers:
+
         if isinstance(name, bytes):
             name = name.decode('utf-8', errors='replace')
         if isinstance(value, bytes):
@@ -74,9 +76,12 @@ def headers_to_list(hdrs: Headers) -> List[Tuple[str, str]]:
     return result
 
 def list_to_headers(lst: List[Tuple[str, str]]) -> Headers:
-    """Convert list back to Headers."""
+    """
+    Convert Python list of tuples back to mitmproxy Headers object
+    """
     converted_lst = []
     for name, value in lst:
+
         if not isinstance(name, (str, bytes)):
             ctx.log.warn(f"Invalid header name type: {type(name)}, skipping")
             continue
@@ -93,7 +98,9 @@ def list_to_headers(lst: List[Tuple[str, str]]) -> Headers:
     return Headers(converted_lst)
 
 def sanitize_profile_path(base_dir: str, filename: str) -> Optional[str]:
-    """Validate profile path."""
+    """
+    Validate profile file path to prevent path traversal attacks
+    """
     base_dir = os.path.abspath(base_dir)
     requested_path = os.path.abspath(os.path.join(base_dir, filename))
 
@@ -108,10 +115,16 @@ def sanitize_profile_path(base_dir: str, filename: str) -> Optional[str]:
     return requested_path
 
 def sanitize_json_content(content: str) -> str:
-    """Strip comments from JSON."""
+    """
+    Strip comments and invalid characters from JSON before parsing
+    """
+
     content = re.sub(r'//.*', '', content)
+
     content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
+
     content = ''.join(ch for ch in content if ch >= ' ' or ch in ['\n', '\r', '\t'])
+
     content = re.sub(r',\s*([}\]])', r'\1', content)
     return content
 
@@ -264,14 +277,8 @@ def load_profiles(path: Optional[str] = None) -> None:
         ctx.log.debug(f"Traceback: {traceback.format_exc()}")
 
 def find_first_header_index(headers_list: List[Tuple[str, str]], name: str) -> Optional[int]:
-    """Find the index of the first occurrence of a header (case-insensitive).
-
-    Args:
-        headers_list: List of (header_name, header_value) tuples
-        name: Header name to search for
-
-    Returns:
-        Index of first matching header, or None if not found
+    """
+    Find the index of the first occurrence of a header (case-insensitive).
     """
     lname = name.lower()
     for i, (n, v) in enumerate(headers_list):
@@ -280,7 +287,9 @@ def find_first_header_index(headers_list: List[Tuple[str, str]], name: str) -> O
     return None
 
 def extract_profile_metadata(profile_data: ProfileDict) -> Tuple[Optional[str], Optional[str], Dict[str, Any]]:
-    """Extract metadata from profile."""
+    """
+    Extract metadata from profile.
+    """
     user_agent = None
     browser_profile = None
 
@@ -323,7 +332,9 @@ def extract_profile_metadata(profile_data: ProfileDict) -> Tuple[Optional[str], 
     return user_agent, browser_profile, fingerprint_config
 
 def select_profile(request_line: str, headers_list: List[Tuple[str, str]], flow) -> Tuple[str, Optional[str], Optional[str], Dict[str, Any]]:
-    """Pick profile for request."""
+    """
+    Pick profile for request.
+    """
     global _PROFILE_CACHE
 
     try:
@@ -441,7 +452,7 @@ def detect_content_type(path: str, accept_header: str) -> Optional[str]:
         return "xhr"
     elif 'text/html' not in accept_lower and 'application/xhtml' not in accept_lower:
         return "xhr"
-    
+
     return None
 
 def apply_profile(headers_list: List[Tuple[str, str]], profile_name: str, flow) -> Optional[str]:
@@ -547,9 +558,9 @@ def apply_profile(headers_list: List[Tuple[str, str]], profile_name: str, flow) 
     return user_agent
 
 class HeaderProfileAddon:
-    """Header profile addon."""
 
     def __init__(self):
+
         load_profiles()
 
         if not _PROFILES:
@@ -558,7 +569,7 @@ class HeaderProfileAddon:
             ctx.log.error(f"Default profile '{DEFAULT_PROFILE}' not found!")
             ctx.log.error(f"Available profiles: {list(_PROFILES.keys())}")
         else:
-            ctx.log.info(f"Header Profile Addon initialized with default profile: {DEFAULT_PROFILE}")
+            ctx.log.info(f"Header Profile Addon initialized with default: {DEFAULT_PROFILE}")
             ctx.log.info(f"Loaded {len(_PROFILES)} profiles: {list(_PROFILES.keys())}")
 
     def request(self, flow):
