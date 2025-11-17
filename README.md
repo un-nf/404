@@ -76,7 +76,7 @@ $ mitmproxy -s src\proxy\header_profile.py <args>
 
 ```
 
-*UX on Firefox is much more stable for reasons that are not clear to me. Would love some insight.*
+*UX on Firefox is much more stable for reasons that are not clear to me. Would love some insight. Google login works on Firefox.*
 
 #### 4a. Compile & attach eBPF program to TC egress hook (if using Linux)
 
