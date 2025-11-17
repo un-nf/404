@@ -1,7 +1,8 @@
-# 404 v.02
+# 404 v.03
 Privacy tool.
 
-> NEW: eBPF support for TCP/IP packet header modification.
+> NEW (.02): eBPF support for TCP/IP packet header modification.
+> NEW (.03): JavaScript proxies!
 
 **We are not a VPN. We do *not* log, track, collect, or *touch* any of your data. We do not route your traffic anywhere. We host no network infrastructure. Your machine does all the work. We do not hide your data.**
 
@@ -176,6 +177,11 @@ A small win, I am getting consistently spoofed values from the following fingerp
 3. https://browserleaks.com/
 4. https://coveryourtracks.eff.org/
 5. https://whatismybrowser.com/
+
+>values from FingerprintJS (fingerpint.com):
+
+![Clean Firefox](.github/IMAGES/cleanFire.png)
+![Dirty Firefox](.github/IMAGES/dirtyFire.png)
 
 > As of v.02, this project also provides tooling to modify outgoing network packet headers by attaching to the traffic control (tc) egress hook. Currently, the following is implemented:
 
