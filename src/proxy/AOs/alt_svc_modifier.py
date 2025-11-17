@@ -15,10 +15,6 @@ GNU Affero General Public License for more details.
 You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
-# Alt-Svc Header Modifier Addon
-
-# This addon modifies Alt-Svc headers to prevent port-based proxy detection.
-
 
 """HTTP/3 and QUIC protocols will be downgraded to HTTP/2
 

@@ -21,7 +21,9 @@ By running this software you accept and understand that:
 
 As of now, the only requirement is `mitmproxy` (and thus, a compatible `Python` version).
 
-#### 1. Install venv
+Utilizing the eBPF module requires a Linux kernel (4.15+). 
+
+### 1. Install venv
 
 venv installation (WINDOWS):
 
@@ -49,7 +51,7 @@ $ pip install mitmproxy
 
 ***Important:*** **This tool is a TLS-terminating proxy (man-in-the-middle) and has access to your plaintext HTTPS data (usernames, passwords, certain message protocols, etc.). Do NOT share your CA cert with *anyone* for *anything, ever*.**
 
-#### 2. Install mitmproxy CA cert
+### 2. Install mitmproxy CA cert
 
 On CLIENT (Windows Command Prompt/MacOS Terminal):
 Choose mitmproxy method:
@@ -63,7 +65,7 @@ $ mitmproxy
 ```
 2. In browser, navigate to https://mitm.it - **Follow instructions** to install CA cert
 
-#### 3. Run mitmproxy w/ addon
+### 3. Run mitmproxy w/ addon
 
 1. Close original mitmproxy instance and run:
 
@@ -78,7 +80,7 @@ $ mitmproxy -s src\proxy\header_profile.py <args>
 
 *UX on Firefox is much more stable for reasons that are not clear to me. Would love some insight. Google login works on Firefox.*
 
-#### 4a. Compile & attach eBPF program to TC egress hook (if using Linux)
+### 4a. Compile & attach eBPF program to TC egress hook (if using Linux)
 
 *The eBPF `ttl_editor` modifies packet-level fingerprints (TTL, TCP window size, sequence numbers, etc.). This requires a Linux kernel.*
 
@@ -112,7 +114,7 @@ $ sudo tc filter add dev <interface> egress bpf da obj ttl_editor.o sec classifi
 
 ```
 
-#### 4b. Configure a Linux VM (if not using Linux)
+### 4b. Configure a Linux VM (if not using Linux)
 
 **VM Setup:**
 
@@ -160,82 +162,6 @@ On Host machine:
 
 > Some additional tinkering may be required. Feel free to leave a comment or open an issue with suggestions on improving the setup process. *If you have any experience developing with the Linux kernel, I am interested in building a minimal kernel with only the key elements, but beyond my scope (for the time being) and would love some assistance or guidance.*
 
-#### 4a. Attach eBPF program to TC egress hook
-
-**Build eBPF program**
-
-> The eBPF `ttl_editor` modifies packet-level fingerprints (TTL, TCP window size, sequence numbers, etc.). This requires a Linux kernel.
-
-```bash
-$ cd src/ebpf
-$ make deps-install  # shows dependency installation command
-$ make               # compiles ttl_editor.o
-$ 
-$ # Manual compilation
-$ clang -O2 -g -target bpf -D__TARGET_ARCH_x86 -I/usr/include/ -I/usr/include/linux -c TTLEDIT-STABLE.c -o <output>.o
-
-```
-
-**Kernel requirements:**
-- CONFIG_BPF=y, CONFIG_BPF_SYSCALL=y, CONFIG_NET_CLS_BPF=y, CONFIG_NET_ACT_BPF=y
-- Install: `clang`, `llvm`, `libbpf-dev`, `linux-headers-$(uname -r)`, `iproute2`
-
-**Attach to network interface:**
-```bash
-$ sudo tc qdisc add dev <interface> clsact
-$ sudo tc filter add dev <interface> egress bpf da obj ttl_editor.o sec classifier
-
-```
-
-#### 4b. Configure a Linux VM (if not using Linux) - for packet-level fingerprinting
-
-**VM Setup:**
-- Linux kernel 4.15+ (5.4+ recommended)
-- Two network adapters:
-  1. `Bridged` - connects `VM/Guest` to internet
-  2. `Host-Only` - creates private network between `Host` and `VM/Guest`
-
-**Build eBPF program:**
-> See 4a.
-
-**Attach to network interface:**
-> See 4a.
-
-**Route host traffic through VM:**
-
-> Currently, IP/TCP packet header values are assigned via global variables at the top of `src/ebpf/ttl_editor.c`.
-
-On `Linux VM` (Guest):
-```bash
-# Enable IP forwarding
-$ sudo sysctl -w net.ipv4.ip_forward=1
-$ echo "net.ipv4.ip_forward=1" | sudo tee -a /etc/sysctl.conf
-$ sudo sysctl -w net.ipv6.conf.all.forwarding=1
-$ echo "net.ipv6.conf.all.forwarding=1" | sudo tee -a /etc/sysctl.conf
-
-# Allow forwarding on Host-Only interface
-$ sudo iptables -A FORWARD -i <host-only-interface> -j ACCEPT
-$ sudo iptables -A FORWARD -o <host-only-interface> -j ACCEPT
-$ sudo ip6tables -A FORWARD -i <host-only-interface> -j ACCEPT
-$ sudo ip6tables -A FORWARD -o <host-only-interface> -j ACCEPT
-
-# Enable NAT/masquerading on Bridged interface
-$ sudo iptables -t nat -A POSTROUTING -o <bridged-interface> -j MASQUERADE
-$ sudo ip6tables -t nat -A POSTROUTING -o <bridged-interface> -j MASQUERADE
-
-```
-
-On Host machine:
-- Set default gateway to `VM/Guest` Host-Only adapter IP address
-- (Windows: Network adapter settings → Properties → TCP/IPv4 → Gateway)
-- (Linux/Mac: `sudo route add default gw <vm-host-only-ip>`)
-
-> Some additional tinkering may be required. Feel free to leave a comment or open an issue with suggestions on improving the setup process. 
-
-*If you have any experience developing with the Linux kernel, I am interested in building a minimal kernel with only the key elements, but beyond my scope (for the time being) and would love some assistance or guidance.*
-
-*VM images coming eventually. I am using VMWare to host a Deb-Bookworm distribution. Works mildly well, but really heavy. Definitely going to be looking into distributing the VMs as dedicated server images, not gerry-rigged forwarding machines with desktop environments.*
-
 ## Why should I install and run this on my machine?
 
 *lol*
@@ -244,11 +170,12 @@ Genuinely, it's hard for me to give you a reason in this state.
 
 One reason: it's interesting. This proxy allows you to experiment with browser-visible fingerprint mutation. Client identification is getting scary precise and the public does not have the tools to remain private with implementations of policies like Chat Control. 
 
-A small win, I am getting consistent values from the following fingerprinting websites: 
-1. https://amiunique.org/
-2. https://browserleaks.com/
-3. https://coveryourtracks.eff.org/
-4. https://whatismybrowser.com/
+A small win, I am getting consistently spoofed values from the following fingerprinting websites: 
+1. https://demo.fingerprint.com/playground
+2. https://amiunique.org/
+3. https://browserleaks.com/
+4. https://coveryourtracks.eff.org/
+5. https://whatismybrowser.com/
 
 > As of v.02, this project also provides tooling to modify outgoing network packet headers by attaching to the traffic control (tc) egress hook. Currently, the following is implemented:
 
@@ -257,15 +184,14 @@ A small win, I am getting consistent values from the following fingerprinting we
 - TOS (Type of Service) → set to 0x10
 - IP ID (Identification) → randomized per packet
 - TCP window size → 65535
-- TCP initial sequence number → randomized
-- TCP window scale → 2
-- TCP MSS (Maximum Segment Size) → 1404
+- TCP initial sequence number → randomized (again)
+- TCP window scale → 5
+- TCP MSS (Maximum Segment Size) → 1460
 - TCP timestamps → randomized
 
 **IPv6:**
 - Hop limit → forced to 255
 - Flow label → randomized
-- TCP parameters (same as IPv4)
 
 ## Why *shouldn't* I install and run this on my machine?
 
