@@ -199,48 +199,4 @@ I do not know the long term effects on account usage. I have been logging-in via
 
 I am not a cybersecurity engineer. I hammered this together and may have missed something important. Feel free to reach out with security vulnerabilities @ 404mesh@proton.me
 
-### Configure a Linux VM for forwarding
-
-- Linux kernel 4.15+ (5.4+ recommended)
-- Two network adapters:
-  1. `Bridged` - connects `VM/Guest` to internet
-  2. `Host-Only` - creates private network between `Host` and `VM/Guest`
-
-**Build eBPF program:**
-
-> See 4a.
-
-**Attach to network interface:**
-
-> See 4a.
-
-**Route host traffic through VM:**
-
-On `Linux VM` (Guest):
-```bash
-# Enable IP forwarding
-$ sudo sysctl -w net.ipv4.ip_forward=1
-$ echo "net.ipv4.ip_forward=1" | sudo tee -a /etc/sysctl.conf
-$ sudo sysctl -w net.ipv6.conf.all.forwarding=1
-$ echo "net.ipv6.conf.all.forwarding=1" | sudo tee -a /etc/sysctl.conf
-
-# Allow forwarding on Host-Only interface
-$ sudo iptables -A FORWARD -i <host-only-interface> -j ACCEPT
-$ sudo iptables -A FORWARD -o <host-only-interface> -j ACCEPT
-$ sudo ip6tables -A FORWARD -i <host-only-interface> -j ACCEPT
-$ sudo ip6tables -A FORWARD -o <host-only-interface> -j ACCEPT
-
-# Enable NAT/masquerading on Bridged interface
-$ sudo iptables -t nat -A POSTROUTING -o <bridged-interface> -j MASQUERADE
-$ sudo ip6tables -t nat -A POSTROUTING -o <bridged-interface> -j MASQUERADE
-
-```
-
-On Host machine:
-- Set default gateway to `VM/Guest` Host-Only adapter IP address
-- (Windows: Network adapter settings → Properties → TCP/IPv4 → Gateway)
-- (Linux/Mac: `sudo route add default gw <vm-host-only-ip>`)
-
-> Some additional tinkering may be required. Feel free to leave a comment or open an issue with suggestions on improving the setup process. *If you have any experience developing with the Linux kernel, I am interested in building a minimal kernel with only the key elements, but beyond my scope (for the time being) and would love some assistance or guidance.*
-
 ## The dream
