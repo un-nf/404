@@ -181,7 +181,7 @@ $ sudo tc filter add dev <interface> egress bpf da obj ttl_editor.o sec classifi
 
 > *VM images coming soon. I am using VMWare to host a Deb-Bookworm distribution. Works mildly well, but really heavy. Definitely going to be looking into distributing the VMs as dedicated server images, not gerry-rigged forwarding machines with desktop environments.*
 
-You *100% could* configure a VM and route traffic from your host machine to a VM guest, instructions for this will be at the bottom of this document.
+You *100% could* configure a VM and route traffic from your host machine to a VM guest, [instructions for VM configuration here](docs/VMConfig.md).
 
 For now, just running mitmproxy should be enough, though network level obfuscation will not be possible without a Linux kernel.
 
