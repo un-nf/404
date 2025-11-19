@@ -101,6 +101,13 @@ $ pip install mitmproxy
 
 ```
 
+setup (Linux)
+
+In 404 directory:
+```bash
+$ sudo apt install python mitmproxy
+```
+
 *Configure your browser (or machine) to use localhost:8080 (127.0.0.1:8080) as an HTTP/S proxy.*
 
 ***Important:*** **This tool is a TLS-terminating proxy (man-in-the-middle) and has access to your plaintext HTTPS data (usernames, passwords, certain message protocols, etc.). Do NOT share your CA cert with *anyone* for *anything, ever*.**
@@ -140,10 +147,15 @@ $ mitmproxy -s src\proxy\header_profile.py <args>
 
 ![tcpdump output](https://raw.githubusercontent.com/un-nf/404/refs/heads/main/.github/IMAGES/tcpdump_output.png "tcpdump output")
 
+**Kernel requirements:**
+
+- CONFIG_BPF=y, CONFIG_BPF_SYSCALL=y, CONFIG_NET_CLS_BPF=y, CONFIG_NET_ACT_BPF=y
+- Install: `clang`, `llvm`, `libbpf-dev`, `linux-headers-$(uname -r)`, `iproute2`
+
 **Build eBPF program**
 > Currently, IP/TCP packet header values are assigned via global variables at the top of `src/ebpf/ttl_editor.c`.
->
-> Modify these to desired values *before* compiling.
+
+*Modify these to desired values *before* compiling.*
 
 ```bash
 $ $ cd src/ebpf
@@ -154,11 +166,6 @@ $ # Manual compilation
 $ clang -O2 -g -target bpf -D__TARGET_ARCH_x86 -I/usr/include/ -I/usr/include/linux -c TTLEDIT-STABLE.c -o <output>.o
 
 ```
-
-**Kernel requirements:**
-
-- CONFIG_BPF=y, CONFIG_BPF_SYSCALL=y, CONFIG_NET_CLS_BPF=y, CONFIG_NET_ACT_BPF=y
-- Install: `clang`, `llvm`, `libbpf-dev`, `linux-headers-$(uname -r)`, `iproute2`
 
 **Attach to network interface:**
 
@@ -172,7 +179,27 @@ $ sudo tc filter add dev <interface> egress bpf da obj ttl_editor.o sec classifi
 
 **VM Setup:**
 
-> *VM images coming eventually. I am using VMWare to host a Deb-Bookworm distribution. Works mildly well, but really heavy. Definitely going to be looking into distributing the VMs as dedicated server images, not gerry-rigged forwarding machines with desktop environments.*
+> *VM images coming soon. I am using VMWare to host a Deb-Bookworm distribution. Works mildly well, but really heavy. Definitely going to be looking into distributing the VMs as dedicated server images, not gerry-rigged forwarding machines with desktop environments.*
+
+You *100% could* configure a VM and route traffic from your host machine to a VM guest, instructions for this will be at the bottom of this document.
+
+For now, just running mitmproxy should be enough, though network level obfuscation will not be possible without a Linux kernel.
+
+## Why *shouldn't* I install and run this on my machine?
+
+If you do not understand JavaScript, or if you don't take the time to look through the code, there is almost no point in you downloading this proxy. The point of this is not to be a privacy proxy. **Not yet.** This repository, in its current state, is experimental and intended only for educational, research, and development purposes. 
+
+### Things will break
+
+Routing your traffic through this proxy means your browser *will* be brittle. As mentioned earlier, Firefox is much more forgiving.
+
+Your web page will look... strange. Most sites *will* be readable, but if the server thinks it's talking to Firefox, your Chrome page will not load 100% properly. Breakage is much less frequent in Firefox. Experimenting witn the JavaScript for canvas/webGL may improve functionality.
+
+I do not know the long term effects on account usage. I have been logging-in via this proxy using my personal Google, Microsoft, and Apple accounts for the last 6-ish months, and I have experienced no retaliation (bans and whatnot). That is *not* to say you will have the same experience. **I *strongly* recommend that you use alternate/disposable accounts if you're going to be testing OAuth or other login flows.**
+
+I am not a cybersecurity engineer. I hammered this together and may have missed something important. Feel free to reach out with security vulnerabilities @ 404mesh@proton.me
+
+### Configure a Linux VM for forwarding
 
 - Linux kernel 4.15+ (5.4+ recommended)
 - Two network adapters:
@@ -215,19 +242,5 @@ On Host machine:
 - (Linux/Mac: `sudo route add default gw <vm-host-only-ip>`)
 
 > Some additional tinkering may be required. Feel free to leave a comment or open an issue with suggestions on improving the setup process. *If you have any experience developing with the Linux kernel, I am interested in building a minimal kernel with only the key elements, but beyond my scope (for the time being) and would love some assistance or guidance.*
-
-## Why *shouldn't* I install and run this on my machine?
-
-If you do not understand JavaScript, or if you don't take the time to look through the code, there is almost no point in you downloading this proxy. The point of this is not to be a privacy proxy. **Not yet.** This repository, in its current state, is experimental and intended only for educational, research, and development purposes. 
-
-### Things will break
-
-Routing your traffic through this proxy now means your browser *will* break. Chrome most certainly does not like it when you route traffic through this proxy. As mentioned earlier, Firefox is much more forgiving.
-
-Your web page will look... strange. Most sites *will* be readable, but if the server thinks it's talking to Firefox, your Chrome page will not load 100% properly. Breakage is much less frequent in Firefox. Experimenting witn the JavaScript for canvas/webGL may improve functionality.
-
-I do not know the long term effects on account usage. I have been logging-in via this proxy using my personal Google, Microsoft, and Apple accounts for the last 6-ish months, and I have experienced no retaliation (bans and whatnot). That is *not* to say you will have the same experience. **I *strongly* recommend that you use alternate/disposable accounts if you're going to be testing OAuth or other login flows.**
-
-I am not a cybersecurity engineer. I hammered this together and may have missed something important. Feel free to reach out with security vulnerabilities @ 404mesh@proton.me
 
 ## The dream
