@@ -22,11 +22,9 @@ By running this software you accept and understand that:
 
 ## Why should I install and run this on my machine?
 
-The core of the traffic obfuscation is solid and functional. When properly configured, this software defeats modern fingerprinting techniques. Seriously.
+The core of the traffic obfuscation is solid and functional. When properly configured, this software defeats modern fingerprinting techniques. Seriously. However, the included `profiles.json` is still being refined. The profiles work, but require manual review and adjustment to ensure coherence for your specific use case. 
 
-However, the included `profiles.json` is still being refined. The profiles work, but require manual review and adjustment to ensure coherence for your specific use case.
-
-If you’re comfortable with technical setup, manual maintenance, and iteration, you’ll get real privacy gains. If you need plug-and-play, check back in a few weeks.
+If you’re comfortable with **technical setup**, **manual maintenance**, and **iteration**, you’ll get real privacy gains. If you need plug-and-play, check back in a few weeks.
 
 ### Kernel level packet spoofing
 
