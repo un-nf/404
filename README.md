@@ -1,5 +1,5 @@
 # 404 v.03
-Privacy tool.
+Multi-layer client fingerprinting resistance software.
 
 > NEW (.02): eBPF support for TCP/IP packet header modification.
 
@@ -7,9 +7,8 @@ Privacy tool.
 
 > NEW (.03): WebRTC and font protection. *Deterministic fingerprint*
 
-**We are not a VPN. We do *not* log, track, collect, or *touch* any of your data. We do not route your traffic anywhere. We host no network infrastructure. Your machine does all the work. We do not hide your data.**
-
 [Join the Discord for support!](https://discord.gg/G7rUYrZqS2)
+**Main Discussion:** GitHub discussions
 
 *Alternative community options coming soon!*
 
@@ -23,7 +22,11 @@ By running this software you accept and understand that:
 
 ## Why should I install and run this on my machine?
 
-If you run this software as is, you will stand out from the crowd. Though, the protection at this point does feel robust enough to call it *production level*. That being said, the `profiles.json` file is in *extreme* flux. 
+The core of the traffic obfuscation is solid and functional. When properly configured, this software defeats modern fingerprinting techniques. Seriously.
+
+However, the included `profiles.json` is still being refined. The profiles work, but require manual review and adjustment to ensure coherence for your specific use case.
+
+If you’re comfortable with technical setup, manual maintenance, and iteration, you’ll get real privacy gains. If you need plug-and-play, check back in a few weeks.
 
 ### Kernel level packet spoofing
 
