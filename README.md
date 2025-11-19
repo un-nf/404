@@ -2,7 +2,10 @@
 Privacy tool.
 
 > NEW (.02): eBPF support for TCP/IP packet header modification.
+
 > NEW (.03): JavaScript proxies!
+
+> NEW (.03): WebRTC and font protection. *Deterministic fingerprint*
 
 **We are not a VPN. We do *not* log, track, collect, or *touch* any of your data. We do not route your traffic anywhere. We host no network infrastructure. Your machine does all the work. We do not hide your data.**
 
@@ -17,6 +20,56 @@ By running this software you accept and understand that:
 - You will not share your CA certificate with anyone.
 - This is research software - no warranty, no guarantees, minimal support.
 - If you find a security issue report it to 404mesh@proton.me
+
+## Why should I install and run this on my machine?
+
+If you run this software as is, you will stand out from the crowd. Though, the protection at this point does feel robust enough to call it *production level*. That being said, the `profiles.json` file is in *extreme* flux. 
+
+### Kernel level packet spoofing
+
+> As of v.02, this project also provides tooling to modify outgoing network packet headers by attaching to the traffic control (tc) egress hook. Currently, the following is implemented:
+
+**IPv4:**
+- TTL (Time To Live) → forced to 255
+- TOS (Type of Service) → set to 0x10
+- IP ID (Identification) → randomized per packet
+- TCP window size → 65535
+- TCP initial sequence number → randomized (again)
+- TCP window scale → 5
+- TCP MSS (Maximum Segment Size) → 1460
+- TCP timestamps → randomized
+
+**IPv6:**
+- Hop limit → forced to 255
+- Flow label → randomized
+
+### Comprehensive JS coverage
+
+If you go through the JS files starting with 0/1/2, you will find extensive coverage of many fingerprinting vectors. This includes, but is not limited to:
+
+1. Font protection (multi-layered)
+2. WebRTC protection - you can still use your peripherals, they just don't leak as much data. Local IP remains private when allowing browser access to peripherals.
+3. Canvas pollution
+4. Iframe propagation
+5. Plugin spoofing
+6. Viewport rounding
+7. Navigator property proxy
+
+### Consistent fingerprints
+
+This proxy allows you to experiment with browser-visible fingerprint mutation. Client identification is getting scary precise and the public does not have the tools to remain private with implementations of policies like Chat Control. 
+
+A small win, I am getting consistently spoofed values from the following fingerprinting websites: 
+1. https://demo.fingerprint.com/playground
+2. https://browserleaks.com/
+3. https://coveryourtracks.eff.org/
+4. https://whatismybrowser.com/
+5. https://httpbin.org/headers
+
+>values from FingerprintJS (fingerpint.com):
+
+![Clean Firefox](.github/IMAGES/cleanFire.png)
+![Dirty Firefox](.github/IMAGES/dirtyFire.png)
 
 ## How do I install and run this on my machine?
 
@@ -162,42 +215,6 @@ On Host machine:
 - (Linux/Mac: `sudo route add default gw <vm-host-only-ip>`)
 
 > Some additional tinkering may be required. Feel free to leave a comment or open an issue with suggestions on improving the setup process. *If you have any experience developing with the Linux kernel, I am interested in building a minimal kernel with only the key elements, but beyond my scope (for the time being) and would love some assistance or guidance.*
-
-## Why should I install and run this on my machine?
-
-*lol*
-
-Genuinely, it's hard for me to give you a reason in this state. 
-
-One reason: it's interesting. This proxy allows you to experiment with browser-visible fingerprint mutation. Client identification is getting scary precise and the public does not have the tools to remain private with implementations of policies like Chat Control. 
-
-A small win, I am getting consistently spoofed values from the following fingerprinting websites: 
-1. https://demo.fingerprint.com/playground
-2. https://amiunique.org/
-3. https://browserleaks.com/
-4. https://coveryourtracks.eff.org/
-5. https://whatismybrowser.com/
-
->values from FingerprintJS (fingerpint.com):
-
-![Clean Firefox](.github/IMAGES/cleanFire.png)
-![Dirty Firefox](.github/IMAGES/dirtyFire.png)
-
-> As of v.02, this project also provides tooling to modify outgoing network packet headers by attaching to the traffic control (tc) egress hook. Currently, the following is implemented:
-
-**IPv4:**
-- TTL (Time To Live) → forced to 255
-- TOS (Type of Service) → set to 0x10
-- IP ID (Identification) → randomized per packet
-- TCP window size → 65535
-- TCP initial sequence number → randomized (again)
-- TCP window scale → 5
-- TCP MSS (Maximum Segment Size) → 1460
-- TCP timestamps → randomized
-
-**IPv6:**
-- Hop limit → forced to 255
-- Flow label → randomized
 
 ## Why *shouldn't* I install and run this on my machine?
 
