@@ -25,7 +25,7 @@
         "replaceDynamic": [
         [
             "Accept", {
-                "default": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,\\*/\\*;q=0.8",
+                "default": "text/html,application/xhtml+xml,application/xml;q=0.9,\\*/\\*;q=0.8",
                 "\\*/\\*": "\\*/\\*",
                 "image/": "image/avif,image/webp,image/png,image/svg+xml,image/*;q=0.8,\\*/\\*;q=0.5",
                 "text/css": "text/css,\\*/\\*;q=0.1",
@@ -34,7 +34,9 @@
                 "application/font": "application/font-woff2;q=1.0,application/font-woff;q=0.9,\\*/\\*;q=0.8",
                 "application/json": "application/json,text/plain,\\*/\\*",
                 "text/vnd.reddit.partial+html": "text/vnd.reddit.partial+html,text/html;q=0.9",
-                "text/vnd.reddit.hybrid+html": "text/vnd.reddit.hybrid+html,text/html;q=0.9"
+                "text/vnd.reddit.hybrid+html": "text/vnd.reddit.hybrid+html,text/html;q=0.9",
+                "video/": "video/webm,video/ogg,video/\\*;q=0.9,application/ogg;q=0.7,audio/\\*;q=0.6,\\*/\\*;q=0.",
+                "audio/": "audio/webm,audio/ogg,audio/wav,audio/\\*;q=0.9,application/ogg;q=0.7,video/\\*;q=0.6,\\*/\\*;q=0.5"
             }
         ]
         ],
@@ -123,8 +125,8 @@
             "audio_context": {
                 "sample_rate": 48000,
                 "channel_count": 2,
-                "max_channel_count": 2,
-                "number_of_inputs": 1,
+                "max_channel_count": 3,
+                "number_of_inputs": 2,
                 "number_of_outputs": 0
             },
             "do_not_track": null,
@@ -151,7 +153,7 @@
             "enable_element_spoofing": true,
             "enable_dom_evasion": true,
             "enable_iframe_protection": true,
-            "enable_viewport_spoof": false,
+            "enable_viewport_spoof": true,
             "enable_font_spoof": true,
             "enable_network_spoof": true,
             "enable_fingerprint_drift": true,
@@ -341,9 +343,9 @@
             "enable_element_spoofing": true,
             "enable_dom_evasion": true,
             "enable_iframe_protection": true,
-            "enable_viewport_spoof": false,
+            "enable_viewport_spoof": true,
             "enable_speech_synthesis_spoof": true,
-            "enable_font_spoof": false,
+            "enable_font_spoof": true,
             "enable_network_spoof": true,
             "enable_fingerprint_drift": true,
             "viewport_rounding": 200,
@@ -527,9 +529,9 @@
             "enable_element_spoofing": true,
             "enable_dom_evasion": true,
             "enable_iframe_protection": true,
-            "enable_viewport_spoof": false,
+            "enable_viewport_spoof": true,
             "enable_speech_synthesis_spoof": true,
-            "enable_font_spoof": false,
+            "enable_font_spoof": true,
             "enable_network_spoof": true,
             "enable_fingerprint_drift": true,
             "viewport_rounding": 200,

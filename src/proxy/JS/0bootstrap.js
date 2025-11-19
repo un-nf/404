@@ -527,8 +527,143 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       });
     }
   } catch (error) {
-    // Stack trace sanitization failure is non-critical
-  }  window.__404_bootstrap_active = true;
+  }
+
+  try {
+
+    const originalOffsetWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth');
+    const originalOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight');
+    
+    if (originalOffsetWidth && originalOffsetHeight) {
+      const allowedFonts = new Set([
+        'monospace', 'sans-serif', 'serif', 'cursive', 'fantasy',
+        'system-ui', '-apple-system', 'blinkmacsystemfont', 'mono', 'default'
+      ]);
+      
+      const normalizeGenericFont = (fontName, textContent, realDimension, isWidth) => {
+
+        const text = textContent || 'test';
+        let hash = 0;
+        for (let i = 0; i < text.length; i++) {
+          hash = ((hash << 5) - hash) + text.charCodeAt(i);
+          hash = hash & hash;
+        }
+
+        const baseDimension = isWidth ? 800 : 1600;
+        const jitter = (Math.abs(hash) % 50) - 25; 
+        
+        return baseDimension + jitter;
+      };
+
+      Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
+        get: function() {
+          const realWidth = originalOffsetWidth.get.call(this);
+        
+          if (!this.style || !this.style.fontFamily) {
+            return realWidth;
+          }
+          
+          const fontFamily = this.style.fontFamily.replace(/['"]/g, '').trim();
+          if (!fontFamily) {
+            return realWidth;
+          }
+          
+          const fontName = fontFamily.toLowerCase();
+
+          if (allowedFonts.has(fontName)) {
+            return normalizeGenericFont(fontName, this.textContent, realWidth, true);
+          }
+          
+          const config = window.__fpConfig;
+          
+          if (!config || !config.fonts || !Array.isArray(config.fonts)) {
+            const savedFont = this.style.fontFamily;
+            this.style.fontFamily = 'monospace';
+            const fallbackWidth = originalOffsetWidth.get.call(this);
+            this.style.fontFamily = savedFont;
+            return fallbackWidth;
+          }
+          
+          const isInProfile = config.fonts.some(f => f.toLowerCase() === fontName);
+          
+          if (!isInProfile) {
+            const savedFont = this.style.fontFamily;
+            this.style.fontFamily = 'monospace';
+            const fallbackWidth = originalOffsetWidth.get.call(this);
+            this.style.fontFamily = savedFont;
+            return fallbackWidth;
+          }
+
+          let hash = 0;
+          for (let i = 0; i < fontFamily.length; i++) {
+            hash = ((hash << 5) - hash) + fontFamily.charCodeAt(i);
+            hash = hash & hash;
+          }
+          const jitter = (Math.abs(hash) % 10) - 5; 
+          return realWidth + jitter;
+        },
+        configurable: true,
+        enumerable: true
+      });
+      
+      Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
+        get: function() {
+          const realHeight = originalOffsetHeight.get.call(this);
+          
+          if (!this.style || !this.style.fontFamily) {
+            return realHeight;
+          }
+          
+          const fontFamily = this.style.fontFamily.replace(/['"]/g, '').trim();
+          if (!fontFamily) {
+            return realHeight;
+          }
+          
+          const fontName = fontFamily.toLowerCase();
+          
+          if (allowedFonts.has(fontName)) {
+            return normalizeGenericFont(fontName, this.textContent, realHeight, false);
+          }
+          
+          const config = window.__fpConfig;
+          
+          if (!config || !config.fonts || !Array.isArray(config.fonts)) {
+            const savedFont = this.style.fontFamily;
+            this.style.fontFamily = 'monospace';
+            const fallbackHeight = originalOffsetHeight.get.call(this);
+            this.style.fontFamily = savedFont;
+            return fallbackHeight;
+          }
+          
+          const isInProfile = config.fonts.some(f => f.toLowerCase() === fontName);
+          
+          if (!isInProfile) {
+            const savedFont = this.style.fontFamily;
+            this.style.fontFamily = 'monospace';
+            const fallbackHeight = originalOffsetHeight.get.call(this);
+            this.style.fontFamily = savedFont;
+            return fallbackHeight;
+          }
+          
+          let hash = 0;
+          for (let i = 0; i < fontFamily.length; i++) {
+            hash = ((hash << 5) - hash) + fontFamily.charCodeAt(i);
+            hash = hash & hash;
+          }
+          const jitter = (Math.abs(hash) % 5) - 2; 
+          return realHeight + jitter;
+        },
+        configurable: true,
+        enumerable: true
+      });
+      
+      console.log('[404] offsetWidth/Height interception active (font detection blocked)');
+    }
+  } catch (error) {
+    console.warn('[404] Font detection blocking failed:', error.message);
+  }
+
+  window.__404_bootstrap_active = true;
   window.__404_bootstrap_version = '2.0.0';
 
   console.log('[404] Bootstrap complete - execution context protected');

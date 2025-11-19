@@ -478,31 +478,86 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         const OriginalRTCPeerConnection = window.RTCPeerConnection;
 
         window.RTCPeerConnection = function(config_rtc) {
-
           if (config_rtc && config_rtc.iceServers) {
             config_rtc.iceServers = [];
           }
 
           const pc = new OriginalRTCPeerConnection(config_rtc);
 
-          const originalCreateDataChannel = pc.createDataChannel;
-          pc.createDataChannel = function() {
-            const result = originalCreateDataChannel.apply(pc, arguments);
+          const originalAddEventListener = pc.addEventListener.bind(pc);
+          const originalRemoveEventListener = pc.removeEventListener.bind(pc);
+          let iceCandidateHandlers = [];
 
-            setTimeout(() => {
-              if (pc.onicecandidate && config.webrtc_local_ips && config.webrtc_local_ips.length > 0) {
-                const fakeCandidate = {
-                  candidate: {
-                    candidate: `candidate:1 1 UDP 2130706431 ${config.webrtc_local_ips[0]} 54400 typ host`,
-                    sdpMLineIndex: 0
+          pc.addEventListener = function(type, handler, ...args) {
+            if (type === 'icecandidate') {
+              const wrappedHandler = function(event) {
+                if (event.candidate && event.candidate.candidate) {
+                  const candidateStr = event.candidate.candidate;
+                  
+                  if (candidateStr.includes('typ host') || candidateStr.includes('typ srflx') || candidateStr.includes('typ relay')) {
+                    if (debug) console.log('[404-SPOOF] Blocked WebRTC candidate:', candidateStr.substring(0, 50) + '...');
+                    return;
                   }
-                };
-                pc.onicecandidate(fakeCandidate);
-              }
-            }, 1);
-
-            return result;
+                }
+                
+                if (event.candidate === null) {
+                  handler.call(this, event);
+                }
+              };
+              
+              iceCandidateHandlers.push({ original: handler, wrapped: wrappedHandler });
+              return originalAddEventListener.call(this, type, wrappedHandler, ...args);
+            }
+            return originalAddEventListener.call(this, type, handler, ...args);
           };
+
+          pc.removeEventListener = function(type, handler, ...args) {
+            if (type === 'icecandidate') {
+              const entry = iceCandidateHandlers.find(h => h.original === handler);
+              if (entry) {
+                iceCandidateHandlers = iceCandidateHandlers.filter(h => h !== entry);
+                return originalRemoveEventListener.call(this, type, entry.wrapped, ...args);
+              }
+            }
+            return originalRemoveEventListener.call(this, type, handler, ...args);
+          };
+
+          const originalOnIceCandidate = Object.getOwnPropertyDescriptor(
+            Object.getPrototypeOf(pc), 
+            'onicecandidate'
+          );
+          
+          let userHandler = null;
+          
+          Object.defineProperty(pc, 'onicecandidate', {
+            get: function() {
+              return userHandler;
+            },
+            set: function(handler) {
+              userHandler = handler;
+              
+              if (handler) {
+                originalOnIceCandidate.set.call(pc, function(event) {
+                  if (event.candidate && event.candidate.candidate) {
+                    const candidateStr = event.candidate.candidate;
+                    
+                    if (candidateStr.includes('typ host') || candidateStr.includes('typ srflx') || candidateStr.includes('typ relay')) {
+                      if (debug) console.log('[404-SPOOF] Blocked WebRTC candidate (onicecandidate):', candidateStr.substring(0, 50) + '...');
+                      return; 
+                    }
+                  }
+                  
+                  if (event.candidate === null) {
+                    handler.call(this, event);
+                  }
+                });
+              } else {
+                originalOnIceCandidate.set.call(pc, null);
+              }
+            },
+            configurable: true,
+            enumerable: true
+          });
 
           return pc;
         };
@@ -511,7 +566,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         window.RTCPeerConnection.prototype = OriginalRTCPeerConnection.prototype;
       }
 
-      if (debug) console.log('[404-SPOOF] ✓ WebRTC protection applied');
+      if (window.webkitRTCPeerConnection && window.webkitRTCPeerConnection !== window.RTCPeerConnection) {
+        window.webkitRTCPeerConnection = window.RTCPeerConnection;
+      }
+
+      if (debug) console.log('[404-SPOOF] ✓ WebRTC protection applied (local IP leak blocked)');
     } catch (e) {
       console.error('[404-SPOOF] WebRTC protection error:', e);
     }
@@ -1429,13 +1488,30 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   if (config.enable_font_spoof && config.fonts && Array.isArray(config.fonts)) {
     try {
       const spoofedFonts = config.fonts;
-      const fallbackFonts = ['monospace', 'sans-serif', 'serif'];
+      const fallbackFonts = ['monospace', 'sans-serif', 'serif', 'cursive', 'fantasy'];
 
       if (debug) console.log(`[404-SPOOF] Applying font protection (${spoofedFonts.length} fonts)...`);
 
       if (document.fonts) {
+        const originalDocumentFonts = document.fonts;
+        
         Object.defineProperty(document, 'fonts', {
           get: function() {
+            const mockFontFaces = spoofedFonts.map(fontName => ({
+              family: fontName,
+              style: 'normal',
+              weight: '400',
+              stretch: 'normal',
+              unicodeRange: 'U+0-10FFFF',
+              variant: 'normal',
+              featureSettings: 'normal',
+              display: 'auto',
+              ascentOverride: 'normal',
+              descentOverride: 'normal',
+              lineGapOverride: 'normal',
+              status: 'loaded',
+              loaded: Promise.resolve()
+            }));
 
             const mockFontFaceSet = {
               size: spoofedFonts.length,
@@ -1445,7 +1521,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               check: function(font, text) {
                 const fontFamily = font.match(/['"]?([^'"]+)['"]?/);
                 if (fontFamily && fontFamily[1]) {
-                  return spoofedFonts.includes(fontFamily[1]);
+                  const cleanName = fontFamily[1].trim();
+                  return spoofedFonts.includes(cleanName) || fallbackFonts.includes(cleanName);
                 }
                 return false;
               },
@@ -1465,11 +1542,54 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               delete: function(fontFace) { return false; },
               clear: function() {},
 
-              entries: function() { return [][Symbol.iterator](); },
-              forEach: function(callback) {},
-              keys: function() { return [][Symbol.iterator](); },
-              values: function() { return [][Symbol.iterator](); },
-              [Symbol.iterator]: function() { return [][Symbol.iterator](); }
+              entries: function() { 
+                let index = 0;
+                return {
+                  next: () => {
+                    if (index < mockFontFaces.length) {
+                      return { value: [mockFontFaces[index], mockFontFaces[index++]], done: false };
+                    }
+                    return { done: true };
+                  },
+                  [Symbol.iterator]: function() { return this; }
+                };
+              },
+              
+              forEach: function(callback) {
+                mockFontFaces.forEach((fontFace, index) => {
+                  callback(fontFace, fontFace, this);
+                });
+              },
+              
+              keys: function() { 
+                let index = 0;
+                return {
+                  next: () => {
+                    if (index < mockFontFaces.length) {
+                      return { value: mockFontFaces[index++], done: false };
+                    }
+                    return { done: true };
+                  },
+                  [Symbol.iterator]: function() { return this; }
+                };
+              },
+              
+              values: function() { 
+                let index = 0;
+                return {
+                  next: () => {
+                    if (index < mockFontFaces.length) {
+                      return { value: mockFontFaces[index++], done: false };
+                    }
+                    return { done: true };
+                  },
+                  [Symbol.iterator]: function() { return this; }
+                };
+              },
+              
+              [Symbol.iterator]: function() { 
+                return this.values();
+              }
             };
 
             return mockFontFaceSet;
@@ -1480,10 +1600,19 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       }
 
       const originalMeasureText = CanvasRenderingContext2D.prototype.measureText;
+      
+      const hashFontName = (fontName) => {
+        let hash = 0;
+        for (let i = 0; i < fontName.length; i++) {
+          hash = ((hash << 5) - hash) + fontName.charCodeAt(i);
+          hash = hash & hash;
+        }
+        return Math.abs(hash);
+      };
 
       CanvasRenderingContext2D.prototype.measureText = function(text) {
         const originalResult = originalMeasureText.call(this, text);
-
+        
         const currentFont = this.font || '10px sans-serif';
         const fontMatch = currentFont.match(/(?:['"]([^'"]+)['"]|([^\s,]+))(?:\s*,|\s*$)/);
 
@@ -1491,23 +1620,43 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           return originalResult;
         }
 
-        const requestedFont = (fontMatch[1] || fontMatch[2]).trim();
-
-        if (!spoofedFonts.includes(requestedFont) && !fallbackFonts.includes(requestedFont)) {
-
-          const fallbackFont = currentFont.replace(requestedFont, 'monospace');
-          const savedFont = this.font;
-          this.font = fallbackFont;
-          const fallbackMetrics = originalMeasureText.call(this, text);
-          this.font = savedFont;
-
-          return fallbackMetrics;
+        const requestedFont = (fontMatch[1] || fontMatch[2]).trim().toLowerCase();
+        
+        if (fallbackFonts.includes(requestedFont)) {
+          return originalResult;
         }
 
-        return originalResult;
+        if (spoofedFonts.some(f => f.toLowerCase() === requestedFont)) {
+          const baseWidth = text.length * 7.5; 
+          const fontHash = hashFontName(requestedFont);
+          const jitter = (fontHash % 100) / 100; 
+          
+          return {
+            width: baseWidth + jitter,
+            actualBoundingBoxLeft: 0,
+            actualBoundingBoxRight: baseWidth + jitter,
+            fontBoundingBoxAscent: 10,
+            fontBoundingBoxDescent: 2,
+            actualBoundingBoxAscent: 9,
+            actualBoundingBoxDescent: 2,
+            emHeightAscent: 10,
+            emHeightDescent: 2,
+            hangingBaseline: 8,
+            alphabeticBaseline: 0,
+            ideographicBaseline: -2
+          };
+        }
+
+        const fallbackFont = currentFont.replace(new RegExp(fontMatch[0], 'gi'), 'monospace');
+        const savedFont = this.font;
+        this.font = fallbackFont;
+        const fallbackMetrics = originalMeasureText.call(this, text);
+        this.font = savedFont;
+
+        return fallbackMetrics;
       };
 
-      if (debug) console.log(`[404-SPOOF] ✓ Font protection applied (${spoofedFonts.length} fonts)`);
+      if (debug) console.log(`[404-SPOOF] ✓ Font protection applied (${spoofedFonts.length} fonts, enumeration blocked)`);
     } catch (e) {
       console.error('[404-SPOOF] Font protection error:', e);
     }
@@ -1651,7 +1800,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     delete window.__404_config_version;
     delete window.__404_advanced_protections_version;
     
-    // Note: __404_* properties and __fpConfig must remain for runtime functionality
+    // Note: __404_* properties and __fpConfig must remain for runtime functionality -- need to 
     // eval() wrapper checks __404_spoofed_globals, canvas needs __404_session_id, etc.
     // Symbol aliases provide hidden access path for future refactoring
     
@@ -1659,7 +1808,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       console.log('[404] Version strings cleaned, core globals remain functional');
     }
   } catch (e) {
-    // Obfuscation failure is non-critical
   }
 
 })();
