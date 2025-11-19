@@ -66,10 +66,7 @@ A small win, I am getting consistently spoofed values from the following fingerp
 4. https://whatismybrowser.com/
 5. https://httpbin.org/headers
 
->values from FingerprintJS (fingerpint.com):
-
-![Clean Firefox](.github/IMAGES/cleanFire.png)
-![Dirty Firefox](.github/IMAGES/dirtyFire.png)
+>values from FingerprintJS (fingerprint.com) [here](.github/IMAGES/).
 
 ## How do I install and run this on my machine?
 
