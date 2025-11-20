@@ -18,10 +18,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """Loaded addons (EXECUTION ORDER):
 1. HeaderProfileAddon - HTTP header manipulation and browser profile management
-2. CSPModifier.responseheaders() - Extract/generate nonce (EARLY HOOK)
-3. JSInjector.response() - Inject scripts with nonce, compute hashes **RUNS FIRST**
-4. CSPModifier.response() - Add nonce + hashes to CSP (LATE HOOK) **RUNS LAST**
-5. AltSvcModifier - Alt-Svc header normalization for proxy hiding
+2. TLSProfileAddon - TLS fingerprinting protection (reads profile from HeaderProfileAddon)
+3. CSPModifier.responseheaders() - Extract/generate nonce (EARLY HOOK)
+4. JSInjector.response() - Inject scripts with nonce, compute hashes **RUNS FIRST**
+5. CSPModifier.response() - Add nonce + hashes to CSP (LATE HOOK) **RUNS LAST**
+6. AltSvcModifier - Alt-Svc header normalization for proxy hiding
 """
 # Usage: mitmproxy -s proxy/header_profile.py
 
@@ -31,7 +32,8 @@ from typing import List
 
 addon_list: List = []
 
-# Import HeaderProfile addon
+# Import HeaderProfile addon - MUST LOAD FIRST
+# Sets flow.metadata['fingerprint_config'] which TLS addon reads
 try:
     from AOs.header_profile_addon import HeaderProfileAddon
     addon_list.append(HeaderProfileAddon())
@@ -40,6 +42,17 @@ except ImportError as e:
     ctx.log.error(f"[ORCHESTRATOR] Failed to load HeaderProfileAddon: {e}")
 except Exception as e:
     ctx.log.error(f"[ORCHESTRATOR] Unexpected error loading HeaderProfileAddon: {e}")
+
+# Import TLS Deep Hook addon - EXPERIMENTAL DEEP HOOK
+# Monkey-patches OpenSSL to inject custom cipher suites
+try:
+    from AOs.tls_deep_hook import TLSDeepHook, set_tls_config_for_host
+    addon_list.append(TLSDeepHook())
+    ctx.log.info("[ORCHESTRATOR] Loaded TLSDeepHook (EXPERIMENTAL)")
+except ImportError as e:
+    ctx.log.warn(f"[ORCHESTRATOR] TLS deep hook not found: {e}")
+except Exception as e:
+    ctx.log.error(f"[ORCHESTRATOR] Unexpected error loading TLSDeepHook: {e}")
 
 # Import JavaScript Injector addon - LOADS FIRST for response() hook
 # This ensures it runs BEFORE CSPModifier.response()

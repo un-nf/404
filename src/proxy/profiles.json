@@ -118,8 +118,8 @@
                 "en"
             ],
             "canvas_hash": "firefox_win10_canvas_v1",
-            "webgl_vendor": "Google Inc. (Intel)",
-            "webgl_renderer": "ANGLE (Intel, Intel(R) UHD Graphics 630 Direct3D11 vs_5_0 ps_5_0, D3D11)",
+            "webgl_vendor": "Intel Inc.",
+            "webgl_renderer": "Intel(R) UHD Graphics 630",
             "webgl_hash": "firefox_win10_webgl_v1",
             "audio_hash": "firefox_win10_audio_v1",
             "audio_context": {
@@ -177,9 +177,9 @@
                 "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256",
                 "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384",
                 "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
-                "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA",
                 "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA",
                 "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA",
+                "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA",
                 "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA",
                 "TLS_RSA_WITH_AES_128_GCM_SHA256",
                 "TLS_RSA_WITH_AES_256_GCM_SHA384",
@@ -195,7 +195,7 @@
                 "session_ticket",
                 "application_layer_protocol_negotiation",
                 "status_request",
-                "delegated_credentials",
+                "signed_certificate_timestamp",
                 "key_share",
                 "supported_versions",
                 "signature_algorithms",
@@ -212,21 +212,19 @@
             ],
             "signature_algorithms": [
                 "ecdsa_secp256r1_sha256",
-                "ecdsa_secp384r1_sha384",
-                "ecdsa_secp521r1_sha512",
                 "rsa_pss_rsae_sha256",
-                "rsa_pss_rsae_sha384",
-                "rsa_pss_rsae_sha512",
                 "rsa_pkcs1_sha256",
+                "ecdsa_secp384r1_sha384",
+                "rsa_pss_rsae_sha384",
                 "rsa_pkcs1_sha384",
+                "rsa_pss_rsae_sha512",
                 "rsa_pkcs1_sha512",
-                "ecdsa_sha1",
-                "rsa_pkcs1_sha1"
+                "ecdsa_secp521r1_sha512"
             ],
             "alpn_protocols": ["h2", "http/1.1"],
             "compression_methods": [0],
-            "ja3_hash": "771,4865-4867-4866-49195-49199-52393-52392-49196-49200-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-34-51-43-13-45-28-21,29-23-24-25-256-257,0",
-            "ja4_hash": "t13d1516h2_8daaf6152771_02713d6af862"
+            "ja3_hash": "771,4865-4867-4866-49195-49199-52393-52392-49196-49200-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-34-51-43-13-45-28,29-23-24-25-256-257,0",
+            "ja4_hash": "t13d1516h2_8daaf6152771_e7c8b9d2f541"
         }
     },
     "edge-windows": {

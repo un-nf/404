@@ -120,6 +120,69 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
   const displayCanvasHash = generateMD5StyleHash(sessionCanvasHash);
 
+  if (config.enable_math_noise !== false) {
+    try {
+      const mathNoisePRNG = createPRNG('math_noise_' + window.__404_session_id);
+      
+      const nativeMath = {
+        tan: Math.tan,
+        sin: Math.sin,
+        cos: Math.cos,
+        asin: Math.asin,
+        acos: Math.acos,
+        atan: Math.atan,
+        sinh: Math.sinh,
+        cosh: Math.cosh,
+        tanh: Math.tanh,
+        asinh: Math.asinh,
+        acosh: Math.acosh,
+        atanh: Math.atanh,
+        exp: Math.exp,
+        expm1: Math.expm1,
+        log: Math.log,
+        log1p: Math.log1p,
+        log10: Math.log10,
+        log2: Math.log2,
+        pow: Math.pow,
+        sqrt: Math.sqrt,
+        cbrt: Math.cbrt
+      };
+      
+      // Apply noise to trigonometric and transcendental functions
+      const noiseMagnitude = 1e-10; 
+      
+      ['tan', 'sin', 'cos', 'asin', 'acos', 'atan', 'sinh', 'cosh', 'tanh', 
+       'asinh', 'acosh', 'atanh', 'exp', 'expm1', 'log', 'log1p', 'log10', 
+       'log2', 'sqrt', 'cbrt'].forEach(fn => {
+        Math[fn] = new Proxy(nativeMath[fn], {
+          apply: function(target, thisArg, args) {
+            const result = Reflect.apply(target, thisArg, args);
+            if (typeof result !== 'number' || !isFinite(result)) return result;
+            
+            // Add deterministic noise based on input and session
+            const noise = (mathNoisePRNG() - 0.5) * noiseMagnitude;
+            return result + noise;
+          }
+        });
+      });
+      
+      // Special handling for pow (two arguments)
+      Math.pow = new Proxy(nativeMath.pow, {
+        apply: function(target, thisArg, args) {
+          const result = Reflect.apply(target, thisArg, args);
+          if (typeof result !== 'number' || !isFinite(result)) return result;
+          
+          const noise = (mathNoisePRNG() - 0.5) * noiseMagnitude;
+          return result + noise;
+        }
+      });
+      
+      if (debug) console.log('[404-SPOOF] ✓ Math API noise injection active (magnitude: 1e-10)');
+    } catch (e) {
+      console.error('[404-SPOOF] Math noise injection error:', e);
+    }
+  }
+
   if (debug) {
     console.log('[404-SPOOF] Canvas hash (display):', displayCanvasHash);
     console.log('[404-SPOOF] Canvas hash (internal):', sessionCanvasHash);
@@ -355,6 +418,46 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             return audioBuffer;
           });
         };
+      }
+      
+      // Hook createOscillator to add frequency jitter
+      // This changes the base audio fingerprint (35.749972... -> 35.749xxx...)
+      const BaseAudioContext = window.BaseAudioContext || window.AudioContext || window.webkitAudioContext;
+      if (BaseAudioContext && BaseAudioContext.prototype.createOscillator) {
+        const originalCreateOscillator = BaseAudioContext.prototype.createOscillator;
+        
+        BaseAudioContext.prototype.createOscillator = function() {
+          const oscillator = originalCreateOscillator.call(this);
+          const originalFrequencyGetter = Object.getOwnPropertyDescriptor(
+            Object.getPrototypeOf(oscillator.frequency),
+            'value'
+          ).get;
+          
+          // Add tiny frequency offset (±0.00001 Hz - imperceptible)
+          const freqJitter = (audioRng() - 0.5) * 0.00002;
+          
+          // Intercept frequency.value setter
+          const originalSetter = Object.getOwnPropertyDescriptor(
+            Object.getPrototypeOf(oscillator.frequency),
+            'value'
+          ).set;
+          
+          Object.defineProperty(oscillator.frequency, 'value', {
+            get: function() {
+              const baseValue = originalFrequencyGetter.call(this);
+              return baseValue + freqJitter;
+            },
+            set: function(v) {
+              originalSetter.call(this, v);
+            },
+            configurable: true,
+            enumerable: true
+          });
+          
+          return oscillator;
+        };
+        
+        if (debug) console.log('[404-SPOOF] ✓ Audio oscillator frequency jitter enabled');
       }
 
       if (debug) console.log('[404-SPOOF] ✓ Audio protection applied');
@@ -1300,6 +1403,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       });
 
       const isChromium = config.browser_type === 'chrome' || config.browser_type === 'edge';
+      const isFirefox = config.browser_type === 'firefox';
+      
       if (isChromium && !window.chrome) {
         window.chrome = {
           runtime: {
@@ -1347,14 +1452,18 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         };
       }
 
-      if (config.browser_type === 'firefox' && window.chrome) {
+
+      if (isFirefox && window.chrome) {
         try {
           delete window.chrome;
           Object.defineProperty(window, 'chrome', {
             get: () => undefined,
             configurable: false
           });
-        } catch (e) {}
+          if (debug) console.log('[404-SPOOF] Removed window.chrome for Firefox profile');
+        } catch (e) {
+          console.warn('[404-SPOOF] Could not remove window.chrome:', e);
+        }
       }
 
       if (window.navigator && window.navigator.webdriver) {
@@ -1409,21 +1518,24 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       if (debug) console.log('[404-SPOOF] Applying speech synthesis spoofing...');
 
       const isFirefox = config.browser_type === 'firefox';
+      
+
+      const primaryLang = config.languages && config.languages[0] ? config.languages[0] : 'en-US';
 
       const voices = [];
 
       if (isFirefox) {
 
         voices.push(
-          { voiceURI: 'urn:moz-tts:sapi:Microsoft David Desktop - English (United States)?en-US', name: 'Microsoft David Desktop - English (United States)', lang: 'en-US', localService: true, default: true },
-          { voiceURI: 'urn:moz-tts:sapi:Microsoft Zira Desktop - English (United States)?en-US', name: 'Microsoft Zira Desktop - English (United States)', lang: 'en-US', localService: true, default: false }
+          { voiceURI: `urn:moz-tts:sapi:Microsoft David Desktop - English (United States)?${primaryLang}`, name: 'Microsoft David Desktop - English (United States)', lang: primaryLang, localService: true, default: true },
+          { voiceURI: `urn:moz-tts:sapi:Microsoft Zira Desktop - English (United States)?${primaryLang}`, name: 'Microsoft Zira Desktop - English (United States)', lang: primaryLang, localService: true, default: false }
         );
       } else {
 
         voices.push(
-          { voiceURI: 'Google US English', name: 'Google US English', lang: 'en-US', localService: false, default: true },
-          { voiceURI: 'Microsoft David - English (United States)', name: 'Microsoft David - English (United States)', lang: 'en-US', localService: true, default: false },
-          { voiceURI: 'Microsoft Zira - English (United States)', name: 'Microsoft Zira - English (United States)', lang: 'en-US', localService: true, default: false }
+          { voiceURI: 'Google US English', name: 'Google US English', lang: primaryLang, localService: false, default: true },
+          { voiceURI: `Microsoft David - English (United States)`, name: `Microsoft David - English (United States)`, lang: primaryLang, localService: true, default: false },
+          { voiceURI: `Microsoft Zira - English (United States)`, name: `Microsoft Zira - English (United States)`, lang: primaryLang, localService: true, default: false }
         );
       }
 
@@ -1439,7 +1551,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         configurable: true
       });
 
-      if (debug) console.log('[404-SPOOF] ✓ Speech synthesis spoofing applied');
+      if (debug) console.log('[404-SPOOF] ✓ Speech synthesis spoofing applied (language consistent:', primaryLang, ')');
     } catch (e) {
       console.error('[404-SPOOF] Speech synthesis spoofing error:', e);
     }
@@ -1610,6 +1722,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         return Math.abs(hash);
       };
 
+      // PRNG for measureText timing noise (consistent per session)
+      const measureTextPRNG = createPRNG('measuretext_timing_' + window.__404_session_id);
+
       CanvasRenderingContext2D.prototype.measureText = function(text) {
         const originalResult = originalMeasureText.call(this, text);
         
@@ -1631,10 +1746,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           const fontHash = hashFontName(requestedFont);
           const jitter = (fontHash % 100) / 100; 
           
+          // Add sub-pixel timing noise to width (affects font preference fingerprint)
+          const timingNoise = (measureTextPRNG() - 0.5) * 0.0001; 
           return {
-            width: baseWidth + jitter,
+            width: baseWidth + jitter + timingNoise,
             actualBoundingBoxLeft: 0,
-            actualBoundingBoxRight: baseWidth + jitter,
+            actualBoundingBoxRight: baseWidth + jitter + timingNoise,
             fontBoundingBoxAscent: 10,
             fontBoundingBoxDescent: 2,
             actualBoundingBoxAscent: 9,
@@ -1755,6 +1872,66 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       }
     } catch (e) {
       console.error('[404-SPOOF] Viewport spoofing error:', e);
+    }
+  }
+
+
+  if (config.enable_dom_measurement_noise !== false) {
+    try {
+      const domNoisePRNG = createPRNG('dom_noise_' + window.__404_session_id);
+      
+      // Hook Element.prototype.getBoundingClientRect
+      const originalGetBoundingClientRect = Element.prototype.getBoundingClientRect;
+      Element.prototype.getBoundingClientRect = function() {
+        const rect = originalGetBoundingClientRect.call(this);
+        
+        // Add sub-pixel noise (±0.00001px - imperceptible)
+        const noise = () => (domNoisePRNG() - 0.5) * 0.00002;
+        
+        return {
+          top: rect.top + noise(),
+          right: rect.right + noise(),
+          bottom: rect.bottom + noise(),
+          left: rect.left + noise(),
+          width: rect.width + noise(),
+          height: rect.height + noise(),
+          x: rect.x + noise(),
+          y: rect.y + noise(),
+          toJSON: rect.toJSON.bind(rect)
+        };
+      };
+      
+      // Hook offsetWidth/offsetHeight getters
+      const originalOffsetWidthDesc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth');
+      const originalOffsetHeightDesc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight');
+      
+      if (originalOffsetWidthDesc && originalOffsetWidthDesc.get) {
+        Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
+          get: function() {
+            const original = originalOffsetWidthDesc.get.call(this);
+            const noise = (domNoisePRNG() - 0.5) * 0.00002;
+            return original + noise;
+          },
+          configurable: true,
+          enumerable: true
+        });
+      }
+      
+      if (originalOffsetHeightDesc && originalOffsetHeightDesc.get) {
+        Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
+          get: function() {
+            const original = originalOffsetHeightDesc.get.call(this);
+            const noise = (domNoisePRNG() - 0.5) * 0.00002;
+            return original + noise;
+          },
+          configurable: true,
+          enumerable: true
+        });
+      }
+      
+      if (debug) console.log('[404-SPOOF] ✓ DOM measurement noise enabled (affects fontPreferences, emoji, mathML)');
+    } catch (e) {
+      console.error('[404-SPOOF] DOM measurement noise error:', e);
     }
   }
 

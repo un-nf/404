@@ -56,6 +56,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   const originalNavigator = window.navigator;
 
   const navigatorProxy = new Proxy(originalNavigator, {
+    has(target, prop) {
+      const config = getConfig();
+
+      if (prop === 'vendorFlavors' && config.browser_type === 'firefox') {
+        return false;
+      }
+      return prop in target;
+    },
+    
     get(target, prop, receiver) {
       const config = getConfig();
 
@@ -90,11 +99,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         return config.max_touch_points !== undefined ? config.max_touch_points : 0;
       }
 
-      if (prop === 'language' && config.languages && config.languages[0]) {
-        return config.languages[0];
-      }
       if (prop === 'languages' && config.languages) {
-        return Object.freeze(config.languages.slice());
+
+        const langs = config.languages.slice();
+
+        return Object.freeze(langs);
+      }
+
+      if (prop === 'language' && config.languages && config.languages[0]) {
+
+        return config.languages[0];
       }
 
       if (prop === 'doNotTrack') {
@@ -210,6 +224,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         }
 
         return Object.freeze(['chrome']);
+      }
+
+      if (prop === Symbol.hasInstance || prop === 'hasOwnProperty') {
+        return function(key) {
+          if (key === 'vendorFlavors' && config.browser_type === 'firefox') {
+            return false;
+          }
+          return Reflect.apply(target[prop], target, arguments);
+        };
       }
 
       if (prop === 'plugins' && config.enable_plugin_spoof) {

@@ -576,6 +576,30 @@ class HeaderProfileAddon:
         ctx.log.error(f"[HEADER_PROFILE DEBUG] request() CALLED for {flow.request.host}")
 
         try:
+
+            try:
+                from AOs.tls_deep_hook import set_tls_config_for_host
+                
+                headers_list = headers_to_list(flow.request.headers)
+                profile_name, _, _, temp_config = select_profile(
+                    flow.request.path + " " + flow.request.http_version,
+                    headers_list,
+                    flow
+                )
+                
+                if profile_name in _PROFILES:
+                    profile = _PROFILES[profile_name]
+                    tls_config = profile.get('tls')
+                    if tls_config:
+
+                        tls_config_with_meta = {**tls_config, '_profile_name': profile_name}
+                        set_tls_config_for_host(flow.request.host, tls_config_with_meta)
+                        ctx.log.debug(f"[HEADER_PROFILE] Cached TLS config for {flow.request.host} (profile: {profile_name})")
+            except ImportError:
+                pass
+            except Exception as e:
+                ctx.log.warn(f"[HEADER_PROFILE] Error caching TLS config: {e}")
+            
             headers_list = headers_to_list(flow.request.headers)
 
             accept_idx = find_first_header_index(headers_list, "Accept")

@@ -1,0 +1,573 @@
+{
+  "products": {
+    "identification": {
+      "data": {
+        "visitorId": "UrOgw3u0zoS0DW4muO3l",
+        "requestId": "1763629043505.sN0NVV",
+        "browserDetails": {
+          "browserName": "Chrome",
+          "browserMajorVersion": "142",
+          "browserFullVersion": "142.0.0",
+          "os": "Windows",
+          "osVersion": "11",
+          "device": "Other",
+          "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"
+        },
+        "incognito": true,
+        "ip": "66.115.182.11",
+        "ipLocation": {
+          "accuracyRadius": 20,
+          "latitude": 28.4538,
+          "longitude": -81.4674,
+          "postalCode": "32819",
+          "timezone": "America/New_York",
+          "city": {
+            "name": "Orlando"
+          },
+          "country": {
+            "code": "US",
+            "name": "United States"
+          },
+          "continent": {
+            "code": "NA",
+            "name": "North America"
+          },
+          "subdivisions": [
+            {
+              "isoCode": "FL",
+              "name": "Florida"
+            }
+          ]
+        },
+        "linkedId": "session_id_a89c0106",
+        "timestamp": 1763629043518,
+        "time": "2025-11-20T08:57:23Z",
+        "url": "https://demo.fingerprint.com/playground?_gl=1*11muh1b*_gcl_au*MTM1MjI1NTEyNC4xNzYzNjI4ODg1*_ga*MTMxMDg0MTkzOS4xNzYzNjI4ODg1*_ga_XVKDT0L5WV*czE3NjM2Mjg4ODQkbzEkZzEkdDE3NjM2Mjg4ODUkajYwJGwwJGg5NjY2MjA3ODI.",
+        "tag": {},
+        "confidence": {
+          "score": 1,
+          "revision": "v1.1"
+        },
+        "visitorFound": true,
+        "firstSeenAt": {
+          "global": "2025-11-20T08:54:43.213Z",
+          "subscription": "2025-11-20T08:54:43.213Z"
+        },
+        "lastSeenAt": {
+          "global": "2025-11-20T08:57:14.568Z",
+          "subscription": "2025-11-20T08:57:14.568Z"
+        },
+        "replayed": false,
+        "sdk": {
+          "platform": "js",
+          "version": "3.12.3",
+          "integrations": [
+            {
+              "name": "fingerprintjs-pro-cloudfront",
+              "version": "2.0.3"
+            },
+            {
+              "name": "fingerprintjs-pro-cloudfront",
+              "version": "2.0.3"
+            },
+            {
+              "name": "fingerprintjs-pro-react",
+              "version": "2.7.1"
+            },
+            {
+              "name": "fingerprintjs-pro-spa",
+              "version": "1.3.3"
+            }
+          ]
+        },
+        "environmentId": "ae_83d51ca3dcde8777"
+      }
+    },
+    "botd": {
+      "data": {
+        "bot": {
+          "result": "notDetected"
+        },
+        "linkedId": "session_id_a89c0106",
+        "url": "https://demo.fingerprint.com/playground",
+        "ip": "[REDACTED_VPN]",
+        "time": "2025-11-20T08:57:23.572Z",
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36",
+        "requestId": "1763629043505.sN0NVV"
+      }
+    },
+    "rootApps": {
+      "data": {
+        "result": false
+      }
+    },
+    "emulator": {
+      "data": {
+        "result": false
+      }
+    },
+    "ipInfo": {
+      "data": {
+        "v4": {
+          "address": "[REDACTED_VPN]",
+          "geolocation": {
+            "accuracyRadius": 20,
+            "latitude": 28.4538,
+            "longitude": -81.4674,
+            "postalCode": "32819",
+            "timezone": "America/New_York",
+            "city": {
+              "name": "Orlando"
+            },
+            "country": {
+              "code": "US",
+              "name": "United States"
+            },
+            "continent": {
+              "code": "NA",
+              "name": "North America"
+            },
+            "subdivisions": [
+              {
+                "isoCode": "FL",
+                "name": "Florida"
+              }
+            ]
+          },
+          "asn": {
+            "asn": "46562",
+            "name": "PERFORMIVE",
+            "network": "66.115.128.0/18"
+          },
+          "datacenter": {
+            "result": true,
+            "name": "Performive LLC"
+          }
+        }
+      }
+    },
+    "ipBlocklist": {
+      "data": {
+        "result": false,
+        "details": {
+          "emailSpam": false,
+          "attackSource": false
+        }
+      }
+    },
+    "tor": {
+      "data": {
+        "result": false
+      }
+    },
+    "vpn": {
+      "data": {
+        "result": true,
+        "confidence": "high",
+        "originTimezone": "[REDACTED]",
+        "originCountry": "unknown",
+        "methods": {
+          "timezoneMismatch": true,
+          "publicVPN": true,
+          "auxiliaryMobile": false,
+          "osMismatch": true,
+          "relay": false
+        }
+      }
+    },
+    "proxy": {
+      "data": {
+        "result": false,
+        "confidence": "high"
+      }
+    },
+    "incognito": {
+      "data": {
+        "result": true
+      }
+    },
+    "tampering": {
+      "data": {
+        "result": false,
+        "anomalyScore": 0,
+        "antiDetectBrowser": false
+      }
+    },
+    "clonedApp": {
+      "data": {
+        "result": false
+      }
+    },
+    "factoryReset": {
+      "data": {
+        "time": "1970-01-01T00:00:00Z",
+        "timestamp": 0
+      }
+    },
+    "jailbroken": {
+      "data": {
+        "result": false
+      }
+    },
+    "frida": {
+      "data": {
+        "result": false
+      }
+    },
+    "privacySettings": {
+      "data": {
+        "result": false
+      }
+    },
+    "virtualMachine": {
+      "data": {
+        "result": false
+      }
+    },
+    "rawDeviceAttributes": {
+      "data": {
+        "localStorage": {
+          "value": true
+        },
+        "math": {
+          "value": "5f030fa7d2e5f9f757bfaf81642eb1a6"
+        },
+        "dateTimeLocale": {
+          "value": "en-US"
+        },
+        "cpuClass": {},
+        "monochrome": {
+          "value": 0
+        },
+        "mathML": {
+          "value": {
+            "bottom": 25,
+            "font": "\"Times New Roman\"",
+            "height": 17,
+            "left": 8,
+            "right": 276.078125,
+            "top": 8,
+            "width": 268.078125,
+            "x": 8,
+            "y": 8
+          }
+        },
+        "audio": {
+          "value": 124.04347527516074
+        },
+        "architecture": {
+          "value": 255
+        },
+        "deviceMemory": {
+          "value": 8
+        },
+        "audioBaseLatency": {
+          "value": -2
+        },
+        "cookiesEnabled": {
+          "value": true
+        },
+        "emoji": {
+          "value": {
+            "bottom": 28,
+            "font": "\"Times New Roman\"",
+            "height": 17,
+            "left": 8,
+            "right": 1765.5,
+            "top": 11,
+            "width": 1757.5,
+            "x": 8,
+            "y": 11
+          }
+        },
+        "fonts": {
+          "value": [
+            "Calibri",
+            "Century",
+            "Century Gothic",
+            "Franklin Gothic",
+            "Leelawadee",
+            "MS Outlook",
+            "MS Reference Specialty",
+            "MS UI Gothic",
+            "MT Extra",
+            "Marlett",
+            "Microsoft Uighur",
+            "Monotype Corsiva",
+            "Segoe UI Light"
+          ]
+        },
+        "fontPreferences": {
+          "value": {
+            "apple": 149.3125,
+            "default": 149.3125,
+            "min": 9.34375,
+            "mono": 121.515625,
+            "sans": 144.015625,
+            "serif": 149.3125,
+            "system": 147.859375
+          }
+        },
+        "touchSupport": {
+          "value": {
+            "maxTouchPoints": 0,
+            "touchEvent": false,
+            "touchStart": false
+          }
+        },
+        "reducedMotion": {
+          "value": false
+        },
+        "vendor": {
+          "value": "Google Inc."
+        },
+        "languages": {
+          "value": [
+            [
+              "en-US"
+            ]
+          ]
+        },
+        "forcedColors": {
+          "value": false
+        },
+        "plugins": {
+          "value": [
+            {
+              "description": "Portable Document Format",
+              "mimeTypes": [
+                {
+                  "suffixes": "pdf",
+                  "type": "application/pdf"
+                },
+                {
+                  "suffixes": "pdf",
+                  "type": "text/pdf"
+                }
+              ],
+              "name": "PDF Viewer"
+            },
+            {
+              "description": "Portable Document Format",
+              "mimeTypes": [
+                {
+                  "suffixes": "pdf",
+                  "type": "application/pdf"
+                },
+                {
+                  "suffixes": "pdf",
+                  "type": "text/pdf"
+                }
+              ],
+              "name": "Chrome PDF Viewer"
+            },
+            {
+              "description": "Portable Document Format",
+              "mimeTypes": [
+                {
+                  "suffixes": "pdf",
+                  "type": "application/pdf"
+                },
+                {
+                  "suffixes": "pdf",
+                  "type": "text/pdf"
+                }
+              ],
+              "name": "Chromium PDF Viewer"
+            },
+            {
+              "description": "Portable Document Format",
+              "mimeTypes": [
+                {
+                  "suffixes": "pdf",
+                  "type": "application/pdf"
+                },
+                {
+                  "suffixes": "pdf",
+                  "type": "text/pdf"
+                }
+              ],
+              "name": "Microsoft Edge PDF Viewer"
+            },
+            {
+              "description": "Portable Document Format",
+              "mimeTypes": [
+                {
+                  "suffixes": "pdf",
+                  "type": "application/pdf"
+                },
+                {
+                  "suffixes": "pdf",
+                  "type": "text/pdf"
+                }
+              ],
+              "name": "WebKit built-in PDF"
+            }
+          ]
+        },
+        "screenResolution": {
+          "value": [
+            1920,
+            1080
+          ]
+        },
+        "colorGamut": {
+          "value": "srgb"
+        },
+        "pdfViewerEnabled": {
+          "value": true
+        },
+        "screenFrame": {
+          "value": [
+            0,
+            0,
+            50,
+            0
+          ]
+        },
+        "webGlBasics": {
+          "value": {
+            "renderer": "WebKit WebGL",
+            "rendererUnmasked": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 (0x00002882) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+            "shadingLanguageVersion": "WebGL GLSL ES 1.0 (OpenGL ES GLSL ES 1.0 Chromium)",
+            "vendor": "WebKit",
+            "vendorUnmasked": "Google Inc. (NVIDIA)",
+            "version": "WebGL 1.0 (OpenGL ES 2.0 Chromium)"
+          }
+        },
+        "canvas": {
+          "value": {
+            "Geometry": "a85f1ecc4531bb2579c456466cc45bf6",
+            "Text": "5de033cb1137ba319ea39df8e00a631b",
+            "Winding": true
+          }
+        },
+        "openDatabase": {
+          "value": false
+        },
+        "contrast": {
+          "value": 0
+        },
+        "hardwareConcurrency": {
+          "value": 16
+        },
+        "sessionStorage": {
+          "value": true
+        },
+        "invertedColors": {},
+        "privateClickMeasurement": {},
+        "timezone": {
+          "value": "[REDACTED]"
+        },
+        "colorDepth": {
+          "value": 24
+        },
+        "platform": {
+          "value": "Win32"
+        },
+        "vendorFlavors": {
+          "value": [
+            "chrome"
+          ]
+        },
+        "domBlockers": {},
+        "osCpu": {},
+        "webGlExtensions": {
+          "value": {
+            "contextAttributes": "6b1ed336830d2bc96442a9d76373252a",
+            "extensionParameters": "22fad1bae5d96011ed8c710f66905ce2",
+            "extensions": "2ec6a06c62e232a16e719d1738edbc16",
+            "parameters": "2528c0623ef1fc75e5dc9a4955cd14fc",
+            "shaderPrecisions": "f223dfbcd580cf142da156d93790eb83",
+            "unsupportedExtensions": []
+          }
+        },
+        "hdr": {
+          "value": false
+        },
+        "indexedDB": {
+          "value": true
+        }
+      }
+    },
+    "highActivity": {
+      "data": {
+        "result": false
+      }
+    },
+    "locationSpoofing": {
+      "data": {
+        "result": false
+      }
+    },
+    "suspectScore": {
+      "data": {
+        "result": 11
+      }
+    },
+    "velocity": {
+      "data": {
+        "distinctIp": {
+          "intervals": {
+            "5m": 1,
+            "1h": 1,
+            "24h": 1
+          }
+        },
+        "distinctLinkedId": {
+          "intervals": {
+            "5m": 1,
+            "1h": 1,
+            "24h": 1
+          }
+        },
+        "distinctCountry": {
+          "intervals": {
+            "5m": 1,
+            "1h": 1,
+            "24h": 1
+          }
+        },
+        "events": {
+          "intervals": {
+            "5m": 3,
+            "1h": 3,
+            "24h": 3
+          }
+        },
+        "ipEvents": {
+          "intervals": {
+            "5m": 3,
+            "1h": 3,
+            "24h": 3
+          }
+        },
+        "distinctIpByLinkedId": {
+          "intervals": {
+            "5m": 1,
+            "1h": 1,
+            "24h": 1
+          }
+        },
+        "distinctVisitorIdByLinkedId": {
+          "intervals": {
+            "5m": 1,
+            "1h": 1,
+            "24h": 1
+          }
+        }
+      }
+    },
+    "developerTools": {
+      "data": {
+        "result": false
+      }
+    },
+    "mitmAttack": {
+      "data": {
+        "result": false
+      }
+    },
+    "proximity": {}
+  }
+}

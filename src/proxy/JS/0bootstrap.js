@@ -24,6 +24,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     return;
   }
 
+  if (window.chrome && window.chrome.runtime) {
+    try {
+      delete window.chrome;
+      console.log('[404-BOOTSTRAP] ✓ Removed window.chrome namespace');
+    } catch (e) {
+      console.warn('[404-BOOTSTRAP] Could not delete window.chrome:', e);
+    }
+  }
+
   let trustedTypesPolicy = null;
   if (window.trustedTypes && window.trustedTypes.createPolicy) {
     try {
