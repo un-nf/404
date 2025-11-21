@@ -18,13 +18,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """Loaded addons (EXECUTION ORDER):
 1. HeaderProfileAddon - HTTP header manipulation and browser profile management
-2. TLSProfileAddon - TLS fingerprinting protection (reads profile from HeaderProfileAddon)
+2. TLSProfileAddon - TLS fingerprinting protection (reads profile from HeaderProfileAddon) 
 3. CSPModifier.responseheaders() - Extract/generate nonce (EARLY HOOK)
 4. JSInjector.response() - Inject scripts with nonce, compute hashes **RUNS FIRST**
 5. CSPModifier.response() - Add nonce + hashes to CSP (LATE HOOK) **RUNS LAST**
 6. AltSvcModifier - Alt-Svc header normalization for proxy hiding
 """
-# Usage: mitmproxy -s proxy/header_profile.py
+# Usage: mitmproxy -s src/proxy/header_profile.py
+# w/ TLS deep hook: mitmproxy -s src/proxy/header_profile.py -s src/proxy/AOs/tls_deep_hook.py - For quick testing, if you want to implement TLS full-time, just uncomment it out below.
 
 
 from mitmproxy import ctx
@@ -43,6 +44,7 @@ except ImportError as e:
 except Exception as e:
     ctx.log.error(f"[ORCHESTRATOR] Unexpected error loading HeaderProfileAddon: {e}")
 
+'''
 # Import TLS Deep Hook addon - EXPERIMENTAL DEEP HOOK
 # Monkey-patches OpenSSL to inject custom cipher suites
 try:
@@ -53,6 +55,7 @@ except ImportError as e:
     ctx.log.warn(f"[ORCHESTRATOR] TLS deep hook not found: {e}")
 except Exception as e:
     ctx.log.error(f"[ORCHESTRATOR] Unexpected error loading TLSDeepHook: {e}")
+'''
 
 # Import JavaScript Injector addon - LOADS FIRST for response() hook
 # This ensures it runs BEFORE CSPModifier.response()

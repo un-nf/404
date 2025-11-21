@@ -73,9 +73,15 @@ A small win, I am getting consistently spoofed values from the following fingerp
 
 ## How do I install and run this on my machine?
 
-As of now, the only requirement is `mitmproxy` (and thus, a compatible `Python` version).
+### Requirements
 
-Utilizing the eBPF module requires a Linux kernel (4.15+). 
+- `mitmproxy` (installed via `pip`, not standalone binary)
+- `Python` 3.8+ (must be built/linked against OpenSSL 1.1.1+ or 3.x)
+- `OpenSSL` 1.1.1 or newer (ideally 3.x)
+- `pyOpenSSL` 22.0 or newer
+- `cryptography` latest
+
+Utilizing the eBPF module requires a Linux kernel (4.15+).
 
 ### 1. Install venv
 
@@ -83,22 +89,31 @@ venv installation (WINDOWS):
 
 In 404 directory:
 
-```cmd
-> python -m venv <venv_name>
-> .\venv\Scripts\activate
-> pip install mitmproxy
-
+```bash
+$ python -m venv <venv_name>
+$ .\venv\Scripts\activate
+$ pip install --upgrade pip
+$ pip install mitmproxy pyOpenSSL cryptography
 ```
 
-venv installation (MacOS):
+venv installation (MacOS/Linux):
 
 In 404 directory:
 
 ```bash
 $ python3 -m venv <venv_name>
 $ source <venv_name>/bin/activate
-$ pip install mitmproxy
+$ pip install --upgrade pip
+$ pip install mitmproxy pyOpenSSL cryptography
+```
 
+**Check your OpenSSL version:**
+```bash
+python -c "import ssl; print(ssl.OPENSSL_VERSION)"
+python -c "import OpenSSL; print(OpenSSL.version.__version__)"
+```
+
+If you see OpenSSL 1.1.1 or newer, TLS 1.3 spoofing should work. If not, see project docs for troubleshooting.
 ```
 
 setup (Linux)
