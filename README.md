@@ -1,14 +1,13 @@
-# 404 v.03
+# 404 v.04
 Multi-layer client fingerprinting resistance software.
 
-> NEW (.02): eBPF support for TCP/IP packet header modification.
+*Native values from [FingerprintJS](https://demo.fingerprint.com/playground)*: ![here](.github/IMAGES/cleanChrome.png).
 
-> NEW (.03): JavaScript proxies!
-
-> NEW (.03): WebRTC and font protection. *Deterministic fingerprint*
+*Spoofed values from [FingerprintJS](https://demo.fingerprint.com/playground)*: ![here](.github/IMAGES/dirtyChrome.png).
 
 [Join the Discord for support!](https://discord.gg/G7rUYrZqS2)
-**Main Discussion:** GitHub discussions
+
+**Main Discussion:** GitHub discussions/issues
 
 *Alternative community options coming soon!*
 
@@ -44,9 +43,19 @@ If you’re comfortable with **technical setup**, **manual maintenance**, and **
 - Hop limit → forced to 255
 - Flow label → randomized
 
+### TLS cipher-suite control
+
+Transport Layer Security allows users to stay secure online with E2EE between `userMachine <-> googleServer`. During the TLS handshake, the `userMachine` and `googleServer` negotiate the best combination of ciphers. The server can then hash that combination (and its specific send-order) to get a value like this:
+
+JA3: `e7d705a3286e19ea42f587b344ee6865`
+
+This value is relatively unique (especially when send-order is taken into consideration) and is often enough to identify combinations of OSes, browsers, and other user-unique telemetry signals. While TLS alone is not enough to identify a unique client, when used in combination with other fingerprinting techniques (even basic timing analysis), it can hugely aid in thinning the herd. 
+
+The 404 fingerprint is deterministic, that is you will get the same one every time. Further patches to shuffle cipher-suite (like Chrome and Firefox) as well as inject random ciphers are coming! 
+
 ### Comprehensive JS coverage
 
-If you go through the JS files starting with 0/1/2, you will find extensive coverage of many fingerprinting vectors. This includes, but is not limited to:
+If you go through the JS files starting with 0/1/2, you will find extensive coverage of many fingerprinting vectors. The obfuscation method (proxy, property redefine, freeze) differs per specific JS vector. The list of covered values includes, but is not limited to:
 
 1. Font protection (multi-layered)
 2. WebRTC protection - you can still use your peripherals, they just don't leak as much data. Local IP remains private when allowing browser access to peripherals.
@@ -58,7 +67,7 @@ If you go through the JS files starting with 0/1/2, you will find extensive cove
 
 ### Consistent fingerprints
 
-This proxy allows you to experiment with browser-visible fingerprint mutation. Client identification is getting scary precise and the public does not have the tools to remain private with implementations of policies like Chat Control. 
+This proxy allows you to experiment with browser-visible fingerprint mutation. Client identification is getting scary precise and the public does not have the tools to remain private, especially with the implementation of policies like Chat Control. 
 
 A small win, I am getting consistently spoofed values from the following fingerprinting websites: 
 1. https://demo.fingerprint.com/playground
@@ -66,10 +75,6 @@ A small win, I am getting consistently spoofed values from the following fingerp
 3. https://coveryourtracks.eff.org/
 4. https://whatismybrowser.com/
 5. https://httpbin.org/headers
-
-> Native values from FingerprintJS [here](.github/IMAGES/cleanFire).
-
-> Spoofed values from FingerprintJS [here](.github/IMAGES/dirtyFire).
 
 ## How do I install and run this on my machine?
 
