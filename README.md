@@ -17,7 +17,7 @@ By running this software you accept and understand that:
 - You will not use your primary accounts.
 - You will not share your CA certificate with anyone.
 - This is research software - no warranty, no guarantees, minimal support.
-- If you find a security issue report it to 404mesh@proton.me
+- If you find a security issue report it privately to 404mesh@proton.me
 
 ## Why should I install and run this on my machine?
 

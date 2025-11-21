@@ -25,7 +25,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 6. AltSvcModifier - Alt-Svc header normalization for proxy hiding
 """
 # Usage: mitmproxy -s src/proxy/header_profile.py
-# w/ TLS deep hook: mitmproxy -s src/proxy/header_profile.py -s src/proxy/AOs/tls_deep_hook.py - For quick testing, if you want to implement TLS full-time, just uncomment it out below.
 
 
 from mitmproxy import ctx
@@ -44,18 +43,57 @@ except ImportError as e:
 except Exception as e:
     ctx.log.error(f"[ORCHESTRATOR] Unexpected error loading HeaderProfileAddon: {e}")
 
-'''
+
+# Example: Custom TLS configuration callback
+# Uncomment to use custom logic instead of profile-based config
+
+# from AOs.tls_mitm_patcher import get_patcher, TLSConfig
+# 
+# def custom_tls_config(hostname: str, sni: str) -> Optional[TLSConfig]:
+#     """Custom TLS configuration for specific domains"""
+#     
+#     if "example.com" in hostname:
+#         # Custom config for example.com
+#         return TLSConfig(
+#             cipher_suites=[
+#                 "TLS_AES_128_GCM_SHA256",
+#                 "TLS_CHACHA20_POLY1305_SHA256",
+#                 "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+#             ],
+#             tls_versions=("TLSv1.2", "TLSv1.3"),
+#             alpn_protocols=["h2", "http/1.1"]
+#         )
+#     
+#     elif "api." in hostname:
+#         # Different config for API endpoints
+#         return TLSConfig(
+#             cipher_suites=[
+#                 "TLS_AES_256_GCM_SHA384",
+#                 "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+#             ]
+#         )
+#     
+#     # Return None for default behavior
+#     return None
+# 
+# # Register the callback
+# patcher = get_patcher()
+# patcher.set_cipher_callback(custom_tls_config)
+# ctx.log.info("[EXAMPLE] Custom TLS callback registered")
+
+
 # Import TLS Deep Hook addon - EXPERIMENTAL DEEP HOOK
 # Monkey-patches OpenSSL to inject custom cipher suites
+
 try:
-    from AOs.tls_deep_hook import TLSDeepHook, set_tls_config_for_host
-    addon_list.append(TLSDeepHook())
-    ctx.log.info("[ORCHESTRATOR] Loaded TLSDeepHook (EXPERIMENTAL)")
+    from AOs.tls_profile_addon import TLSProfileAddon
+    addon_list.append(TLSProfileAddon())
+    ctx.log.info("[ORCHESTRATOR] Loaded TLSProfileAddon")
 except ImportError as e:
-    ctx.log.warn(f"[ORCHESTRATOR] TLS deep hook not found: {e}")
+    ctx.log.warn(f"[ORCHESTRATOR] TLS profile addon not found: {e}")
 except Exception as e:
-    ctx.log.error(f"[ORCHESTRATOR] Unexpected error loading TLSDeepHook: {e}")
-'''
+    ctx.log.error(f"[ORCHESTRATOR] Unexpected error loading TLSProfileAddon: {e}")
+
 
 # Import JavaScript Injector addon - LOADS FIRST for response() hook
 # This ensures it runs BEFORE CSPModifier.response()
