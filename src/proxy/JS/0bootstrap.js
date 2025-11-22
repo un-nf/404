@@ -27,7 +27,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   if (window.chrome && window.chrome.runtime) {
     try {
       delete window.chrome;
-      console.log('[404-BOOTSTRAP] ✓ Removed window.chrome namespace');
+      console.log('[404-BOOTSTRAP] Removed window.chrome namespace');
     } catch (e) {
       console.warn('[404-BOOTSTRAP] Could not delete window.chrome:', e);
     }
