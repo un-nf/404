@@ -1,35 +1,76 @@
-# 404 v.03
-Multi-layer client fingerprinting resistance software.
+# 404 v1.0
+Rust privacy proxy & Linux kernel module. Full client-fingerprint control.
 
-> NEW (.02): eBPF support for TCP/IP packet header modification.
-
-> NEW (.03): JavaScript proxies!
-
-> NEW (.03): WebRTC and font protection. *Deterministic fingerprint*
+[Quick Start](#quick-consent--warning)
 
 [Join the Discord for support!](https://discord.gg/G7rUYrZqS2)
+
 **Main Discussion:** GitHub discussions
 
 *Alternative community options coming soon!*
 
 ## Quick consent & warning
-By running this software you accept and understand that:
-- The proxy decrypts HTTPS for rewriting/testing. It can see ***passwords*** and ***session tokens***.
+
+*By running this software you understand that:*
+- This proxy will generate a local CA and key-pair on its first run. As of now, there is no functionality or instructions for adding or removing these to your trust store.
+- **This proxy terminates TLS** usernames and passwords that pass through this proxy may be stored/visible in ***local only*** logs. Do not share logs. 
+- This is beta software - no warranty, no guarantees, minimal support.
+
+*...and agree that:*
 - You will not use your primary accounts.
 - You will not share your CA certificate with anyone.
-- This is research software - no warranty, no guarantees, minimal support.
 - If you find a security issue report it to 404mesh@proton.me
 
-## Why should I install and run this on my machine?
+## What is 404?
 
-The core of the traffic obfuscation is solid and functional. When properly configured, this software defeats modern fingerprinting techniques. Seriously. However, the included `profiles.json` is still being refined. The profiles work, but require manual review and adjustment to ensure coherence for your specific use case. 
+404 houses two main modules:
+- STATIC Proxy - *Synthetic Traffic and TLS Identity Camouflage*
+- Linux eBPF module
 
-If you’re comfortable with **technical setup**, **manual maintenance**, and **iteration**, you’ll get real privacy gains. If you need plug-and-play, check back in a few weeks.
+### STATIC Proxy
 
-### Kernel level packet spoofing
+The heart of 404, built in Rust. 
 
-> As of v.02, this project also provides tooling to modify outgoing network packet headers by attaching to the traffic control (tc) egress hook. Currently, the following is implemented:
+> Native values from FingerprintJS [here](.github/IMAGES/cleanFire).
 
+> Spoofed values from FingerprintJS [here](.github/IMAGES/dirtyFire).
+
+I want to start by saying I started learning Rust on November 17. As of writing this, that is eight days ago. If you see something I did wrong or could do better, open an issue. 
+
+That being said, the STATIC proxy is built from the ground up and wired specifically to give the user granular control over their fingerprint. Not just their browser fingerprint, but any device or app they choose to route through the proxy.
+
+As it stands in v1.0, STATIC runs on localhost:8080 by default, never exposing itself to the internet or any device other than the one that it is running on. The logic behind STATIC is pretty simple and mimics a lot of the high-level logic that `mitmproxy` employs. 
+
+Requests are broken into `flow`s. Each `flow` passes through multiple `stage`s. A stage is where the request/response mutation happens. 
+
+Request stages:
+1.  
+
+Response stages:
+1. 
+
+I am getting consistently spoofed values from the following fingerprinting websites: 
+1. https://demo.fingerprint.com/playground
+2. https://browserleaks.com/
+3. https://coveryourtracks.eff.org/
+4. https://whatismybrowser.com/
+5. https://httpbin.org/headers
+
+If you go through the JS files under static_proxy/assets/*.js, you will find extensive coverage of many fingerprinting vectors. This includes, but is not limited to:
+
+1. Navigator property proxy
+2. WebRTC protection - you can still use your peripherals, they just don't leak as much data. Local IP remains private when allowing browser access to peripherals. Peripheral names (device id, model #) are also spoofed.
+3. Canvas pollution
+4. Iframe propagation
+5. Plugin spoofing
+6. Font protection (multi-layered)
+
+### Linux eBPF module
+
+The eBPF module is, again, quite simple. It leverages powerful, fast, well documented, low-level Linux kernel hooks. By attaching carefully crafted eBPF programs to Linux's Traffic Control (tc) egress hooks, we can mutate files extensively.
+
+Currently, the following is implemented:
+```md
 **IPv4:**
 - TTL (Time To Live) → forced to 255
 - TOS (Type of Service) → set to 0x10
@@ -43,116 +84,47 @@ If you’re comfortable with **technical setup**, **manual maintenance**, and **
 **IPv6:**
 - Hop limit → forced to 255
 - Flow label → randomized
-
-### Comprehensive JS coverage
-
-If you go through the JS files starting with 0/1/2, you will find extensive coverage of many fingerprinting vectors. This includes, but is not limited to:
-
-1. Font protection (multi-layered)
-2. WebRTC protection - you can still use your peripherals, they just don't leak as much data. Local IP remains private when allowing browser access to peripherals.
-3. Canvas pollution
-4. Iframe propagation
-5. Plugin spoofing
-6. Viewport rounding
-7. Navigator property proxy
-
-### Consistent fingerprints
-
-This proxy allows you to experiment with browser-visible fingerprint mutation. Client identification is getting scary precise and the public does not have the tools to remain private with implementations of policies like Chat Control. 
-
-A small win, I am getting consistently spoofed values from the following fingerprinting websites: 
-1. https://demo.fingerprint.com/playground
-2. https://browserleaks.com/
-3. https://coveryourtracks.eff.org/
-4. https://whatismybrowser.com/
-5. https://httpbin.org/headers
-
-> Native values from FingerprintJS [here](.github/IMAGES/cleanFire).
-
-> Spoofed values from FingerprintJS [here](.github/IMAGES/dirtyFire).
+```
 
 ## How do I install and run this on my machine?
 
 ### Requirements
 
-- `mitmproxy` (installed via `pip`, not standalone binary)
-- `Python` 3.8+ (must be built/linked against OpenSSL 1.1.1+ or 3.x)
-- `OpenSSL` 1.1.1 or newer (ideally 3.x)
-- `pyOpenSSL` 22.0 or newer
-- `cryptography` latest
+- `rust`  - [INSTALL](https://rust-lang.org/tools/install/)
+- `NASM`  - [INSTALL](https://www.nasm.us/pub/nasm/releasebuilds/3.01/)
+- `Cmake` - [INSTALL](https://cmake.org/download/)
 
-Utilizing the eBPF module requires a Linux kernel (4.15+).
+> Utilizing the eBPF module requires a Linux kernel (4.15+).
 
-### 1. Install venv
+### 1. Edit environment variables (WINDOWS)
 
-venv installation (WINDOWS):
+1. Find donwload locations of `NASM` and `Cmake`
+    
+    Defaults should be...
+    - `C:\Program Files\NASM
+    - `C:\Program Files\Cmake\bin
 
-In 404 directory:
+2. Search for "edit environment" in the Windows search and open the control pane
+3. In the top pane under `User variables for USER` click on `Path` then `Edit...` a new window will open
+4. Click on `New` at the top right corner of the new window and paste the path to `NASM` and `cmake\bin`
 
-```bash
-$ python -m venv <venv_name>
-$ .\venv\Scripts\activate
-$ pip install --upgrade pip
-$ pip install mitmproxy pyOpenSSL cryptography
-```
+> Rust downloads itself to your `.cargo/bin` automatically.
 
-venv installation (MacOS/Linux):
-
-In 404 directory:
+### 2. Run the proxy
 
 ```bash
-$ python3 -m venv <venv_name>
-$ source <venv_name>/bin/activate
-$ pip install --upgrade pip
-$ pip install mitmproxy pyOpenSSL cryptography
+$ cargo run   # This will take a while on the first run.
 ```
 
-**Check your OpenSSL version:**
-```bash
-python -c "import ssl; print(ssl.OPENSSL_VERSION)"
-python -c "import OpenSSL; print(OpenSSL.version.__version__)"
-```
+### 3. Trust proxy-generated CA
 
-If you see OpenSSL 1.1.1 or newer, TLS 1.3 spoofing should work. If not, see project docs for troubleshooting.
-```
-
-setup (Linux)
-
-In 404 directory:
-```bash
-$ sudo apt install python mitmproxy
-```
+1. Navigate to the 404/ directory and locate the ../static_proxy/certs/ directory.
+2. Click on the file labeled `static-ca.crt` (may not have .crt)
+3. Follow the instructions to install to `Trusted Root Certificate Authorities`
 
 *Configure your browser (or machine) to use localhost:8080 (127.0.0.1:8080) as an HTTP/S proxy.*
 
 ***Important:*** **This tool is a TLS-terminating proxy (man-in-the-middle) and has access to your plaintext HTTPS data (usernames, passwords, certain message protocols, etc.). Do NOT share your CA cert with *anyone* for *anything, ever*.**
-
-### 2. Install mitmproxy CA cert
-
-On CLIENT (Windows Command Prompt/MacOS Terminal):
-Choose mitmproxy method:
-- `mitmproxy` # interactive CLI
-- `mitmdump`  # headless
-- `mitmweb`   # web UI
-
-1. 
-```bash
-$ mitmproxy
-```
-2. In browser, navigate to https://mitm.it - **Follow instructions** to install CA cert
-
-### 3. Run mitmproxy w/ addon
-
-1. Close original mitmproxy instance and run:
-
-```bash
-$ mitmproxy -s src\proxy\header_profile.py <args>
-
-# All mitmproxy CLI rules apply.
-# Works with no further arguments.
-# Documentation @ https://docs.mitmproxy.org/stable/
-
-```
 
 *UX on Firefox is much more stable for reasons that are not clear to me. Would love some insight. Google login works on Firefox.*
 
@@ -196,9 +168,15 @@ $ sudo tc filter add dev <interface> egress bpf da obj ttl_editor.o sec classifi
 
 > *VM images coming soon. I am using VMWare to host a Deb-Bookworm distribution. Works mildly well, but really heavy. Definitely going to be looking into distributing the VMs as dedicated server images, not gerry-rigged forwarding machines with desktop environments.*
 
-You *100% could* configure a VM and route traffic from your host machine to a VM guest, [instructions for VM configuration here](docs/VMConfig.md).
+You *100% could* configure a VM and route traffic from your host machine to a VM guest, [instructions for VM configuration here (not yet, sorry)](docs/VMConfig.md).
 
-For now, just running mitmproxy should be enough, though network level obfuscation will not be possible without a Linux kernel.
+For now, just running STATIC should be enough, though network level obfuscation will not be possible without a Linux kernel.
+
+## Why should I install and run this on my machine?
+
+The core of the traffic obfuscation is solid and functional. When properly configured, this software defeats modern fingerprinting techniques. Seriously. However, the included `profiles.json` is still being refined. The profiles work, but require manual review and adjustment to ensure coherence for your specific use case. 
+
+If you’re comfortable with **technical setup**, **manual maintenance**, and **iteration**, you’ll get real privacy gains. If you need plug-and-play, check back in a few weeks.
 
 ## Why *shouldn't* I install and run this on my machine?
 
