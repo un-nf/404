@@ -1,25 +1,25 @@
 # 404 v1.0
 Rust privacy proxy & Linux kernel module. Full client-fingerprint control.
 
-[Quick Start](#quick-consent--warning)
-
-[Join the Discord for support!](https://discord.gg/G7rUYrZqS2)
-
-**Main Discussion:** GitHub discussions
-
-*Alternative community options coming soon!*
-
-## Quick consent & warning
+### Quick consent & warning
 
 *By running this software you understand that:*
-- This proxy will generate a local CA and key-pair on its first run. As of now, there is no functionality or instructions for adding or removing these to your trust store.
-- **This proxy terminates TLS** usernames and passwords that pass through this proxy may be stored/visible in ***local only*** logs. Do not share logs. 
+- This proxy will generate a local CA and key-pair on its first run. As of now, there is no functionality or instructions for removing these from your trust store.
+- **This proxy terminates TLS**, usernames and passwords that pass through this proxy may be temporarilt stored/visible in ***local only*** logs. Do not share logs. 
 - This is beta software - no warranty, no guarantees, minimal support.
 
 *...and agree that:*
 - You will not use your primary accounts.
 - You will not share your CA certificate with anyone.
 - If you find a security issue report it to 404mesh@proton.me
+
+[Quick Start](##how-do-i-install-and-run-404-on-my-machine)
+
+[Join the Discord for support!](https://discord.gg/G7rUYrZqS2)
+
+**Main Discussion:** GitHub discussions
+
+*Alternative community options coming soon!*
 
 ## What is 404?
 
@@ -86,7 +86,7 @@ Currently, the following is implemented:
 - Flow label → randomized
 ```
 
-## How do I install and run this on my machine?
+## How do I install and run 404 on my machine?
 
 ### Requirements
 
