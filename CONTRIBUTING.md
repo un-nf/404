@@ -1,87 +1,73 @@
 # Contributing to 404
 
-## Foreword
+## The Philosophy
 
-This project is not a charity for random pull requests. Random, anonymous PRs from strangers create legal, security, and product friction that can block the project's growth.
+This project is not a public utility seeking random pull requests. It's a focused engineering effort. Anonymous, drive-by PRs create legal friction, security risks, and product debt that threaten the project's integrity and velocity.
 
-If you want to help, **join the team**. If you can't join the team, there are useful, safer ways to contribute short of code-ownership: detailed issues, reproducible test cases, and design proposals. We value long-term collaborators over one-off patches.
+We value long-term collaborators over one-off patches. If you want to contribute code, the path is to **join the team**. If you can't commit to that, there are still high-value ways to contribute, primarily through detailed issues, reproducible test cases, and structured design proposals.
 
 ## TL;DR
 
-**We do not want:**
-- Random PRs from unknown authors.
+**We do not accept:**
+- Unsolicited Pull Requests from unknown authors.
 
-**We want:**
-- Developers who are willing to commit: join the team, sign contributor agreements, and help carry the design, security, and maintenance burden.
-- If you can't join, open an issue, file a detailed bug, or submit test cases/examples rather than direct code changes.
+**We are looking for:**
+- **Team Members:** Developers willing to commit, sign a contributor agreement, and share the burden of design, security, and maintenance for a specific subsystem.
+- **Specialized Contributors:** If you can't join the team, provide high-signal contributions: file a detailed bug, submit a failing test case, or write a design proposal.
 
-**Contact to apply:** `404mesh@proton.me`
+**To apply to the team, contact:** `404mesh@proton.me`
 
-## Why Not Random PRs?
+## Why This Policy?
 
-Accepting code from many individual contributors without an explicit legal agreement creates long-term problems:
+Accepting code without a formal, trust-based relationship creates long-term problems:
 
 ### Operational Risk
-This software intentionally manipulates traffic. We must control who can alter critical code paths (header manipulation, certificate handling, logging). Loose PR intake invites accidental or malicious changes.
+This software intentionally terminates TLS and manipulates traffic at multiple layers. We must maintain strict control over who can alter critical code paths (the `STATIC` pipeline, certificate handling, eBPF logic). A loose PR process is an unacceptable risk.
 
 ### Security & Audit Cost
-Every external contribution increases audit surface area. Unknown authorship means unknown intent. We must be able to perform code provenance checks and reproducible builds; that's easier when contributors are known and sign commitments.
+Every line of contributed code increases the audit surface. Unknown authorship means unknown intent. To maintain a defensible security posture, we require code provenance and GPG-signed commits from vetted team members.
 
 ### Product Integrity
-A product-ready package needs an auditable, test-covered codebase. Random PRs increase technical debt and create onboarding friction when we try to harden the repo for distribution.
+Now at v1.0, the project has a stable core architecture. Contributions must align with the roadmap and architectural principles. Random PRs often diverge, creating technical debt and making it harder to harden the system for distribution.
 
-### Relicensing & Packaging Complications
-If we decide later to change the license, dual-license, or build a commercial offering, every contributor's copyright needs to be accounted for. Without contributor agreements that explicitly license their contributions to the project owner, relicensing is technically and practically blocked.
+### Licensing & Copyright
+To maintain legal agility (for potential relicensing, commercial offerings, or partnerships), we must have a clean copyright chain. This requires a Contributor License Agreement (CLA) from anyone who contributes code, which is impractical to manage for drive-by PRs.
 
-## AGPLv3 Implications
+## How You Can Contribute (Without Joining the Team)
 
-This repo is distributed under AGPLv3. AGPLv3 has practical consequences you need to understand before contributing:
+If you don't want to join full-time but still want to help, focus on contributions that don't involve direct code changes. This is where you can have the most impact.
 
-### Viral Copyleft
-Code distributed under AGPLv3 requires derivative works to be licensed under AGPLv3 as well. If we accept code from contributors under AGPLv3, that code becomes part of the copyleft pool.
+### 1. Open a High-Quality Issue
+- **Clear Title:** "Login fails on `example.com` due to CSP violation" is better than "stuff broke."
+- **Reproduction Steps:** Provide a step-by-step guide to trigger the bug.
+- **Expected vs. Actual Behavior:** What did you expect to happen? What happened instead?
+- **Sanitized Logs:** Provide logs with `RUST_LOG=debug` enabled, removing any sensitive data.
 
-### Contributor Provenance Matters
-When you submit code, you are effectively adding your copyright to the project. This is not cosmetic — it affects what the project can legally become later. We want you to be a part of the project, just reach out!
+### 2. Submit Test Artifacts & Profiles
+The single most valuable non-code contribution is a new or improved **profile**.
+- **Create a Profile:** Capture the fingerprint of a new browser or device. Document your process.
+- **Submit a Failing Test Case:** Provide a sanitized `.pcap` file, a HAR file, or a self-contained HTML page that reproduces a fingerprinting leak or a breakage.
+- **Validate a Profile:** Run an existing profile against a new fingerprinting service and document any detected inconsistencies.
 
-**Why this matters for 404:** We may want flexibility (commercial support, different distribution models, or dual-licensing) as the project matures. Accepting many anonymous AGPLv3 contributions without clear assignment/licensing agreements permanently narrows future options and increases legal overhead.
+### 3. Write a Design Proposal
+If you have an idea for a new feature or a change to an existing one, write a one-page design document.
+- **Problem:** What specific problem are you solving?
+- **Proposed Solution:** How will you solve it? Include architectural diagrams if necessary.
+- **Security Considerations:** How does your proposal affect the threat model?
 
-> **Short legal note:** I'm not a lawyer. This is my understanding of how contributor copyright interacts with AGPLv3. For binding legal advice, consult counsel.
-
-## How You Can Contribute Without Becoming a Team Member
-
-If you don't want to join full-time (or can't), but still want to help:
-
-### Open an Issue
-Clear description, reproduction steps, expected vs actual behavior, and sanitized logs.
-
-### Submit Test Artifacts
-Sanitized pcaps, small test pages, or sample flows that reproduce fingerprinting or header problems.
-
-### Design Proposals
-Write a clear design doc. Long-form thought and reproducible design is gold.
-
-### Threat Models & Audits
-Produce a one-page threat model, or a short audit checklist for a subsystem (header munging, CA handling, logging).
-
-We will review and, when feasible, incorporate non-code contributions or give guidance on how to proceed safely.
+We will review these contributions and, where appropriate, provide guidance or implement them ourselves.
 
 ## How to Join the Team
 
-We are looking for people who will do more than patch: engineers who will own parts of the system.
+We are looking for engineers who will own a piece of the system, not just patch a bug.
 
 ### What We Expect
-
-Team members should:
-
-- Be comfortable with core systems code (Python, mitmproxy, networking, eBPF basics if relevant).
-- Sign a contributor agreement (CLA) or assign copyright as a condition of code ownership / deep contribution.
-- Use verifiable identities for commits (GPG-signed commits and traceable email).
-- Participate in security triage and code review.
-- Write tests and maintain CI for the components they own.
-- Be willing to collaborate in an explicit governance model (maintainers, reviewers, release process).
+- **Subsystem Ownership:** Be prepared to become the expert on a part of the codebase (e.g., the HTTP/2 engine, the eBPF module, profile management, a specific pipeline stage).
+- **Systems-Level Skill:** Be comfortable with Rust, networking fundamentals, and the core concepts of the project.
+- **Commitment to Security:** Sign a contributor agreement (CLA), use a verifiable identity (GPG-signed commits), and participate in security reviews.
+- **Write Tests:** All code contributions must be accompanied by tests. You are responsible for maintaining CI for the components you own.
 
 ### Onboarding Steps
-
-1. **Email `404mesh@proton.me`** with a short pitch: your experience, why you want to join, and what subsystem you want to own.
-2. **Provide a short technical sample** (link to a repo or a short code sample).
-3. **We'll schedule a short technical conversation**; if accepted, we will present the contributor agreement and onboarding tasks.
+1. **Email `404mesh@proton.me`:** Introduce yourself, explain why you want to join, and state which subsystem you're interested in owning.
+2. **Provide a Work Sample:** Link to a relevant project, a detailed technical write-up, or a code sample that demonstrates your capabilities.
+3. **Technical Conversation:** If there's a good fit, we'll schedule a call to discuss the project and your potential role. If accepted, we'll provide the CLA and get you started.
