@@ -467,7 +467,6 @@
         },
         "vendorFlavors": {
           "value": [
-            "chrome"
           ]
         },
         "domBlockers": {},
