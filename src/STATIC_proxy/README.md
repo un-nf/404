@@ -18,7 +18,7 @@
 ## Table of Contents
 
 <details>
-<summary><b>📖 Core Concepts</b></summary>
+<summary><b>Core Concepts</b></summary>
 
 - [Why STATIC Exists](#why-static-exists)
 - [Architecture Overview](#architecture)
@@ -27,7 +27,7 @@
 </details>
 
 <details>
-<summary><b>⚙️ System Components</b></summary>
+<summary><b>System Components</b></summary>
 
 - [Configuration System](#configuration)
 - [Control Plane](#control-plane)
