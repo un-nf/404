@@ -1,0 +1,23 @@
+[listener]
+bind_address = "127.0.0.1"
+bind_port = 8080
+proxy_protocol = "tls"
+
+[tls]
+ca_cert_path = "certs/static-ca.crt"
+ca_key_path = "certs/static-ca.key"
+cache_dir = "certs/cache"
+
+[pipeline]
+profiles_path = "../profiles"
+default_profile = "firefox-windows"
+js_debug = false
+alt_svc_strategy = "normalize"
+
+[http3]
+enabled = false
+bind_address = "127.0.0.1"
+bind_port = 8081
+
+[telemetry]
+mode = "stdout"
