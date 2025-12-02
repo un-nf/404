@@ -23,9 +23,6 @@ use clap::Parser;
 use static_proxy::{app::StaticApp, config::StaticConfig, utils::init_tracing};
 
 /// Command-line interface definition using clap's derive API.
-///
-/// Minimal surface area: only expose configuration file path and logging format.
-/// All behavioral config (bind address, TLS settings, stages, profiles) lives in TOML.
 #[derive(Debug, Parser)]
 #[command(
     name = "static",
@@ -33,17 +30,6 @@ use static_proxy::{app::StaticApp, config::StaticConfig, utils::init_tracing};
 )]
 struct Cli {
     /// Path to the STATIC configuration file (TOML format).
-    ///
-    /// Default: config/static.example.toml (ships with the repo)
-    ///
-    /// Usage:
-    /// ```sh
-    /// # Use default config
-    /// ./static_proxy
-    ///
-    /// # Use custom config
-    /// ./static_proxy --config ~/.static_proxy/production.toml
-    /// ```
     #[arg(short, long, default_value = "config/static.example.toml")]
     config: PathBuf,
 
@@ -54,37 +40,18 @@ struct Cli {
 
 /// Application entry point: parse CLI, initialize logging, load config, run server.
 ///
-/// Startup Sequence:
-/// 1. Parse command-line arguments (clap validates types, required fields, etc.)
-/// 2. Initialize tracing subscriber (stdout or JSON, based on --json-logs flag)
-/// 3. Load TOML configuration file (validates schema, resolves paths)
-/// 4. Create StaticApp (initializes TlsProvider, StagePipeline, TelemetrySink)
-/// 5. Run the app (binds listener, enters accept loop)
-///
-/// 
-/// Async Runtime:
-/// #[tokio::main] macro expands to:
-/// ```ignore
-/// fn main() -> Result<()> {
-///     tokio::runtime::Runtime::new()?.block_on(async_main())
-/// }
-/// ```
 /// This creates a multi-threaded tokio runtime (default: one thread per CPU core)
 /// and runs the async main function on it.
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Parse CLI arguments (exits with usage message if invalid)
+
     let cli = Cli::parse();
 
-    // Initialize tracing/logging (must happen before any tracing:: calls)
     init_tracing(cli.json_logs);
 
-    // Load configuration from TOML file (validates schema, resolves paths)
     let config = StaticConfig::load(&cli.config)?;
 
-    // Initialize the application (TLS provider, stages, telemetry)
     let app = StaticApp::new(config).await?;
 
-    // Run the server (binds listener, accepts connections until Ctrl+C)
     app.run().await
 }

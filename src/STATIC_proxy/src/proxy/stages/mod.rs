@@ -43,26 +43,19 @@ use crate::{config::PipelineConfig, proxy::flow::Flow, telemetry::TelemetrySink}
 
 #[derive(Clone)]
 /// Represents the ordered pipeline of addon stages run for every flow.
-///
-/// Each stage is cloned into the vector once during boot and kept behind an `Arc` so that
-/// `StagePipeline` remains `Clone`/`Send` while the stages themselves can retain shared
-/// internal state (e.g., profile caches, JS bundles). The order mirrors the legacy stack:
-/// `HeaderProfileStage` (request header spoofing) → `BehavioralNoiseStage` (request bodies)
-/// → `CspStage` (nonce bookkeeping) → `JsInjectionStage` (HTML mutation + script hashes)
-/// → `AltSvcStage` (response header hygiene).
 pub struct StagePipeline {
     inner: Arc<PipelineInner>,
 }
 
 struct PipelineInner {
-    stages: Vec<Arc<dyn FlowStage>>, // preserved order mirrors mitmproxy priority
+    stages: Vec<Arc<dyn FlowStage>>,
 }
 
 impl StagePipeline {
     /// Builds the pipeline with deterministic ordering so request mutations always happen before
     /// CSP/JS stages and response sanitizers run after script injection.
     pub fn build(cfg: &PipelineConfig, _telemetry: TelemetrySink) -> Result<Self> {
-        // NOTE: order matters! request hooks first, CSP after JS hash registration, etc.
+
         let mut stages: Vec<Arc<dyn FlowStage>> = Vec::new();
         stages.push(Arc::new(HeaderProfileStage::new(
             cfg.profiles_path.clone(),
@@ -78,7 +71,6 @@ impl StagePipeline {
         })
     }
 
-    /// Runs the per-request hooks in pipeline order.
     pub async fn process_request(&self, flow: &mut Flow) -> Result<()> {
         for stage in &self.inner.stages {
             stage.on_request(flow).await?;
@@ -86,7 +78,6 @@ impl StagePipeline {
         Ok(())
     }
 
-    /// Runs the response header hooks after receiving the upstream headers but before the body.
     pub async fn process_response_headers(&self, flow: &mut Flow) -> Result<()> {
         for stage in &self.inner.stages {
             stage.on_response_headers(flow).await?;
@@ -94,7 +85,6 @@ impl StagePipeline {
         Ok(())
     }
 
-    /// Runs response-body hooks (JS injection, Alt-Svc normalization, etc.).
     pub async fn process_response_body(&self, flow: &mut Flow) -> Result<()> {
         for stage in &self.inner.stages {
             stage.on_response_body(flow).await?;
@@ -102,7 +92,6 @@ impl StagePipeline {
         Ok(())
     }
 
-    /// Gives stages a final chance to mutate the response after all body hooks completed.
     pub async fn finalize_response(&self, flow: &mut Flow) -> Result<()> {
         for stage in &self.inner.stages {
             stage.on_response_finalized(flow).await?;
@@ -112,10 +101,10 @@ impl StagePipeline {
 }
 
 #[async_trait]
-/// Trait implemented by each addon stage. The default implementations are no-ops.
+
 pub trait FlowStage: Send + Sync {
     async fn on_request(&self, _flow: &mut Flow) -> Result<()> {
-        // default no-op; stages override what they need.
+        
         Ok(())
     }
 

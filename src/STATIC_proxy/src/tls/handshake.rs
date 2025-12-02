@@ -28,17 +28,17 @@ use crate::utils::ProxyResult;
 /// refactoring downstream consumers.
 #[derive(Debug, Clone, Default)]
 pub struct ClientHello {
-    /// Optional hostname the client advertised via SNI.
+
     pub sni: Option<String>,
-    /// TLS protocol version as advertised in the ClientHello record.
+
     pub version: u16,
-    /// Ordered list of cipher suites proposed by the client.
+    
     pub cipher_suites: Vec<u16>,
-    /// Ordered list of extension identifiers found in the ClientHello.
+    
     pub extensions: Vec<u16>,
-    /// Elliptic curve IDs (supported groups) used in JA3 position four.
+    
     pub elliptic_curves: Vec<u16>,
-    /// EC point format codes used in JA3 position five.
+    
     pub ec_point_formats: Vec<u8>,
 }
 

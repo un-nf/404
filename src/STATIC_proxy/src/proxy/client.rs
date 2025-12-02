@@ -36,10 +36,6 @@ use tokio_rustls::{client::TlsStream, TlsConnector};
 use crate::tls::profiles::TlsClientPlan;
 
 /// Upstream client connector for establishing connections to origin servers.
-///
-/// The current implementation dials TCP with bounded timeouts, performs a rustls client
-/// handshake (also bounded) and installs TLS client plans derived from profiles whenever
-/// one is provided. DNS lookups are cached with exponential backoff fallbacks.
 pub struct UpstreamClient;
 
 const DNS_CACHE_TTL_SECS: u64 = 60;
@@ -59,23 +55,6 @@ struct CachedDnsEntry {
 
 impl UpstreamClient {
     /// Connects to the given host and port, returning a TLS stream.
-    ///
-    /// **Flow:**
-    /// 1. Dial TCP to host:port
-    /// 2. Initiate TLS handshake with SNI=host
-    /// 3. Validate server certificate against system roots
-    /// 4. Return encrypted stream
-    ///
-    /// **Error Cases:**
-    /// - DNS resolution failure
-    /// - Connection refused (server not listening)
-    /// - TLS handshake failure (cert validation, protocol mismatch)
-    /// - Network timeout
-    ///
-    /// **TODO:**
-    /// - Add connection pooling
-    /// - Add instrumentation (connection time, reuse count)
-    /// - Support H2 via ALPN
     pub async fn connect(
         host: &str,
         port: u16,

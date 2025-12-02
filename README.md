@@ -190,6 +190,7 @@ $ source $HOME/.cargo/env
 ### 2. Run the proxy
 
 ```bash
+$ cd 404/src/STATIC_proxy # Your path
 $ cargo run   # This will take a while on the first run.
 ```
 

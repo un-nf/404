@@ -21,29 +21,6 @@ use anyhow::Result;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 /// Bidirectional copy between client and upstream streams (data plane).
-///
-/// **Purpose:**
-/// After the pipeline completes (request/response headers/body mutations), we forward
-/// encrypted bytes between client and upstream without further inspection. This is the
-/// "transparent proxy" phase where we're just a dumb pipe.
-///
-/// **Implementation:**
-/// Uses tokio::io::copy_bidirectional to concurrently copy data in both directions:
-/// - Client → Upstream: Forward remaining request data (body, pipelined requests)
-/// - Upstream → Client: Forward response (headers, body, keep-alive connections)
-///
-/// **Termination:**
-/// Stops when either side closes the connection (EOF) or encounters an error. This is
-/// normal for HTTP/1.1 connections where the client closes after receiving the response.
-///
-/// **Error Handling:**
-/// Errors are expected (client disconnects, upstream timeouts, network failures). We log
-/// and propagate them to handle_connection, which closes both sides gracefully.
-///
-/// **Future Enhancements:**
-/// - Add instrumentation (bytes transferred, duration, throughput)
-/// - Implement backpressure handling for slow readers
-/// - Add timeout for idle connections
 pub async fn proxy_data<C, U>(client: &mut C, upstream: &mut U) -> Result<()>
 where
     C: AsyncRead + AsyncWrite + Unpin,
