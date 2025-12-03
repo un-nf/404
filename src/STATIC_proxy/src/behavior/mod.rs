@@ -22,7 +22,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 const ENGINE_DIRECTORY: &str = "assets/js";
-const ENGINE_HANDLE: &str = "behavioral_noise";
+const ENGINE_HANDLE: &str = "behavioral_noise_v1";
 const BEHAVIOR_MARKER: &str = "__static_behavioral";
 
 /// JS shim loader + telemetry normalizer helpers.
@@ -35,7 +35,7 @@ impl BehavioralNoiseEngine {
     /// Creates a new engine reference with the embedded JS payload.
     pub fn new() -> Self {
         Self {
-            script: include_str!("../../assets/js/behavioral_noise.js"),
+            script: include_str!("../../assets/js/behavioral_noise_v1.js"),
         }
     }
 
@@ -152,7 +152,7 @@ impl Default for BehavioralNoisePlan {
 
 /// Helper exposed so other crates can find the JS asset on disk when needed.
 pub fn engine_asset_path() -> &'static str {
-    "assets/js/behavioral_noise.js"
+    "assets/js/behavioral_noise_v1.js"
 }
 
 /// Marker field name shared between JS + proxy when wrapping telemetry payloads.
