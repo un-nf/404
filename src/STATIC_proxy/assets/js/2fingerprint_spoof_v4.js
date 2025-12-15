@@ -1,5 +1,5 @@
 /* STATIC Proxy Fingerprint Spoofing Layer v4 (AGPL-3.0) */
-(function staticFingerprintShield() {
+;(function staticFingerprintShield() {
   'use strict';
 
   if (window.__static_advanced_protections_active || window.__404_advanced_protections_active) {

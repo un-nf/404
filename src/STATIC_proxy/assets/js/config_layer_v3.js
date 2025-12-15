@@ -1,5 +1,5 @@
 /* STATIC Proxy Config Layer v3 (AGPL-3.0) */
-(function staticConfigLayerV3() {
+;(function staticConfigLayerV3() {
   'use strict';
 
   if (!window.__static_bootstrap_active) {
@@ -12,7 +12,20 @@
 
   let parsedConfig = {};
   try {
-    parsedConfig = JSON.parse('{{config_json}}');
+    let RAW_CONFIG;
+    try {
+      RAW_CONFIG = ({{config_json}});
+    } catch (_) {
+      RAW_CONFIG = '{{config_json}}';
+    }
+
+    if (typeof RAW_CONFIG === 'string') {
+      if (RAW_CONFIG && RAW_CONFIG !== '{{config_json}}') {
+        parsedConfig = JSON.parse(RAW_CONFIG);
+      }
+    } else if (RAW_CONFIG && typeof RAW_CONFIG === 'object') {
+      parsedConfig = RAW_CONFIG;
+    }
   } catch (err) {
     console.error('[STATIC-CONFIG] failed to parse config json:', err && err.message ? err.message : err);
     parsedConfig = {};
@@ -54,7 +67,6 @@
 
   window.__STATIC_CONFIG__ = parsedConfig;
   window.__STATIC_FINGERPRINT__ = fingerprintConfig;
-  // Legacy shims still consult __fpConfig, so expose the fingerprint view instead of the full profile blob.
   window.__fpConfig = fingerprintConfig;
 
   const required = [

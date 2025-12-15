@@ -1,5 +1,5 @@
 /* STATIC Proxy Bootstrap v4 (AGPL-3.0) */
-(function staticBootstrap() {
+;(function staticBootstrap() {
   'use strict';
 
   const MARK = '__static_bootstrap_active';

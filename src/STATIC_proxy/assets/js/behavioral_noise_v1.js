@@ -1,5 +1,5 @@
 /* STATIC Proxy Behavioral Noise Layer v1 (AGPL-3.0) */
-(function () {
+;(function () {
   if (window.__STATIC_BEHAVIOR_ENGINE__) {
     return;
   }

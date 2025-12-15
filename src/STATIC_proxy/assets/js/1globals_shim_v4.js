@@ -1,5 +1,5 @@
 /* STATIC Proxy Globals Shim v4 (AGPL-3.0) */
-(function staticGlobalsShim() {
+;(function staticGlobalsShim() {
   'use strict';
 
   const MARK = '__static_globals_shim_active';
