@@ -44,6 +44,8 @@ x509-parser = "0.16"
 lru = "0.12"
 pem = "3.0.6"
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+cookie = "0.18"
+publicsuffix = { version = "2.3", default-features = true }
 brotli = "3"
 minify-js = "0.6"
 swc_core = { version = "0.92", features = ["common", "ecma_ast", "ecma_parser", "ecma_visit", "ecma_minifier", "ecma_codegen", "ecma_transforms"] }

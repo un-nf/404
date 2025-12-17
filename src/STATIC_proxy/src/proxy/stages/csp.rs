@@ -59,7 +59,8 @@ const CSP_PASSTHROUGH_HOSTS: &[&str] = &[
     "accounts.google.com",
     "drive.google.com",
     "gstatic.com",
-    "recaptcha.net"
+    "recaptcha.net",
+    "challenges.cloudflare.com"
 ];
 
 use super::FlowStage;

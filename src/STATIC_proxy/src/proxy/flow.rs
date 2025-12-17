@@ -181,6 +181,9 @@ pub struct FlowMetadata {
 
     pub alt_svc_mutations: Vec<String>,
 
+    /// Registrable domain (eTLD+1) of the top-level site for this flow, used for cookie partitioning.
+    pub top_site: Option<String>,
+
     
     pub client_protocol: Option<String>,
 

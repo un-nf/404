@@ -32,9 +32,6 @@ use crate::{assets::ScriptBundle, proxy::flow::{Flow, ResponseParts}};
 
 use super::FlowStage;
 
-/// JS injector prepares the deterministic script payloads, decodes compressed HTML bodies,
-/// records CSP hashes, and injects the STATIC bootstrap/globals/config/fingerprint bundles
-/// directly into the `<head>` of every eligible document.
 #[derive(Clone)]
 pub struct JsInjectionStage {
     bundle: ScriptBundle,
@@ -131,7 +128,6 @@ impl JsInjectionStage {
         (block, hashes)
     }
 
-    /// Confirms the response is HTML and decodes it into a plain buffer the injector can mutate.
     fn prepare_html_body(response: &mut ResponseParts) -> Result<bool> {
         let content_type = response
             .headers
@@ -267,11 +263,7 @@ enum InsertionStrategy {
 
 #[async_trait]
 impl FlowStage for JsInjectionStage {
-    /// Ensures the fingerprinting configuration is ready before bodies are sent.
-    ///
-    /// This stage runs after the upstream response body is buffered and just before
-    /// we hand the HTML back to the client. It calculates CSP-compatible hashes for
-    /// every injected script so the CSP stage can include them later in the response.
+
     async fn on_response_body(&self, flow: &mut Flow) -> Result<()> {
         if !self.should_inject(flow)? {
             return Ok(());
@@ -294,7 +286,16 @@ impl FlowStage for JsInjectionStage {
 
         let body = body_owned;
         let body_lower = body.to_ascii_lowercase();
-        let strategy = self.choose_insertion_strategy(&body_lower);
+        let mut strategy = self.choose_insertion_strategy(&body_lower);
+        if let Some(script_idx) = body_lower.find("<script") {
+            let planned_idx = match strategy {
+                InsertionStrategy::InsideHead(i) | InsertionStrategy::CreateHeadAt(i) => i,
+                InsertionStrategy::PrependHead => 0,
+            };
+            if script_idx < planned_idx {
+                strategy = InsertionStrategy::PrependHead;
+            }
+        }
         let wrapped_block = format!("<head>\n{}\n</head>\n", injection_block);
 
         let mut mutated = String::with_capacity(body.len() + wrapped_block.len());

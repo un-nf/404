@@ -78,7 +78,7 @@ pub async fn handle_connection(
     tls: Arc<TlsProvider>,
     stages: StagePipeline,
     telemetry: TelemetrySink,
-    http3_enabled: bool,
+    _http3_enabled: bool,
 ) -> Result<()> {
 
     let protocol = detect_protocol(&socket).await?;
