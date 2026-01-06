@@ -1,6 +1,6 @@
 [listener]
 bind_address = "127.0.0.1"
-bind_port = 8080
+bind_port = 4040
 proxy_protocol = "tls"
 
 [tls]
@@ -17,7 +17,7 @@ alt_svc_strategy = "normalize"
 [http3]
 enabled = false
 bind_address = "127.0.0.1"
-bind_port = 8081
+bind_port = 4041
 
 [telemetry]
 mode = "stdout"
