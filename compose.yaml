@@ -10,10 +10,14 @@
 services:
   server:
     build:
-      context: .
+      context: src/STATIC_proxy
+      dockerfile: Dockerfile
       target: final
     ports:
       - 4040:4040
+    volumes:
+      # Persist generated CA/cert cache outside the container. Update the host path as needed.
+      - /Users/sethhonda/Desktop/certs:/app/static_proxy/certs
 
 # The commented out section below is an example of how to define a PostgreSQL
 # database that your application can use. `depends_on` tells Docker Compose to

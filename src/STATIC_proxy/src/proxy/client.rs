@@ -20,7 +20,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 use anyhow::{anyhow, Context, Result};
 use dashmap::DashMap;
 use once_cell::sync::Lazy;
-use rustls::{crypto::aws_lc_rs, pki_types::ServerName};
+use rustls::{crypto::aws_lc_rs, pki_types::ServerName, RootCertStore};
 use std::{
     net::{SocketAddr, ToSocketAddrs},
     sync::Arc,
@@ -101,12 +101,8 @@ impl UpstreamClient {
         })?;
         tracing::debug!(%connected_addr, "upstream TCP connected, starting TLS");
 
-        // Step 2: Build TLS client config (validates server certs against system roots)
-        let system_roots = || {
-            let mut store = rustls::RootCertStore::empty();
-            store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-            store
-        };
+        // Step 2: Build TLS client config (validates server certs against native + webpki roots)
+        let system_roots = build_root_store();
 
         let config = if let Some(plan) = plan {
             let mut provider = aws_lc_rs::default_provider();
@@ -128,7 +124,7 @@ impl UpstreamClient {
                 })?;
 
             let mut cfg = builder
-                .with_root_certificates(system_roots())
+                .with_root_certificates(system_roots.clone())
                 .with_no_client_auth();
 
             if let Some(forced_alpn) = alpn_override.clone() {
@@ -141,7 +137,7 @@ impl UpstreamClient {
             cfg
         } else {
             let mut cfg = rustls::ClientConfig::builder()
-                .with_root_certificates(system_roots())
+                .with_root_certificates(system_roots)
                 .with_no_client_auth();
             cfg.alpn_protocols =
                 alpn_override.unwrap_or_else(|| vec![b"h2".to_vec(), b"http/1.1".to_vec()]);
@@ -172,6 +168,30 @@ impl UpstreamClient {
 
         Ok(tls_stream)
     }
+}
+
+/// Build a root store using native OS certificates inside the container, plus webpki roots as a safety net.
+/// This keeps public roots while allowing environments that rely on system-provided anchors to work without
+/// disabling verification.
+fn build_root_store() -> RootCertStore {
+    let mut store = RootCertStore::empty();
+
+    match rustls_native_certs::load_native_certs() {
+        Ok(certs) => {
+            let added = store.add_parsable_certificates(certs);
+            tracing::info!(added, "loaded native root certificates");
+        }
+        Err(err) => {
+            tracing::warn!(error = %err, "failed to load native root certificates; falling back to webpki-only");
+        }
+    }
+
+    let before = store.len();
+    store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    let added_webpki = store.len().saturating_sub(before);
+    tracing::debug!(added_webpki, "added webpki roots to trust store");
+
+    store
 }
 
 async fn resolve_upstream_addrs(host: &str, port: u16) -> Result<Vec<SocketAddr>> {

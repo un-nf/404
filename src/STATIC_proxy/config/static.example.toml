@@ -1,5 +1,6 @@
 [listener]
-bind_address = "127.0.0.1"
+# Bind to all interfaces in-container so traffic from the host reaches the proxy via the published port.
+bind_address = "0.0.0.0"
 bind_port = 4040
 proxy_protocol = "tls"
 
