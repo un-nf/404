@@ -24,7 +24,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use dashmap::DashMap;
 use rcgen::{
     BasicConstraints, Certificate, CertificateParams, DistinguishedName, DnType, IsCa,
@@ -34,7 +34,7 @@ use rustls::crypto::aws_lc_rs::sign::any_supported_type;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use rustls::{self, sign::CertifiedKey};
 
-use crate::config::TlsConfig;
+use crate::{config::TlsConfig, keystore::{build_keystore, KeystoreMode}};
 
 /// TlsProvider handles all the certificate magic that makes MITM interception work.
 ///
@@ -263,6 +263,8 @@ struct CertificateAuthority {
     cert: Certificate,
 }
 
+const CA_KEY_NAME: &str = "ca_key";
+
 // Custom Debug impl because rcgen::Certificate doesn't implement Debug.
 // Keeps sensitive stuff (private key) hidden while satisfying the Debug bound
 // required by rustls::server::ResolvesServerCert trait.
@@ -304,23 +306,55 @@ impl CertificateAuthority {
     /// **TODO:** Add explicit logging here when generating a new CA, with instructions
     /// on how to trust it. Currently only logged at startup in main.rs.
     fn load_or_generate(cfg: &TlsConfig) -> Result<Self> {
-        if cfg.ca_cert_path.exists() && cfg.ca_key_path.exists() {
-            // Load existing CA from disk
-            // rcgen 0.12 doesn't have from_ca_cert_der, so we reconstruct the Certificate manually
-            let key_pem = fs::read_to_string(&cfg.ca_key_path)?;
+        let keystore = build_keystore(&cfg.keystore, cfg.ca_key_path.clone());
+        let ca_cert_exists = cfg.ca_cert_path.exists();
+        let ca_key_in_keystore = keystore.get_secret(CA_KEY_NAME)?;
 
-            // Parse the private key from PEM format
+        #[cfg(target_os = "windows")]
+        let dpapi_mode = matches!(cfg.keystore.mode, KeystoreMode::Keychain) && cfg.keystore.fallback_path.is_none();
+        #[cfg(not(target_os = "windows"))]
+        let dpapi_mode = false;
+
+        // Plaintext on disk is only permitted for file mode or an explicit fallback.
+        // DPAPI mode persists a ciphertext blob for retrieval, but must never write the PEM.
+        let allow_plain_disk = matches!(cfg.keystore.mode, KeystoreMode::File)
+            || cfg.keystore.fallback_path.is_some();
+        let allow_disk_presence = allow_plain_disk || dpapi_mode;
+
+        let ca_key_exists = ca_key_in_keystore.is_some() || (allow_disk_presence && cfg.ca_key_path.exists());
+
+        // If a cert already exists but no key is available, refuse to regenerate to avoid breaking trust.
+        if ca_cert_exists && !ca_key_exists {
+            return Err(anyhow!(
+                "CA certificate exists but no private key found in keystore or fallback path; remove stale certs and re-run CA setup"
+            ));
+        }
+
+        if ca_cert_exists && ca_key_exists {
+            let key_bytes = match keystore.get_secret(CA_KEY_NAME)? {
+                Some(bytes) => bytes,
+                None if allow_plain_disk => fs::read(&cfg.ca_key_path)?,
+                None if dpapi_mode => {
+                    return Err(anyhow!(
+                        "CA certificate exists but DPAPI keystore missing; run cleanup/reinit CA to restore the protected key"
+                    ))
+                }
+                None => {
+                    return Err(anyhow!(
+                        "CA certificate exists but no private key found in keystore; remove stale certs and re-run CA setup"
+                    ))
+                }
+            };
+            let key_pem = String::from_utf8(key_bytes)?;
+
             let key_pair = rcgen::KeyPair::from_pem(&key_pem)?;
 
-            // Build CertificateParams with the loaded key pair
-            // We don't parse the certificate itself; we just need the key to sign with
             let mut params = CertificateParams::default();
             params.alg = &PKCS_ECDSA_P256_SHA256;
             params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
             params.distinguished_name = dn_for("STATIC Local CA");
             params.key_pair = Some(key_pair);
 
-            // Reconstruct the Certificate from params with the loaded key
             let cert = Certificate::from_params(params)?;
             Ok(Self { cert })
         } else {
@@ -329,18 +363,25 @@ impl CertificateAuthority {
             if let Some(parent) = cfg.ca_cert_path.parent() {
                 fs::create_dir_all(parent)?;
             }
-            if let Some(parent) = cfg.ca_key_path.parent() {
-                fs::create_dir_all(parent)?;
-            }
 
             // Generate self-signed CA certificate
             let cert = generate_ca();
 
             // Serialize and write to disk (PEM format for human readability)
             fs::write(&cfg.ca_cert_path, cert.serialize_pem()?)?;
-            fs::write(&cfg.ca_key_path, cert.serialize_private_key_pem())?;
+            let key_pem = cert.serialize_private_key_pem();
+            keystore.set_secret(CA_KEY_NAME, key_pem.as_bytes())?;
 
-            Ok(Self { cert })
+            // Verify the keystore actually retained the secret (fail fast instead of silently running without a key).
+            match keystore.get_secret(CA_KEY_NAME)? {
+                Some(_) => {
+                    if allow_plain_disk {
+                        fs::write(&cfg.ca_key_path, &key_pem)?;
+                    }
+                    Ok(Self { cert })
+                }
+                None => Err(anyhow!("keystore did not persist CA key; aborting to avoid thumbprint drift")),
+            }
         }
     }
 

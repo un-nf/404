@@ -24,6 +24,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
+use crate::keystore::KeystoreConfig;
 
 /// Configuration loaders and structures for the STATIC proxy.
 ///
@@ -120,6 +121,9 @@ pub struct TlsConfig {
     pub ca_key_path: PathBuf,
     /// Directory used for caching generated leaf certificates per hostname.
     pub cache_dir: PathBuf,
+    /// Keystore backend selection (file, keychain, etc.). Defaults to file for backward compatibility.
+    #[serde(default)]
+    pub keystore: KeystoreConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]

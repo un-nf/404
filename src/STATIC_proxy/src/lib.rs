@@ -21,6 +21,7 @@ pub mod app;
 pub mod assets;
 pub mod behavior;
 pub mod config;
+pub mod keystore;
 pub mod proxy;
 pub mod telemetry;
 pub mod tls;

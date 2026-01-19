@@ -7,6 +7,7 @@ proxy_protocol = "tls"
 ca_cert_path = "certs/static-ca.crt"
 ca_key_path = "certs/static-ca.key"
 cache_dir = "certs/cache"
+keystore = { mode = "keychain", service = "404.static_proxy", account = "ca_key" }
 
 [pipeline]
 profiles_path = "../profiles"

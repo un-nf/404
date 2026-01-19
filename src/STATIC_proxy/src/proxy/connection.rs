@@ -133,11 +133,27 @@ pub async fn handle_connection(
     match negotiated_alpn.as_deref() {
         Some(b"h2") => {
             tracing::debug!(%peer, "negotiated HTTP/2 with client");
-            handle_http2_session(client_tls, peer, stages, telemetry, sni, target_host).await
+            handle_http2_session(
+                client_tls,
+                peer,
+                stages,
+                telemetry,
+                sni,
+                target_host,
+            )
+            .await
         }
         _ => {
             tracing::debug!(%peer, "falling back to HTTP/1.1");
-            handle_http1_session(client_tls, peer, stages, telemetry, sni, target_host).await
+            handle_http1_session(
+                client_tls,
+                peer,
+                stages,
+                telemetry,
+                sni,
+                target_host,
+            )
+            .await
         }
     }
 }

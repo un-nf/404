@@ -47,8 +47,9 @@ flate2 = { version = "1", default-features = false, features = ["rust_backend"] 
 cookie = "0.18"
 publicsuffix = { version = "2.3", default-features = true }
 brotli = "3"
-minify-js = "0.6"
-swc_core = { version = "0.92", features = ["common", "ecma_ast", "ecma_parser", "ecma_visit", "ecma_minifier", "ecma_codegen", "ecma_transforms"] }
+
+keyring = { version = "3.6.3", features = ["apple-native"] }
+windows-sys = { version = "0.48", features = ["Win32_Security_Cryptography", "Win32_System_Memory"] }
 
 [dev-dependencies]
 tempfile = "3"
