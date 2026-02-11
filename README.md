@@ -7,6 +7,7 @@ Rust privacy proxy & Linux kernel module. Full client-fingerprint control.
 ---
 
 **ToC:**
+- [*View the manual instead*](https://un-nf.github.io/404-docs/)
 - [What is 404?](#what-is-404)
 - [Quick Start](#how-do-i-install-and-run-this-on-my-machine)
 - [Why does this matter?](#why-should-i-install-and-run-this-on-my-machine)
