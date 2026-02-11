@@ -7,7 +7,7 @@ Rust privacy proxy & Linux kernel module. Full client-fingerprint control.
 ---
 
 **ToC:**
-- [*View the manual instead*](https://un-nf.github.io/404-docs/)
+- [***View the manual instead***](https://un-nf.github.io/404-docs/)
 - [What is 404?](#what-is-404)
 - [Quick Start](#how-do-i-install-and-run-this-on-my-machine)
 - [Why does this matter?](#why-should-i-install-and-run-this-on-my-machine)
@@ -24,7 +24,7 @@ Rust privacy proxy & Linux kernel module. Full client-fingerprint control.
 *...and agree that:*
 - You will not use your primary accounts.
 - You will not share your CA certificate with anyone.
-- If you find a security issue report it to 404mesh@proton.me
+- If you find a security issue report it to 404co@proton.me
 
 [Join the Discord for support!](https://discord.gg/G7rUYrZqS2)
 
@@ -51,11 +51,11 @@ The heart of 404, built in Rust.
 
 *I want to start by saying I am new to the Rust ecosystem, If you see something I did wrong or could do better, open an issue.*
 
-That being said, the STATIC proxy is built from the ground up and wired specifically to give the user granular control over their fingerprint. Not just their browser fingerprint, but any device or app they choose to route through the proxy.
+That being said, the STATIC proxy is built from the ground up and wired specifically to give the user granular control over their online fingerprint. Not just their browser fingerprint, but any device or app they choose to route through the proxy.
 
 As it stands in v1.0, STATIC runs on localhost:8080 by default, never exposing itself to the internet or any device other than the one that it is running on. The logic behind STATIC is pretty simple and mimics a lot of the high-level logic that `mitmproxy` employs. 
 
-Requests are broken into `flow`s. Each `flow` passes through multiple `stage`s. A stage is where the request/response mutation happens. 
+Requests are broken into `flow`s. Each `flow` passes through multiple `stages`. A `stage` is where the request/response mutation happens. 
 
 **Request stages:**
 1. **HeaderProfileStage** - Rewrites headers based on your selected profile (User-Agent, Accept, sec-ch-ua, Accept-Language). Maintains strict ordering to match real browser behavior: remove -> replace -> replaceArbitrary -> replaceDynamic -> set -> append.
@@ -80,7 +80,7 @@ Don't believe me? Check my work...
 
 ### Linux eBPF module
 
-The eBPF module is, again, quite simple. It leverages powerful, fast, well documented, low-level Linux kernel hooks. By attaching carefully crafted eBPF programs to Linux's Traffic Control (tc) egress hooks, we can mutate files extensively.
+The eBPF module is, again, quite simple. It leverages powerful, fast, well documented, low-level Linux kernel hooks. By attaching eBPF programs to Linux's `Traffic Control` (`tc`) egress hooks, we can mutate packets extensively.
 
 Currently, the following is implemented:
 ```md
@@ -376,7 +376,7 @@ As governments worldwide push for mandatory surveillance (Chat Control in the EU
 
 If you do not understand JavaScript, or if you don't take the time to look through the code, there is almost no point in you downloading this proxy. The point of this is not to be a privacy proxy. **Not yet.** This repository, in its current state, is built for researchers, developers, and privacy advocates who understand the trade-offs and are comfortable with...
 
-***Manual configuration*** - Profiles require review and occasional tweaking based on your use-case and threat model. If you're confused about configuration, feel free to reach out in an [email](mailto:404mesh@proton.me), open a [GitHub issue](https://github.com/un-nf/404/issues), or [submit a ticket](https://discord.gg/G7rUYrZqS2) in the Discord.
+***Manual configuration*** - Profiles require review and occasional tweaking based on your use-case and threat model. If you're confused about configuration, feel free to reach out in an [email](mailto:404co@proton.me), open a [GitHub issue](https://github.com/un-nf/404/issues), or [submit a ticket](https://discord.gg/G7rUYrZqS2) in the Discord.
 
 ***!Occasional! breakage*** - Breakage is honestly limited to having to manually solve a captcha every now and again. Still, some websites will break, some login flows will fail, some features won't work. This is the nature of deep protocol mutation. If there's something critical, open a [GitHub issue](https://github.com/un-nf/404/issues) and I will try to find a workaround.
 
@@ -386,7 +386,7 @@ If you do not understand JavaScript, or if you don't take the time to look throu
 
 > I do not know the long term effects on account usage. I have been logging-in via this proxy using my personal Google, Microsoft, and Apple accounts for the last 6-ish months, and I have experienced no retaliation (bans and whatnot). That is *not* to say you will have the same experience. **I *strongly* recommend that you use alternate/disposable accounts if you're going to be testing OAuth or other login flows.**
 
-*I am not a cybersecurity engineer. I hammered this together and may have missed something important. Feel free to reach out with security vulnerabilities @ 404mesh@proton.me*
+*I am not a cybersecurity engineer. I hammered this together and may have missed something important. Feel free to reach out with security vulnerabilities @ 404co@proton.me*
 
 ---
 

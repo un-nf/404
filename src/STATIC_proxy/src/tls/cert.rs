@@ -37,25 +37,11 @@ use rustls::{self, sign::CertifiedKey};
 use crate::{config::TlsConfig, keystore::{build_keystore, KeystoreMode}};
 
 /// TlsProvider handles all the certificate magic that makes MITM interception work.
-///
-/// Here's the deal: we maintain one Certificate Authority (CA) and dynamically issue leaf certificates
-/// for whatever hostname the client requests via SNI. As long as they trust our CA, the browser has no
-/// idea we're sitting in the middle of their HTTPS traffic.
-///
-/// **How it works:**
-/// - CA: One self-signed root cert, loaded from disk or generated on first run.
-/// - Cache: In-memory DashMap storing issued leaf certs keyed by normalized hostname.
-/// - Leaf Issuance: Generate server certs on-demand, signed by our CA.
-///
-/// **Security stuff:**
-/// - CA private key stays in memory after loading (except when we first generate it).
-/// - Leaf certs cached with 24h TTL; regeneration gives you a fresh keypair.
-/// - Memory grows with unique SNIs; totally fine for MITM but worth noting.
 #[derive(Debug)]
 pub struct TlsProvider {
     ca: CertificateAuthority,
     cache: CertificateCache,
-    cache_dir: PathBuf, // TODO: Not using this yet, but prepped for disk-backed cert caching down the road
+    cache_dir: PathBuf,
 }
 
 const FALLBACK_SNI: &str = "static.local";
@@ -65,9 +51,6 @@ impl TlsProvider {
     ///
     /// First Run:
     /// If no CA exists at the configured paths, generates a new self-signed CA and writes
-    /// both the certificate and private key to disk as PEM files. The user must manually
-    /// trust this CA in their OS/browser certificate store before the proxy can intercept traffic.
-    ///
     /// Subsequent Runs:
     /// Loads the existing CA from disk using rcgen's PEM parsing utilities.
     pub async fn new(cfg: TlsConfig) -> Result<Self> {
@@ -91,16 +74,6 @@ impl TlsProvider {
     /// Returns a rustls CertifiedKey for the given server name (SNI hostname).
     ///
     /// If we've already issued a certificate for this hostname, return the cached Arc.
-    ///
-    /// or...
-    /// 1. Generate a new leaf certificate for the requested hostname
-    /// 2. Sign it with our CA
-    /// 3. Wrap it in a rustls CertifiedKey (certificate chain + private key)
-    /// 4. Cache the result for future requests
-    /// 5. Return an Arc to the cached entry
-    ///
-    /// DashMap for lock-free concurrent reads/writes. Safe to call from multiple
-    /// connection handlers simultaneously.
     pub fn certified_key(&self, server_name: &str) -> Result<Arc<CertifiedKey>> {
         let cache_key = normalize_sni(server_name);
 
@@ -125,29 +98,7 @@ impl TlsProvider {
 }
 
 /// Lock-free, thread-safe storage for issued leaf certificates.
-///
-/// **Data structure:**
-/// DashMap (concurrent HashMap) keyed by lowercase hostname. Each value is a CachedCert
-/// wrapping the Arc<CertifiedKey> plus creation timestamp for TTL checks.
-///
-/// **Thread safety:**
-/// DashMap uses sharded locking internally, way better concurrency than a single Mutex<HashMap>.
-/// Totally safe to call get/insert from multiple tokio tasks at once.
-///
-/// **Memory management:**
-/// - TTL-based eviction: certs expire after 24 hours, regenerated on next request
-/// - Expired entries hang around in memory until next access (lazy eviction)
-/// - Each CachedCert is ~2KB (DER cert + private key + timestamp), so 10K unique hosts ≈ 20MB
-///
-/// **Security wins:**
-/// - Limits cert compromise window to TTL duration (24 hours)
-/// - Forces periodic key rotation without breaking browser sessions
-/// - Expired certs auto-regenerate with fresh key pairs
-///
-/// **Future stuff:**
-/// - Add LRU eviction or size-based limits
-/// - Background task to proactively clean expired entries
-/// - Persist cache to disk on shutdown (cache_dir already prepped for this)
+
 #[derive(Debug)]
 struct CertificateCache {
     store: DashMap<String, CachedCert>,
@@ -156,13 +107,6 @@ struct CertificateCache {
 }
 
 /// Wraps a cached certificate with its creation timestamp for TTL checks.
-///
-/// **Purpose:**
-/// Ties each cached cert to the time it was issued so we can invalidate expired entries
-/// and regenerate with fresh keys.
-///
-/// **TTL enforcement:**
-/// On cache lookup, check if `created_at.elapsed() > ttl`. Expired? Treat it as a cache miss.
 #[derive(Debug, Clone)]
 struct CachedCert {
     key: Arc<CertifiedKey>,
@@ -171,11 +115,6 @@ struct CachedCert {
 
 impl CertificateCache {
     /// Creates an empty certificate cache with 24-hour TTL.
-    ///
-    /// **Why 24 hours?**
-    /// - Balances security (limits compromise window) and performance (avoids thrash)
-    /// - Short enough that stolen certs expire fast
-    /// - Long enough that normal browsing sessions don't trigger regeneration
     fn new() -> Self {
         Self {
             store: DashMap::new(),
@@ -185,19 +124,6 @@ impl CertificateCache {
     }
 
     /// Grabs a cached certificate for the given hostname, respecting TTL.
-    ///
-    /// **Returns:**
-    /// - Some(Arc<CertifiedKey>) if hostname has a valid (non-expired) cached cert
-    /// - None if this is the first request OR the cached cert exceeded TTL
-    ///
-    /// **TTL enforcement:**
-    /// Checks `created_at.elapsed()` against configured TTL. Expired entries get treated
-    /// as cache misses (caller regenerates). Stale entry stays in cache until overwritten
-    /// (lazy eviction).
-    ///
-    /// **Cloning behavior:**
-    /// Arc is cloned (cheap pointer copy, not the cert itself), so the underlying
-    /// CertifiedKey is shared across all connections to this hostname.
     fn get(&self, host: &str) -> Option<Arc<CertifiedKey>> {
         match self.store.get(host) {
             Some(entry) => {
@@ -219,14 +145,6 @@ impl CertificateCache {
     }
 
     /// Inserts a newly-issued cert into the cache with current timestamp.
-    ///
-    /// **Timestamp:**
-    /// Uses `Instant::now()` to record creation time for TTL checks on future lookups.
-    ///
-    /// **Concurrency:**
-    /// If two tasks try to insert the same hostname at once (cache miss race),
-    /// DashMap serializes the writes. One wins, the other's cert gets dropped.
-    /// Totally safe: both certs are valid and functionally identical.
     fn insert(&self, host: String, key: Arc<CertifiedKey>) {
         let cached = CachedCert {
             key,
@@ -241,33 +159,13 @@ impl CertificateCache {
 }
 
 /// Wraps a self-signed root CA certificate and its private key.
-///
-/// **What it does:**
-/// - Load existing CA from disk (cert + key as PEM files)
-/// - Generate new CA on first run and persist to disk
-/// - Sign leaf certificates for arbitrary hostnames (MITM server certs)
-///
-/// **Crypto:**
-/// - ECDSA P-256 (secp256r1) signatures for both CA and leaf certs
-/// - CA marked as cert authority (basicConstraints: CA:TRUE)
-/// - Leaf certs valid for 1 year, CA valid for 10 years
-///
-/// **Security stuff:**
-/// - CA private key is the crown jewel: if leaked, attackers can issue trusted certs
-/// - rcgen::Certificate contains both public cert and private key in one struct
-/// - Lives only in memory after initial load/generate; never serialized again
-///   (except during first-run generation when written to disk as PEM)
 struct CertificateAuthority {
-    /// The rcgen certificate wrapping both the CA cert and its private key.
-    /// rcgen::Certificate doesn't implement Debug, so we provide a custom impl.
     cert: Certificate,
 }
 
 const CA_KEY_NAME: &str = "ca_key";
 
 // Custom Debug impl because rcgen::Certificate doesn't implement Debug.
-// Keeps sensitive stuff (private key) hidden while satisfying the Debug bound
-// required by rustls::server::ResolvesServerCert trait.
 impl std::fmt::Debug for CertificateAuthority {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -280,31 +178,10 @@ impl std::fmt::Debug for CertificateAuthority {
 impl CertificateAuthority {
     /// Loads existing CA from disk, or generates a fresh one if none exists.
     ///
-    /// **Load path (both files exist):**
-    /// 1. Read CA cert and key from disk as PEM-encoded strings
-    /// 2. Parse PEM format using the `pem` crate (extracts base64 DER blob)
-    /// 3. Parse DER-encoded cert using rcgen's from_ca_cert_der
-    /// 4. Parse private key using rcgen's KeyPair::from_pem
-    /// 5. Combine into rcgen::Certificate for in-memory use
-    ///
-    /// **Generate path (either file missing):**
-    /// 1. Call generate_ca() to create new self-signed CA
-    /// 2. Serialize to PEM format (both cert and private key)
-    /// 3. Write both files to disk for reuse across proxy restarts
-    /// 4. Return the in-memory Certificate
-    ///
-    /// **User action required:**
-    /// On first run, you've gotta manually trust the generated CA in your OS/browser
-    /// cert store before the proxy can intercept HTTPS traffic. Paths get logged
-    /// during startup (see telemetry.rs).
-    ///
     /// **Errors:**
     /// - Filesystem errors (permission denied, disk full, etc.)
     /// - PEM parsing errors (malformed CA files from manual editing)
     /// - rcgen errors (invalid cert params, unsupported key types)
-    ///
-    /// **TODO:** Add explicit logging here when generating a new CA, with instructions
-    /// on how to trust it. Currently only logged at startup in main.rs.
     fn load_or_generate(cfg: &TlsConfig) -> Result<Self> {
         let keystore = build_keystore(&cfg.keystore, cfg.ca_key_path.clone());
         let ca_cert_exists = cfg.ca_cert_path.exists();
@@ -386,28 +263,6 @@ impl CertificateAuthority {
     }
 
     /// Issues a new leaf certificate for the given hostname, signed by this CA.
-    ///
-    /// **Cert properties:**
-    /// - Subject Alternative Name (SAN): Set to the requested hostname
-    /// - Validity: 1 year from issuance (default rcgen behavior)
-    /// - Algorithm: ECDSA P-256 with SHA-256 (PKCS_ECDSA_P256_SHA256)
-    /// - Distinguished Name: CN=<hostname>, O=STATIC Proxy
-    ///
-    /// **MITM workflow:**
-    /// 1. Client sends TLS ClientHello with SNI = "example.com"
-    /// 2. Proxy extracts SNI and calls this method
-    /// 3. rcgen generates a new ECDSA P-256 key pair for the leaf cert
-    /// 4. Leaf cert gets signed by the CA's private key (happens in serialize_der_with_signer)
-    /// 5. Proxy returns the leaf cert in the ServerHello
-    /// 6. Client validates the cert chain: leaf → CA (must be trusted)
-    ///
-    /// **Security note:**
-    /// Each leaf cert has its own private key (generated by rcgen). The CA private
-    /// key never gets exposed to the leaf cert; only used for signing.
-    ///
-    /// **Errors:**
-    /// - Bails if hostname is invalid (empty string, non-ASCII, etc.)
-    /// - Bails if rcgen can't generate the cert params
     fn issue_leaf(&self, server_name: &str) -> Result<Certificate> {
         // Start with default params for a server certificate (not a CA)
         let mut params = CertificateParams::new(vec![server_name.to_owned()]);
@@ -424,45 +279,12 @@ impl CertificateAuthority {
     }
 
     /// Returns a reference to the rcgen Certificate (CA cert + private key).
-    ///
-    /// **Usage:**
-    /// Called by build_certified_key to sign leaf certs. The signer's DER-encoded
-    /// cert gets included in the chain so browsers can validate the leaf cert back
-    /// to the trusted CA.
-    ///
-    /// **Ownership:**
-    /// Returns a reference (&Certificate) instead of cloning, because rcgen::Certificate
-    /// isn't Clone (contains a private key). Caller only needs to borrow it for
-    /// the signing operation.
     fn signer(&self) -> &Certificate {
         &self.cert
     }
 }
 
 /// Converts rcgen Certificate into rustls CertifiedKey (cert chain + signing key).
-///
-/// **Purpose:**
-/// rustls needs a CertifiedKey to complete the TLS handshake. This bridges the gap
-/// between rcgen (certificate generation) and rustls (TLS protocol implementation).
-///
-/// **Certificate chain construction:**
-/// 1. Serialize leaf cert signed by CA (rcgen → DER bytes)
-/// 2. Serialize CA cert (issuer) (rcgen → DER bytes)
-/// 3. Build chain: [leaf_der, issuer_der]
-/// 4. Client validates: leaf signed by issuer, issuer is trusted in cert store
-///
-/// **Private key conversion:**
-/// rcgen outputs raw PKCS#8 DER bytes (Vec<u8>), but rustls needs specific types:
-/// - Vec<u8> → PrivatePkcs8KeyDer (typed wrapper indicating PKCS#8 format)
-/// - PrivatePkcs8KeyDer → PrivateKeyDer (enum covering PKCS#8/PKCS#1/SEC1)
-/// - PrivateKeyDer → Box<dyn SigningKey> (rustls signing interface)
-///
-/// The last step (any_supported_type) uses aws-lc-rs to parse the key and create a
-/// SigningKey implementation that can sign TLS handshake messages.
-///
-/// **Errors:**
-/// - Bails if DER serialization fails (rare, indicates broken rcgen state)
-/// - Bails if aws-lc-rs can't parse the private key (unsupported algorithm, corrupted bytes)
 fn build_certified_key(leaf: &Certificate, signer: &Certificate) -> Result<CertifiedKey> {
     // Serialize leaf cert, signing it with the CA's private key
     let leaf_der = CertificateDer::from(leaf.serialize_der_with_signer(signer)?);
@@ -536,35 +358,6 @@ impl CacheStats {
 }
 
 /// Generates a new self-signed Certificate Authority (CA) certificate.
-///
-/// **Cert properties:**
-/// - Subject: CN=STATIC Local CA
-/// - Validity: 10 years from generation (3650 days, rcgen default)
-/// - Algorithm: ECDSA P-256 with SHA-256 (PKCS_ECDSA_P256_SHA256)
-/// - Basic Constraints: CA:TRUE (this cert can sign other certs)
-/// - Key Usage: Certificate Signing (implied by basicConstraints CA:TRUE)
-///
-/// **Why ECDSA P-256?**
-/// - Widely supported by browsers and TLS stacks (unlike Ed25519, which is newer)
-/// - Way faster than RSA for signing operations (critical for high-throughput MITM)
-/// - Smaller key sizes (256 bits vs 2048+ for RSA) = less network overhead
-///
-/// **CA:TRUE constraint:**
-/// Without this, browsers reject any leaf certs signed by this CA with
-/// "certificate is not a CA" errors. This marks the cert as an intermediate/root CA.
-///
-/// **Self-signed:**
-/// The CA signs itself (issuer == subject). Standard for root CAs. Browsers
-/// only trust it if you manually import it into their trust store.
-///
-/// **Panics:**
-/// Panics if rcgen fails to generate the cert (extremely rare, would indicate
-/// system crypto failure or memory corruption). Acceptable because we can't
-/// proceed without a CA.
-///
-/// **TODO:**
-/// - Add logging/UI to guide users through CA trust installation on first run
-/// - Consider adding serial number randomization (currently uses rcgen defaults)
 fn generate_ca() -> Certificate {
     let mut params = CertificateParams::default();
 
@@ -582,23 +375,6 @@ fn generate_ca() -> Certificate {
 }
 
 /// Constructs an X.509 Distinguished Name (DN) for the given common name.
-///
-/// **Distinguished Name fields:**
-/// - CN (Common Name): The hostname or cert identifier (e.g., "example.com")
-///
-/// **Why only CN?**
-/// Modern browsers primarily validate certs using Subject Alternative Names (SANs),
-/// not the DN fields. Including CN for compatibility with older TLS stacks and for
-/// better human readability in cert viewers, but omitting other fields (O, OU, L, ST, C)
-/// to keep generated certs minimal.
-///
-/// **Usage:**
-/// - Called when generating the CA cert (CN = "STATIC Local CA")
-/// - Called when issuing leaf certs (CN = hostname, e.g., "api.github.com")
-///
-/// **Note:**
-/// SAN extension gets added automatically by rcgen when calling CertificateParams::new()
-/// with a vec of hostnames (see issue_leaf method).
 fn dn_for(common_name: &str) -> DistinguishedName {
     let mut dn = DistinguishedName::new();
 
