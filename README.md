@@ -7,10 +7,10 @@ Rust privacy proxy & Linux kernel module. Full client-fingerprint control.
 ---
 
 **ToC:**
-- [***View the manual instead***](https://un-nf.github.io/404-docs/){target="_blank"}
-- [What is 404?](https://un-nf.github.io/404-docs/Overview/whatIs/){target="_blank"}
-- [Quick Start](https://un-nf.github.io/404-docs/dev/downloadDev/){target="_blank"}
-- [Why does this matter?](https://un-nf.github.io/404-docs/Overview/why404/){target="_blank"}
+- [***View the manual instead***](https://un-nf.github.io/404-docs/)
+- [What is 404?](https://un-nf.github.io/404-docs/Overview/whatIs/)
+- [Quick Start](https://un-nf.github.io/404-docs/dev/downloadDev/)
+- [Why does this matter?](https://un-nf.github.io/404-docs/Overview/why404/)
 
 ---
 
@@ -30,7 +30,7 @@ https://github.com/user-attachments/assets/fb403522-ac09-4c49-a599-5edd53f33994
 - You will not share your CA certificate with anyone.
 - If you find a security issue report it to 404co@proton.me
 
-[Join the Discord for support!](https://discord.gg/X9QrVm6dqS){target="_blank"}
+[Join the Discord for support!](https://discord.gg/X9QrVm6dqS)
 
 **Main Discussion:** GitHub discussions
 
@@ -275,7 +275,7 @@ Set your browser (or system) to use `localhost:8080` (or `127.0.0.1:8080`) as an
 
 > *VM images coming soon. I am using an Alpine distribution on WSL2 (Windows). Works well, but a little heavy. Definitely going to be looking into distributing the VMs as dedicated server images, not gerry-rigged forwarding machines with desktop environments.*
 
-You *100% could* configure a VM and route traffic from your host machine to a VM guest, instructions for VM configuration available in the [eBPF documentation](https://un-nf.github.io/404-docs/dev/ebpf/){target="_blank"}.
+You *100% could* configure a VM and route traffic from your host machine to a VM guest, instructions for VM configuration available in the [eBPF documentation](https://un-nf.github.io/404-docs/dev/ebpf/).
 
 For now, just running STATIC should be enough, though network level obfuscation is not possible without a Linux kernel (yet).
 
