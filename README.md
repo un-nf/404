@@ -30,7 +30,7 @@ https://github.com/user-attachments/assets/fb403522-ac09-4c49-a599-5edd53f33994
 - You will not share your CA certificate with anyone.
 - If you find a security issue report it to 404co@proton.me
 
-[Join the Discord for support!](https://discord.gg/G7rUYrZqS2)
+[Join the Discord for support!](https://discord.gg/X9QrVm6dqS)
 
 **Main Discussion:** GitHub discussions
 
