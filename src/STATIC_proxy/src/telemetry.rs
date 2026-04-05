@@ -18,9 +18,24 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 use serde_json::Value;
+use std::sync::OnceLock;
+use tokio::sync::broadcast;
 use uuid::Uuid;
 
 use crate::config::{TelemetryConfig, TelemetryMode};
+
+#[derive(Clone, Debug)]
+pub struct TelemetryEvent {
+    pub event: String,
+    pub flow_id: Uuid,
+    pub payload: Value,
+}
+
+static TELEMETRY_TX: OnceLock<broadcast::Sender<TelemetryEvent>> = OnceLock::new();
+
+pub fn register_global_telemetry_sender(tx: broadcast::Sender<TelemetryEvent>) {
+    let _ = TELEMETRY_TX.set(tx);
+}
 
 #[derive(Clone)]
 pub struct TelemetrySink {
@@ -33,18 +48,29 @@ impl TelemetrySink {
     }
 
     pub fn emit(&self, event: &str, flow_id: Uuid, payload: Value) {
+        let event_name = event.to_string();
+        let payload_for_log = payload.clone();
+
         match self.mode {
             TelemetryMode::Stdout => {
-                tracing::info!(%flow_id, event, payload = %payload);
+                tracing::info!(%flow_id, event, payload = %payload_for_log);
             }
             TelemetryMode::Json => {
                 let data = serde_json::json!({
-                    "event": event,
+                    "event": event_name,
                     "flow_id": flow_id,
-                    "payload": payload,
+                    "payload": payload_for_log,
                 });
                 println!("{}", data);
             }
+        }
+
+        if let Some(tx) = TELEMETRY_TX.get() {
+            let _ = tx.send(TelemetryEvent {
+                event: event_name,
+                flow_id,
+                payload,
+            });
         }
     }
 }
