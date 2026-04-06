@@ -17,13 +17,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 */
 
-pub mod client;
 pub mod connection;
+pub mod fetcher;
 pub mod flow;
 pub mod pipeline;
 pub mod server;
 pub mod stages;
 
+pub use fetcher::{OriginFetcher, WreqOriginFetcher};
 pub use flow::{BodyBuffer, Flow, FlowMetadata, RequestParts, ResponseParts};
 pub use server::ProxyServer;
 pub use stages::StagePipeline;

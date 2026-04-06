@@ -481,6 +481,38 @@
         }
       }
     ],
+        "http2": {
+      "initial_stream_id": 3,
+      "header_table_size": 65536,
+      "enable_push": false,
+      "initial_window_size": 131072,
+      "initial_connection_window_size": 12582912,
+      "max_frame_size": 16384,
+      "max_header_list_size": 65536,
+      "enable_connect_protocol": false,
+      "no_rfc7540_priorities": false,
+      "pseudo_header_order": [
+        "method",
+        "path",
+        "authority",
+        "scheme"
+      ],
+      "settings_order": [
+        "header_table_size",
+        "enable_push",
+        "max_concurrent_streams",
+        "initial_window_size",
+        "max_frame_size",
+        "max_header_list_size",
+        "enable_connect_protocol",
+        "no_rfc7540_priorities"
+      ],
+      "headers_stream_dependency": {
+        "stream_id": 0,
+        "weight": 41,
+        "exclusive": false
+      }
+    },
     "handshake_features": {
       "grease": true,
       "padding_seed": "flow_id",

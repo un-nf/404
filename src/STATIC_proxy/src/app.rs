@@ -23,7 +23,7 @@ use anyhow::Result;
 
 use crate::{
     config::StaticConfig,
-    proxy::{stages::StagePipeline, ProxyServer},
+    proxy::{stages::StagePipeline, OriginFetcher, ProxyServer, WreqOriginFetcher},
     telemetry::TelemetrySink,
     tls::cert::TlsProvider,
 };
@@ -42,11 +42,13 @@ impl StaticApp {
         let tls = Arc::new(TlsProvider::new(config.tls.clone()).await?);
 
         let pipeline = StagePipeline::build(&config.pipeline, telemetry.clone())?;
+        let fetcher: Arc<dyn OriginFetcher> = Arc::new(WreqOriginFetcher::new());
 
         let server = ProxyServer::new(
             config.listener.clone(),
             config.http3.clone(),
             tls,
+            fetcher,
             pipeline,
             telemetry,
         );

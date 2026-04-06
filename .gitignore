@@ -27,6 +27,10 @@ __pycache__/
 # Distribution / packaging
 .Python
 build/
+!src/STATIC_proxy/build/
+!src/STATIC_proxy/build/build.js
+!src/STATIC_proxy/build/package-lock.json
+!src/STATIC_proxy/build/package.json
 develop-eggs/
 dist/
 downloads/
@@ -188,6 +192,10 @@ cython_debug/
 
 # Ruff stuff:
 .ruff_cache/
+
+# STATIC proxy JS bundle build
+src/STATIC_proxy/build/node_modules/
+src/STATIC_proxy/assets/js/dist/
 
 # PyPI configuration file
 .pypirc

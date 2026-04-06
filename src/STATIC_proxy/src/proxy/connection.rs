@@ -22,32 +22,30 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
 use bytes::Bytes;
-use h2::{client, server::SendResponse, Reason, SendStream};
-use http::{header::{HeaderName, HeaderValue, HOST}, StatusCode};
+use h2::{server::SendResponse, Reason, SendStream};
+use http::header::{HeaderName, HeaderValue};
 use rustls::{server::ClientHello, server::ResolvesServerCert, ServerConfig};
 use rustls::{sign::CertifiedKey, ServerConnection};
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::time::{timeout, Duration};
 use tokio::net::TcpStream;
-use tokio_rustls::{client as rustls_client, server as rustls_server, TlsAcceptor};
+use tokio_rustls::{server as rustls_server, TlsAcceptor};
 
 use crate::{
     proxy::{
+        fetcher::{OriginFetcher, OriginTarget, UpstreamMode},
         flow::BodyBuffer, flow::Flow, flow::RequestParts, flow::ResponseParts,
         stages::StagePipeline,
     },
     telemetry::TelemetrySink,
     tls::{
         cert::TlsProvider,
-        profiles::{plan_from_profile, TlsClientPlan},
+        profiles::plan_from_profile
     },
 };
 
-use super::client::UpstreamClient;
-
 /// Tokio-friendly alias for the client-facing TLS stream (rustls over TCP).
 type ClientTlsStream = rustls_server::TlsStream<TcpStream>;
-type UpstreamTlsStream = rustls_client::TlsStream<TcpStream>;
 
 const FALLBACK_SNI: &str = "static.local";
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -76,6 +74,7 @@ pub async fn handle_connection(
     mut socket: TcpStream,
     peer: SocketAddr,
     tls: Arc<TlsProvider>,
+    fetcher: Arc<dyn OriginFetcher>,
     stages: StagePipeline,
     telemetry: TelemetrySink,
     _http3_enabled: bool,
@@ -136,6 +135,7 @@ pub async fn handle_connection(
             handle_http2_session(
                 client_tls,
                 peer,
+                fetcher,
                 stages,
                 telemetry,
                 sni,
@@ -148,6 +148,7 @@ pub async fn handle_connection(
             handle_http1_session(
                 client_tls,
                 peer,
+                fetcher,
                 stages,
                 telemetry,
                 sni,
@@ -208,6 +209,7 @@ async fn handle_http1_session(
 
     mut client_stream: ClientTlsStream,
     peer: SocketAddr,
+    fetcher: Arc<dyn OriginFetcher>,
     stages: StagePipeline,
     telemetry: TelemetrySink,
     sni: Option<String>,
@@ -227,32 +229,26 @@ async fn handle_http1_session(
 
     let mut tls_plan = plan_from_profile(&flow.metadata.fingerprint_config, flow.id)?;
     if let Some(plan) = tls_plan.take() {
-        tls_plan = Some(plan.clone_with_alpn(vec![b"http/1.1".to_vec()]));
+        tls_plan = Some(plan.clone_with_alpn(vec!["http/1.1".to_string()]));
     }
     if let Some(plan) = &tls_plan {
+        flow.metadata.tls_variant_id = Some(plan.variant_id().to_string());
         tracing::debug!(%peer, variant = plan.variant_id(), "selected TLS hello variant");
     }
 
     let (host, port) = resolve_upstream_target(&flow);
     tracing::debug!(%peer, %host, port, "connecting to upstream (HTTP/1.1)");
-    let mut upstream = UpstreamClient::connect(
-        &host,
-        port,
-        tls_plan.as_ref(),
-        Some(vec![b"http/1.1".to_vec()]),
-    )
-    .await?;
-
-    let upstream_proto = negotiated_protocol_label(upstream.get_ref().1.alpn_protocol());
-    flow.metadata.upstream_protocol =
-        Some(upstream_proto.unwrap_or_else(|| "http/1.1".to_string()));
-
-    send_request_to_upstream(&mut upstream, &flow.request).await?;
-    tracing::debug!(%peer, "request forwarded to upstream");
-
-    let response_parts = parse_http_response(&mut upstream, &flow.request.method).await?;
-    tracing::debug!(%peer, status = %response_parts.status, "received upstream response");
-    flow.response = Some(response_parts);
+    let origin = fetcher
+        .fetch(
+            &flow,
+            &OriginTarget::new(host, port),
+            tls_plan,
+            UpstreamMode::Http1Only,
+        )
+        .await?;
+    tracing::debug!(%peer, status = %origin.response.status, "received upstream response");
+    flow.metadata.upstream_protocol = Some(origin.upstream_protocol);
+    flow.response = Some(origin.response);
 
     stages.process_response_headers(&mut flow).await?;
     stages.process_response_body(&mut flow).await?;
@@ -277,17 +273,34 @@ async fn handle_http1_session(
 async fn handle_http2_session(
     client_stream: ClientTlsStream,
     peer: SocketAddr,
+    fetcher: Arc<dyn OriginFetcher>,
     stages: StagePipeline,
     telemetry: TelemetrySink,
     sni: Option<String>,
     target_host: Option<String>,
 ) -> Result<()> {
-    let mut connection = h2::server::handshake(client_stream)
-        .await
-        .context("failed to negotiate HTTP/2 with client")?;
-
+    let mut connection = match h2::server::handshake(client_stream).await {
+        Ok(connection) => connection,
+        Err(err) => {
+            if is_benign_client_h2_shutdown(&err.to_string()) {
+                tracing::debug!(%peer, error = %err, "client closed HTTP/2 session before handshake completed");
+                return Ok(());
+            }
+            return Err(err).context("failed to negotiate HTTP/2 with client");
+        }
+    };
     while let Some(result) = connection.accept().await {
-        let (request, respond) = result?;
+        let (request, respond) = match result {
+            Ok(next) => next,
+            Err(err) => {
+                if is_benign_client_h2_shutdown(&err.to_string()) {
+                    tracing::debug!(%peer, error = %err, "client closed HTTP/2 session without close_notify");
+                    break;
+                }
+                return Err(err.into());
+            }
+        };
+        let fetcher_clone = fetcher.clone();
         let stages_clone = stages.clone();
         let telemetry_clone = telemetry.clone();
         let sni_clone = sni.clone();
@@ -297,6 +310,7 @@ async fn handle_http2_session(
             if let Err(err) = process_http2_stream(
                 request,
                 respond,
+                fetcher_clone,
                 stages_clone,
                 telemetry_clone,
                 peer,
@@ -313,10 +327,18 @@ async fn handle_http2_session(
     Ok(())
 }
 
+fn is_benign_client_h2_shutdown(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("peer closed connection without sending tls close_notify")
+        || lower.contains("unexpected-eof")
+        || lower.contains("unexpected eof")
+}
+
 /// Executes the full HTTP/2 request lifecycle for a single client stream.
 async fn process_http2_stream(
     request: http::Request<h2::RecvStream>,
     respond: SendResponse<Bytes>,
+    fetcher: Arc<dyn OriginFetcher>,
     stages: StagePipeline,
     telemetry: TelemetrySink,
     peer: SocketAddr,
@@ -333,19 +355,58 @@ async fn process_http2_stream(
 
     let tls_plan = plan_from_profile(&flow.metadata.fingerprint_config, flow.id)?;
     if let Some(plan) = &tls_plan {
+        flow.metadata.tls_variant_id = Some(plan.variant_id().to_string());
         tracing::debug!(%peer, variant = plan.variant_id(), "selected TLS hello variant");
     }
 
     let (host, port) = resolve_upstream_target(&flow);
     tracing::debug!(%peer, %host, port, "forwarding HTTP/2 stream upstream");
 
-    match forward_h2_request(&mut flow, &host, port, tls_plan, &stages, respond).await {
-        Ok(_) => {
+    let mut respond = respond;
+    match fetcher
+        .fetch(
+            &flow,
+            &OriginTarget::new(host.clone(), port),
+            tls_plan,
+            UpstreamMode::PreferHttp2,
+        )
+        .await
+    {
+        Ok(origin) => {
+            tracing::debug!(
+                %peer,
+                status = %origin.response.status,
+                upstream_protocol = %origin.upstream_protocol,
+                "received upstream HTTP/2 response"
+            );
+            flow.metadata.upstream_protocol = Some(origin.upstream_protocol);
+            flow.response = Some(origin.response);
+
+            stages.process_response_headers(&mut flow).await?;
+            stages.process_response_body(&mut flow).await?;
+            stages.finalize_response(&mut flow).await?;
+
+            {
+                let response = flow
+                    .response
+                    .as_mut()
+                    .context("response missing after outbound fetch")?;
+                enforce_content_length(response)?;
+                sanitize_response_headers_for_h2(response)?;
+            }
+
+            let response = flow
+                .response
+                .as_ref()
+                .context("response missing after response stages")?;
+            send_http2_response(&mut respond, response)?;
             emit_flow_telemetry(&telemetry, &flow, &sni, peer);
             Ok(())
         }
         Err(err) => {
-            tracing::error!(%peer, %host, "failed to forward HTTP/2 stream: {err:?}");
+            respond.send_reset(Reason::INTERNAL_ERROR);
+            tracing::error!(%peer, %host, error = %format_args!("{err:#}"), "failed to forward HTTP/2 stream");
+
             Err(err)
         }
     }
@@ -373,282 +434,6 @@ fn extract_sni(conn: &ServerConnection) -> Option<String> {
     conn.server_name().map(|name| name.to_owned())
 }
 
-/// Parses a single HTTP/1.1 request from the client-facing TLS stream.
-async fn parse_http_request(stream: &mut ClientTlsStream) -> Result<RequestParts> {
-    let mut reader = tokio::io::BufReader::new(stream);
-    let mut line = String::new();
-
-    reader.read_line(&mut line).await?;
-    let parts: Vec<&str> = line.trim().split_whitespace().collect();
-    if parts.len() != 3 {
-        return Err(anyhow::anyhow!("malformed HTTP request line"));
-    }
-
-    let method = parts[0].parse::<http::Method>()?;
-    let uri = parts[1].parse::<http::Uri>()?;
-    let version = match parts[2] {
-        "HTTP/1.0" => http::Version::HTTP_10,
-        "HTTP/1.1" => http::Version::HTTP_11,
-        "HTTP/2.0" => http::Version::HTTP_2,
-        _ => http::Version::HTTP_11,
-    };
-
-    let mut headers = http::HeaderMap::new();
-    loop {
-        line.clear();
-        reader.read_line(&mut line).await?;
-        if line.trim().is_empty() {
-            break; 
-        }
-
-        if let Some(colon_pos) = line.find(':') {
-            let name = &line[..colon_pos].trim();
-            let value = &line[colon_pos + 1..].trim();
-            if let (Ok(header_name), Ok(header_value)) = (
-                http::header::HeaderName::from_bytes(name.as_bytes()),
-                http::header::HeaderValue::from_str(value),
-            ) {
-                headers.insert(header_name, header_value);
-            }
-        }
-    }
-
-    let mut body = BodyBuffer::default();
-    if let Some(content_length) = headers.get(http::header::CONTENT_LENGTH) {
-        if let Ok(len_str) = content_length.to_str() {
-            if let Ok(len) = len_str.parse::<usize>() {
-                let mut buf = vec![0u8; len];
-                reader.read_exact(&mut buf).await?;
-                body.push_bytes(&buf);
-            }
-        }
-    }
-
-    Ok(RequestParts {
-        method,
-        uri,
-        version,
-        headers,
-        body,
-    })
-}
-
-/// Parses the entire HTTP/1.x response from the upstream origin.
-async fn parse_http_response(
-    stream: &mut UpstreamTlsStream,
-    request_method: &http::Method,
-) -> Result<ResponseParts> {
-    let mut reader = BufReader::new(stream);
-
-    let mut status_line = String::new();
-    let read = reader
-        .read_line(&mut status_line)
-        .await
-        .context("failed to read response status line")?;
-    if read == 0 {
-        anyhow::bail!("upstream closed connection before sending status line");
-    }
-
-    let status_line = trim_crlf(&status_line);
-    let mut parts = status_line.splitn(3, ' ');
-    let version_str = parts.next().context("response line missing HTTP version")?;
-    let status_str = parts.next().context("response line missing status code")?;
-
-    let version = match version_str {
-        "HTTP/1.0" => http::Version::HTTP_10,
-        "HTTP/1.1" => http::Version::HTTP_11,
-        "HTTP/2.0" => http::Version::HTTP_2,
-        _ => http::Version::HTTP_11,
-    };
-
-    let status_code: u16 = status_str
-        .parse()
-        .with_context(|| format!("invalid status code: {status_str}"))?;
-    let status = StatusCode::from_u16(status_code)
-        .with_context(|| format!("unsupported status code: {status_code}"))?;
-
-    let mut headers = http::HeaderMap::new();
-    loop {
-        let mut line = String::new();
-        let read = reader
-            .read_line(&mut line)
-            .await
-            .context("failed to read response header line")?;
-        if read == 0 {
-            anyhow::bail!("unexpected EOF while reading response headers");
-        }
-        let trimmed = trim_crlf(&line);
-        if trimmed.is_empty() {
-            break;
-        }
-        if let Some(colon_pos) = trimmed.find(':') {
-            let (name, value) = trimmed.split_at(colon_pos);
-            let header_name = name.trim();
-            let header_value = value[1..].trim();
-            if let (Ok(name), Ok(value)) = (
-                http::header::HeaderName::from_bytes(header_name.as_bytes()),
-                http::header::HeaderValue::from_str(header_value),
-            ) {
-                headers.append(name, value);
-            }
-        }
-    }
-
-    let mut response = ResponseParts {
-        status,
-        version,
-        headers,
-        body: BodyBuffer::default(),
-    };
-
-    match response_body_encoding(&response.headers, &response.status, request_method) {
-        BodyEncoding::None => {}
-        BodyEncoding::ContentLength(len) => {
-            read_fixed_body(&mut reader, len, &mut response.body).await?;
-        }
-        BodyEncoding::Chunked => {
-            read_chunked_body(&mut reader, &mut response.body).await?;
-            normalize_content_length(&mut response.headers, response.body.len())?;
-        }
-    }
-
-    Ok(response)
-}
-
-/// Reads an exact number of bytes from the buffered reader into the response body.
-async fn read_fixed_body<R>(
-    reader: &mut BufReader<R>,
-    len: usize,
-    body: &mut BodyBuffer,
-) -> Result<()>
-where
-    R: AsyncRead + Unpin,
-{
-    if len == 0 {
-        return Ok(());
-    }
-    let mut buf = vec![0u8; len];
-    reader
-        .read_exact(&mut buf)
-        .await
-        .with_context(|| format!("expected {len} body bytes, hit EOF"))?;
-    body.push_bytes(&buf);
-    Ok(())
-}
-
-/// Streams a chunked transfer-encoding body into memory while validating every boundary.
-async fn read_chunked_body<R>(reader: &mut BufReader<R>, body: &mut BodyBuffer) -> Result<()>
-where
-    R: AsyncRead + Unpin,
-{
-    loop {
-        let mut size_line = String::new();
-        let read = reader
-            .read_line(&mut size_line)
-            .await
-            .context("failed to read chunk size line")?;
-        if read == 0 {
-            anyhow::bail!("unexpected EOF while reading chunk size");
-        }
-
-        let size_str = trim_crlf(&size_line);
-        let size_token = size_str.split(';').next().unwrap_or(size_str);
-        let size = usize::from_str_radix(size_token, 16)
-            .with_context(|| format!("invalid chunk size: {size_token}"))?;
-
-        if size == 0 {
-            consume_trailer_section(reader).await?;
-            break;
-        }
-
-        let mut chunk = vec![0u8; size];
-        reader
-            .read_exact(&mut chunk)
-            .await
-            .with_context(|| format!("expected {size} chunk bytes, hit EOF"))?;
-        body.push_bytes(&chunk);
-
-        let mut crlf = [0u8; 2];
-        reader
-            .read_exact(&mut crlf)
-            .await
-            .context("failed to read chunk terminator")?;
-        if crlf != [b'\r', b'\n'] {
-            anyhow::bail!("chunk missing CRLF terminator");
-        }
-    }
-    Ok(())
-}
-
-async fn consume_trailer_section<R>(reader: &mut BufReader<R>) -> Result<()>
-where
-    R: AsyncRead + Unpin,
-{
-    loop {
-        let mut line = String::new();
-        let read = reader.read_line(&mut line).await?;
-        if read == 0 || line.trim().is_empty() {
-            break;
-        }
-    }
-    Ok(())
-}
-
-fn trim_crlf(input: &str) -> &str {
-    input.trim_end_matches(|c| c == '\r' || c == '\n')
-}
-
-enum BodyEncoding {
-    None,
-    ContentLength(usize),
-    Chunked,
-}
-
-fn response_body_encoding(
-    headers: &http::HeaderMap,
-    status: &StatusCode,
-    method: &http::Method,
-) -> BodyEncoding {
-    if method == http::Method::HEAD {
-        return BodyEncoding::None;
-    }
-
-    if status.is_informational() {
-        return BodyEncoding::None;
-    }
-
-    match status.as_u16() {
-        204 | 205 | 304 => {
-            return BodyEncoding::None;
-        }
-        _ => {}
-    }
-
-    if has_chunked_encoding(headers) {
-        return BodyEncoding::Chunked;
-    }
-    if let Some(value) = headers.get(http::header::CONTENT_LENGTH) {
-        if let Ok(len_str) = value.to_str() {
-            if let Ok(len) = len_str.parse::<usize>() {
-                return BodyEncoding::ContentLength(len);
-            }
-        }
-    }
-    BodyEncoding::None
-}
-
-fn has_chunked_encoding(headers: &http::HeaderMap) -> bool {
-    headers
-        .get(http::header::TRANSFER_ENCODING)
-        .and_then(|v| v.to_str().ok())
-        .map(|raw| {
-            raw.to_ascii_lowercase()
-                .split(',')
-                .any(|enc| enc.trim() == "chunked")
-        })
-        .unwrap_or(false)
-}
-
 fn normalize_content_length(headers: &mut http::HeaderMap, len: usize) -> Result<()> {
     headers.remove(http::header::TRANSFER_ENCODING);
     let value = HeaderValue::from_str(&len.to_string()).context("invalid content-length value")?;
@@ -658,6 +443,97 @@ fn normalize_content_length(headers: &mut http::HeaderMap, len: usize) -> Result
 
 fn enforce_content_length(response: &mut ResponseParts) -> Result<()> {
     normalize_content_length(&mut response.headers, response.body.len())
+}
+
+async fn parse_http_request(stream: &mut ClientTlsStream) -> Result<RequestParts> {
+    let mut reader = BufReader::new(stream);
+
+    let mut request_line = String::new();
+    let read = reader
+        .read_line(&mut request_line)
+        .await
+        .context("failed to read request line")?;
+    if read == 0 {
+        anyhow::bail!("client closed connection before sending request line");
+    }
+
+    let request_line = request_line.trim_end_matches(|c| c == '\r' || c == '\n');
+    let mut parts = request_line.split_whitespace();
+    let method = parts.next().context("request line missing method")?;
+    let target = parts.next().context("request line missing target")?;
+    let version = match parts.next().unwrap_or("HTTP/1.1") {
+        "HTTP/1.0" => http::Version::HTTP_10,
+        "HTTP/1.1" => http::Version::HTTP_11,
+        "HTTP/2.0" => http::Version::HTTP_2,
+        _ => http::Version::HTTP_11,
+    };
+
+    let method = http::Method::from_bytes(method.as_bytes())
+        .with_context(|| format!("invalid request method: {method}"))?;
+
+    let mut headers = http::HeaderMap::new();
+    loop {
+        let mut line = String::new();
+        let read = reader
+            .read_line(&mut line)
+            .await
+            .context("failed to read request header line")?;
+        if read == 0 {
+            anyhow::bail!("unexpected EOF while reading request headers");
+        }
+        let trimmed = line.trim_end_matches(|c| c == '\r' || c == '\n');
+        if trimmed.is_empty() {
+            break;
+        }
+        if let Some(colon_pos) = trimmed.find(':') {
+            let (name, value) = trimmed.split_at(colon_pos);
+            let header_name = HeaderName::from_bytes(name.trim().as_bytes())
+                .with_context(|| format!("invalid request header name: {}", name.trim()))?;
+            let header_value = HeaderValue::from_str(value[1..].trim()).with_context(|| {
+                format!("invalid request header value for {}", name.trim())
+            })?;
+            headers.append(header_name, header_value);
+        }
+    }
+
+    let host = headers
+        .get(http::header::HOST)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    let uri = if target.starts_with("http://") || target.starts_with("https://") {
+        http::Uri::try_from(target.to_string())
+            .with_context(|| format!("invalid absolute request target: {target}"))?
+    } else if host.is_empty() {
+        http::Uri::try_from(target.to_string())
+            .with_context(|| format!("invalid origin-form request target: {target}"))?
+    } else {
+        http::Uri::try_from(format!("https://{}{}", host, target))
+            .with_context(|| format!("invalid synthesized request target: {host}{target}"))?
+    };
+
+    let body_len = headers
+        .get(http::header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(0);
+
+    let mut body = BodyBuffer::default();
+    if body_len > 0 {
+        let mut bytes = vec![0u8; body_len];
+        reader
+            .read_exact(&mut bytes)
+            .await
+            .with_context(|| format!("expected {body_len} request body bytes, hit EOF"))?;
+        body.push_bytes(&bytes);
+    }
+
+    Ok(RequestParts {
+        method,
+        uri,
+        version,
+        headers,
+        body,
+    })
 }
 
 const HOP_BY_HOP_HEADERS: &[&str] = &[
@@ -701,26 +577,6 @@ fn build_http2_response_head(response: &ResponseParts) -> Result<http::Response<
         .map_err(|err| anyhow!("failed to build HTTP/2 response head: {err}"))
 }
 
-/// Sends an HTTP/2 response to the client, ensuring HEADERS are emitted before DATA.
-fn send_http2_response(
-    respond: &mut SendResponse<Bytes>,
-    response: &ResponseParts,
-) -> Result<()> {
-    let response_head = build_http2_response_head(response)?;
-    let has_body = !response.body.is_empty();
-
-    let mut stream = respond
-        .send_response(response_head, !has_body)
-        .context("failed to send HTTP/2 response headers to client")?;
-
-    if has_body {
-        stream_http2_body(&mut stream, response.body.as_bytes())
-            .context("failed to stream HTTP/2 response body to client")?;
-    }
-
-    Ok(())
-}
-
 fn stream_http2_body(stream: &mut SendStream<Bytes>, body: &[u8]) -> Result<()> {
     if body.is_empty() {
         return Ok(());
@@ -741,38 +597,15 @@ fn stream_http2_body(stream: &mut SendStream<Bytes>, body: &[u8]) -> Result<()> 
     Ok(())
 }
 
-/// Sends an HTTP request to the upstream server.
-async fn send_request_to_upstream<W>(upstream: &mut W, req: &RequestParts) -> Result<()>
-where
-    W: AsyncWrite + Unpin,
-{
-    use tokio::io::AsyncWriteExt;
-
-    let request_line = format!(
-        "{} {} HTTP/1.1\r\n",
-        req.method,
-        req.uri
-            .path_and_query()
-            .map(|pq| pq.as_str())
-            .unwrap_or("/"),
-    );
-    upstream.write_all(request_line.as_bytes()).await?;
-
-    for (name, value) in &req.headers {
-        upstream.write_all(name.as_str().as_bytes()).await?;
-        upstream.write_all(b": ").await?;
-        upstream.write_all(value.as_bytes()).await?;
-        upstream.write_all(b"\r\n").await?;
+fn send_http2_response(respond: &mut SendResponse<Bytes>, response: &ResponseParts) -> Result<()> {
+    let head = build_http2_response_head(response)?;
+    let end_stream = response.body.is_empty();
+    let mut send_stream = respond
+        .send_response(head, end_stream)
+        .context("failed to send HTTP/2 response head")?;
+    if !end_stream {
+        stream_http2_body(&mut send_stream, response.body.as_bytes())?;
     }
-
-    upstream.write_all(b"\r\n").await?;
-
-    if req.body.len() > 0 {
-        upstream.write_all(req.body.as_bytes()).await?;
-    }
-
-    upstream.flush().await?;
-
     Ok(())
 }
 
@@ -844,228 +677,6 @@ async fn request_parts_from_h2(request: http::Request<h2::RecvStream>) -> Result
     })
 }
 
-/// Forwards a single HTTP/2 flow to the origin, falling back to HTTP/1.1 when needed.
-async fn forward_h2_request(
-    flow: &mut Flow,
-    host: &str,
-    port: u16,
-    tls_plan: Option<TlsClientPlan>,
-    stages: &StagePipeline,
-    respond: SendResponse<Bytes>,
-) -> Result<()> {
-    let mut respond = respond;
-    match forward_h2_request_inner(flow, host, port, tls_plan, stages, &mut respond).await {
-        Ok(_) => Ok(()),
-        Err(err) => {
-            respond.send_reset(Reason::INTERNAL_ERROR);
-            tracing::debug!("sent HTTP/2 reset after forwarding failure: {err:?}");
-            Err(err)
-        }
-    }
-}
-
-/// Chooses the appropriate upstream strategy based on ALPN negotiation.
-async fn forward_h2_request_inner(
-    flow: &mut Flow,
-    host: &str,
-    port: u16,
-    tls_plan: Option<TlsClientPlan>,
-    stages: &StagePipeline,
-    respond: &mut SendResponse<Bytes>,
-) -> Result<()> {
-    let tls_plan = tls_plan.map(|plan| plan.clone_with_alpn(vec![b"h2".to_vec()]));
-    let upstream = UpstreamClient::connect(host, port, tls_plan.as_ref(), None).await?;
-    let negotiated = negotiated_protocol_label(upstream.get_ref().1.alpn_protocol())
-        .unwrap_or_else(|| "http/1.1".to_string());
-
-    if negotiated != "h2" {
-        tracing::warn!(
-            %host,
-            port,
-            negotiated = %negotiated,
-            "upstream lacks HTTP/2 support, falling back to HTTP/1.1",
-        );
-        flow.metadata.upstream_protocol = Some(negotiated);
-        return forward_h2_via_http1(flow, upstream, host, port, stages, respond).await;
-    }
-
-    flow.metadata.upstream_protocol = Some(negotiated);
-    forward_h2_over_h2(flow, &host, upstream, stages, respond).await
-}
-
-/// Bridges HTTP/2 end-to-end (client h2 → upstream h2) while keeping flow-control healthy.
-async fn forward_h2_over_h2(
-    flow: &mut Flow,
-    host: &str,
-    upstream: UpstreamTlsStream,
-    stages: &StagePipeline,
-    respond: &mut SendResponse<Bytes>,
-) -> Result<()> {
-    let (mut client_handle, connection) = client::handshake(upstream)
-        .await
-        .context("failed to start HTTP/2 handshake upstream")?;
-    tokio::spawn(async move {
-        if let Err(err) = connection.await {
-            tracing::debug!("upstream h2 connection closed: {err:?}");
-        }
-    });
-
-    let mut builder = http::Request::builder()
-        .method(flow.request.method.clone())
-        .uri(flow.request.uri.clone())
-        .version(http::Version::HTTP_2);
-
-    for (name, value) in flow.request.headers.iter() {
-        builder = builder.header(name, value);
-    }
-
-    let request = builder.body(()).context("failed to build HTTP/2 request")?;
-    let end_of_stream = flow.request.body.len() == 0;
-    let path = flow
-        .request
-        .uri
-        .path_and_query()
-        .map(|pq| pq.as_str())
-        .unwrap_or("/");
-    let authority = flow
-        .request
-        .uri
-        .authority()
-        .map(|auth| auth.as_str().to_string())
-        .or_else(|| {
-            flow.request
-                .headers
-                .get(HOST)
-                .and_then(|v| v.to_str().ok())
-                .map(|s| s.to_string())
-        })
-        .unwrap_or_else(|| host.to_string());
-    tracing::debug!(
-        %host,
-        method = %flow.request.method,
-        path,
-        authority,
-        body_bytes = flow.request.body.len(),
-        "sending HTTP/2 request upstream"
-    );
-    let (response_future, mut send_stream) = client_handle
-        .send_request(request, end_of_stream)
-        .context("failed to send HTTP/2 request upstream")?;
-
-    if !end_of_stream {
-        send_stream
-            .send_data(Bytes::copy_from_slice(flow.request.body.as_bytes()), true)
-            .context("failed to stream HTTP/2 request body upstream")?;
-    }
-
-    let response = match timeout(Duration::from_secs(10), response_future).await {
-        Ok(Ok(resp)) => {
-            tracing::debug!(%host, status = %resp.status(), "received upstream HTTP/2 response headers");
-            resp
-        }
-        Ok(Err(err)) => {
-            tracing::error!(%host, "upstream HTTP/2 request failed before headers: {err:?}");
-            return Err(err.into());
-        }
-        Err(_) => {
-            tracing::warn!(%host, "upstream HTTP/2 response timed out after 10s");
-            let _ = respond.send_reset(Reason::CANCEL);
-            anyhow::bail!("HTTP/2 upstream response timed out for {host}");
-        }
-    };
-    let (parts, mut body_stream) = response.into_parts();
-    let mut body = BodyBuffer::default();
-    while let Some(chunk) = body_stream.data().await {
-        let chunk = chunk?;
-        let len = chunk.len();
-        body.push_bytes(chunk.as_ref());
-        if let Err(err) = body_stream.flow_control().release_capacity(len) {
-            tracing::warn!(%host, ?err, "failed to release HTTP/2 flow-control capacity");
-            break;
-        }
-    }
-
-    flow.response = Some(ResponseParts {
-        status: parts.status,
-        version: http::Version::HTTP_2,
-        headers: parts.headers,
-        body,
-    });
-
-    stages.process_response_headers(flow).await?;
-    stages.process_response_body(flow).await?;
-    stages.finalize_response(flow).await?;
-
-    let response = flow
-        .response
-        .as_mut()
-        .context("response missing after HTTP/2 upstream fetch")?;
-    enforce_content_length(response)?;
-    sanitize_response_headers_for_h2(response)?;
-    send_http2_response(respond, response)?;
-
-    Ok(())
-}
-
-/// Downgrades a client HTTP/2 stream to an HTTP/1.1 upstream when the origin lacks h2.
-async fn forward_h2_via_http1(
-    flow: &mut Flow,
-    mut upstream: UpstreamTlsStream,
-    host: &str,
-    port: u16,
-    stages: &StagePipeline,
-    respond: &mut SendResponse<Bytes>,
-) -> Result<()> {
-    ensure_host_header(&mut flow.request, host, port);
-    send_request_to_upstream(&mut upstream, &flow.request)
-        .await
-        .context("failed to send HTTP/1.1 request upstream")?;
-
-    let response = parse_http_response(&mut upstream, &flow.request.method)
-        .await
-        .context("failed to parse HTTP/1.1 response during fallback")?;
-    flow.response = Some(response);
-
-    stages.process_response_headers(flow).await?;
-    stages.process_response_body(flow).await?;
-    stages.finalize_response(flow).await?;
-
-    {
-        let response_mut = flow
-            .response
-            .as_mut()
-            .context("response missing during HTTP/1.1 fallback")?;
-        enforce_content_length(response_mut)?;
-        sanitize_response_headers_for_h2(response_mut)?;
-    }
-
-    let response_ref = flow
-        .response
-        .as_ref()
-        .context("response missing during HTTP/1.1 fallback")?;
-    send_http2_response(respond, response_ref)?;
-
-    Ok(())
-}
-
-fn ensure_host_header(request: &mut RequestParts, host: &str, port: u16) {
-    if request.headers.contains_key(HOST) {
-        return;
-    }
-
-    let host_value = if port == 80 || port == 443 {
-        host.to_string()
-    } else {
-        format!("{}:{}", host, port)
-    };
-
-    if let Ok(value) = HeaderValue::from_str(&host_value) {
-        request.headers.insert(HOST, value);
-    } else {
-        tracing::warn!(host = %host_value, "failed to synthesize Host header for HTTP/1 fallback");
-    }
-}
-
 fn resolve_upstream_target(flow: &Flow) -> (String, u16) {
     let host = flow
         .metadata
@@ -1103,10 +714,6 @@ fn connect_target_port(target: &str) -> Option<u16> {
     target.split(':').nth(1)?.parse().ok()
 }
 
-fn negotiated_protocol_label(value: Option<&[u8]>) -> Option<String> {
-    value.map(|proto| String::from_utf8_lossy(proto).into_owned())
-}
-
 fn emit_flow_telemetry(
     telemetry: &TelemetrySink,
     flow: &Flow,
@@ -1123,6 +730,9 @@ fn emit_flow_telemetry(
             "alt_svc": flow.metadata.alt_svc_mutations,
             "client_protocol": flow.metadata.client_protocol,
             "upstream_protocol": flow.metadata.upstream_protocol,
+            "tls_variant_id": flow.metadata.tls_variant_id,
+            "tls_version": flow.metadata.tls_version,
+            "tls_cipher_suite": flow.metadata.tls_cipher_suite,
         }),
     );
 }

@@ -9,8 +9,8 @@ use keyring::{Entry, Error as KeyringError};
 use std::ptr;
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::{
+    Foundation::LocalFree,
     Security::Cryptography::{CryptProtectData, CryptUnprotectData, CRYPT_INTEGER_BLOB},
-    System::Memory::LocalFree,
 };
 
 /// Supported keystore backends.
@@ -272,7 +272,7 @@ fn dpapi_protect(data: &[u8]) -> Result<Vec<u8>> {
     let out = unsafe {
         let slice = std::slice::from_raw_parts(out_blob.pbData, out_blob.cbData as usize);
         let vec = slice.to_vec();
-        LocalFree(out_blob.pbData as isize);
+        LocalFree(out_blob.pbData.cast());
         vec
     };
 
@@ -313,7 +313,7 @@ fn dpapi_unprotect(data: &[u8]) -> Result<Vec<u8>> {
     let out = unsafe {
         let slice = std::slice::from_raw_parts(out_blob.pbData, out_blob.cbData as usize);
         let vec = slice.to_vec();
-        LocalFree(out_blob.pbData as isize);
+        LocalFree(out_blob.pbData.cast());
         vec
     };
 

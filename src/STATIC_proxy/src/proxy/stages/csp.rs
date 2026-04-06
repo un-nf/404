@@ -21,57 +21,20 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use base64::engine::general_purpose::STANDARD_NO_PAD;
 use base64::Engine;
-use http::header::{HeaderName, HeaderValue, CONTENT_SECURITY_POLICY, CONTENT_SECURITY_POLICY_REPORT_ONLY};
+use http::header::{HeaderName, HeaderValue, CONTENT_SECURITY_POLICY};
 use rand::{rngs::OsRng, RngCore};
 
 use crate::proxy::flow::Flow;
 
-/// Domains Google reCAPTCHA uses for scripts (api.js + static bundles).
-const CAPTCHA_SCRIPT_ALLOWLIST: &[&str] = &[
-    "https://www.gstatic.com",
-    "https://www.google.com",
-    "https://www.recaptcha.net",
-    "challenges.cloudflare.com"
-];
-
-/// Domains Google reCAPTCHA frames originate from (anchor + challenge iframes).
-const CAPTCHA_FRAME_ALLOWLIST: &[&str] = &[
-    "https://www.google.com",
-    "https://www.recaptcha.net",
-    "challenges.cloudflare.com"
-];
-
-/// Hosts whose inline script policies rely on unsafe-eval allowances (e.g., Cloudflare challenges).
-const CSP_EVAL_REQUIRED_HOSTS: &[&str] = &[
-    "npmjs.com",
-    "npmjs.org",
-    "cloudflare.com",
-    "cdnjs.cloudflare.com",
-    "challenges.cloudflare.com"
-];
-
-/// Hosts whose CSP should be preserved verbatim (YouTube relies on hashed slotting).
-const CSP_PASSTHROUGH_HOSTS: &[&str] = &[
-    "youtube.com",
-    "youtube-nocookie.com",
-    "ytimg.com",
-    "googlevideo.com",
-    "accounts.google.com",
-    "drive.google.com",
-    "gstatic.com",
-    "recaptcha.net",
-    "challenges.cloudflare.com"
-];
-
 use super::FlowStage;
 
-/// CSP stage guarantees a nonce is present and mutates Content-Security-Policy headers so the
-/// inline JS bundle always survives strict CSP deployments.
+/// CSP stage preserves origin CSP and only adds or reuses a nonce on the relevant
+/// script directive so the injected runtime can execute.
 #[derive(Clone, Default)]
 pub struct CspStage;
 
 impl CspStage {
-    fn rewrite_headers(&self, flow: &mut Flow, script_hashes: &[String]) -> Result<()> {
+    fn rewrite_headers(&self, flow: &mut Flow, _script_hashes: &[String]) -> Result<()> {
         if flow.response.is_none() {
             return Ok(());
         }
@@ -90,8 +53,9 @@ impl CspStage {
             header_snapshots = capture_csp_headers(flow);
         }
 
-        if should_passthrough_csp(flow) {
-            capture_nonce_from_snapshots(flow, &header_snapshots);
+        capture_nonce_from_snapshots(flow, &header_snapshots);
+
+        if header_snapshots.is_empty() {
             return Ok(());
         }
 
@@ -101,34 +65,13 @@ impl CspStage {
             }
 
             for value in values {
-                let rewritten = rewrite_csp_value(flow, &value, script_hashes);
-                let enforced = enforce_eval_on_value(flow, &rewritten);
-                let header_value = HeaderValue::from_str(&enforced)
+                let rewritten = rewrite_csp_value(flow, &value);
+                let header_value = HeaderValue::from_str(&rewritten)
                     .with_context(|| format!("invalid CSP header after rewrite: {rewritten}"))?;
 
                 if let Some(response) = flow.response.as_mut() {
                     response.headers.append(header.clone(), header_value);
                 }
-            }
-        }
-
-        let needs_fallback = flow
-            .response
-            .as_ref()
-            .map(|resp| resp.headers.get(CONTENT_SECURITY_POLICY).is_none())
-            .unwrap_or(false);
-
-        if needs_fallback {
-            flow.metadata.csp_nonce = None;
-            let fallback = build_fallback_policy();
-            let enforced = enforce_eval_on_value(flow, &fallback);
-            if let Some(response) = flow.response.as_mut() {
-                response.headers.insert(CONTENT_SECURITY_POLICY, HeaderValue::from_str(&enforced)?);
-            }
-            if flow.metadata.original_csp_headers.is_none() {
-                flow.metadata.original_csp_headers = Some(vec![
-                    (CONTENT_SECURITY_POLICY.clone(), vec![enforced.clone()]),
-                ]);
             }
         }
 
@@ -138,7 +81,7 @@ impl CspStage {
 
 #[async_trait]
 impl FlowStage for CspStage {
-    /// Ensures a CSP nonce exists so injected scripts can be allowed by the browser.
+    /// Reuses or adds a CSP nonce on script directives without otherwise rewriting policy.
     async fn on_response_headers(&self, flow: &mut Flow) -> Result<()> {
         self.rewrite_headers(flow, &[])
     }
@@ -160,7 +103,7 @@ fn generate_nonce() -> String {
     STANDARD_NO_PAD.encode(buf)
 }
 
-fn rewrite_csp_value(flow: &mut Flow, original: &str, script_hashes: &[String]) -> String {
+fn rewrite_csp_value(flow: &mut Flow, original: &str) -> String {
     let policies: Vec<&str> = original.split(',').collect();
     let mut rewritten = Vec::with_capacity(policies.len());
 
@@ -169,17 +112,17 @@ fn rewrite_csp_value(flow: &mut Flow, original: &str, script_hashes: &[String]) 
         if trimmed.is_empty() {
             continue;
         }
-        rewritten.push(modify_policy(flow, trimmed, script_hashes));
+        rewritten.push(modify_policy(flow, trimmed));
     }
 
     rewritten.join(", ")
 }
 
-fn modify_policy(flow: &mut Flow, policy: &str, script_hashes: &[String]) -> String {
+fn modify_policy(flow: &mut Flow, policy: &str) -> String {
     let mut directives = Vec::new();
-    let mut script_seen = false;
-    let mut frame_seen = false;
-    let mut child_seen = false;
+    let mut script_elem_index = None;
+    let mut script_index = None;
+    let mut default_src = None;
 
     for directive in policy.split(';') {
         let directive = directive.trim();
@@ -187,26 +130,27 @@ fn modify_policy(flow: &mut Flow, policy: &str, script_hashes: &[String]) -> Str
             continue;
         }
 
-        if is_script_directive(directive) {
-            script_seen = true;
-            directives.push(build_script_directive(flow, directive, script_hashes));
-        } else if is_frame_directive(directive) {
-            frame_seen = true;
-            directives.push(build_destination_directive(directive, "frame-src", CAPTCHA_FRAME_ALLOWLIST));
-        } else if is_child_directive(directive) {
-            child_seen = true;
-            directives.push(build_destination_directive(directive, "child-src", CAPTCHA_FRAME_ALLOWLIST));
+        let name = directive_name(directive);
+        if name == "script-src-elem" {
+            script_elem_index = Some(directives.len());
+            directives.push(directive.to_string());
+        } else if name == "script-src" {
+            script_index = Some(directives.len());
+            directives.push(directive.to_string());
+        } else if name == "default-src" {
+            default_src = Some(directive.to_string());
+            directives.push(directive.to_string());
         } else {
             directives.push(directive.to_string());
         }
     }
 
-    if !script_seen {
-        directives.push(build_script_directive(flow, "script-src", script_hashes));
-    }
-
-    if !frame_seen && !child_seen {
-        directives.push(build_destination_directive("frame-src", "frame-src", CAPTCHA_FRAME_ALLOWLIST));
+    if let Some(index) = script_elem_index {
+        directives[index] = ensure_nonce_on_directive(flow, &directives[index], "script-src-elem");
+    } else if let Some(index) = script_index {
+        directives[index] = ensure_nonce_on_directive(flow, &directives[index], "script-src");
+    } else if let Some(default_src) = default_src {
+        directives.push(build_derived_script_elem_directive(flow, &default_src));
     }
 
     directives.join("; ")
@@ -221,14 +165,6 @@ fn is_script_directive(input: &str) -> bool {
     name == "script-src" || name == "script-src-elem"
 }
 
-fn is_frame_directive(input: &str) -> bool {
-    directive_name(input) == "frame-src"
-}
-
-fn is_child_directive(input: &str) -> bool {
-    directive_name(input) == "child-src"
-}
-
 fn directive_name(input: &str) -> String {
     input
         .split_whitespace()
@@ -237,35 +173,22 @@ fn directive_name(input: &str) -> String {
         .to_ascii_lowercase()
 }
 
-fn build_script_directive(flow: &mut Flow, base: &str, script_hashes: &[String]) -> String {
+fn ensure_nonce_on_directive(flow: &mut Flow, base: &str, fallback_name: &str) -> String {
     let mut parts = base.split_whitespace();
-    let name = parts.next().unwrap_or("script-src");
+    let name = parts.next().unwrap_or(fallback_name);
     let mut tokens: Vec<String> = parts.map(|token| token.to_string()).collect();
 
     let mut has_nonce = false;
-    let mut has_hash = false;
-    let mut has_unsafe_inline = false;
-    let mut saw_unsafe_eval = false;
-    let mut saw_wasm_unsafe_eval = false;
     let mut existing_nonce: Option<String> = None;
 
     for token in &tokens {
         let trimmed = token.trim_matches('\'');
-        let lower = trimmed.to_ascii_lowercase();
         if trimmed.len() >= 6 && trimmed[..6].eq_ignore_ascii_case("nonce-") {
             has_nonce = true;
             if existing_nonce.is_none() {
                 let value = trimmed[6..].to_string();
                 existing_nonce = Some(value);
             }
-        } else if lower.starts_with("sha256-") || lower.starts_with("sha384-") || lower.starts_with("sha512-") {
-            has_hash = true;
-        } else if lower == "unsafe-inline" {
-            has_unsafe_inline = true;
-        } else if lower == "unsafe-eval" {
-            saw_unsafe_eval = true;
-        } else if lower == "wasm-unsafe-eval" {
-            saw_wasm_unsafe_eval = true;
         }
     }
 
@@ -275,7 +198,7 @@ fn build_script_directive(flow: &mut Flow, base: &str, script_hashes: &[String])
         }
     }
 
-    if !has_nonce && !has_unsafe_inline {
+    if !has_nonce {
         let nonce_value = flow
             .metadata
             .csp_nonce
@@ -286,132 +209,19 @@ fn build_script_directive(flow: &mut Flow, base: &str, script_hashes: &[String])
                 fresh
             });
         tokens.push(format!("'nonce-{}'", nonce_value));
-        has_nonce = true;
     }
 
-    let allow_hashes = !has_unsafe_inline || has_nonce || has_hash;
+    format!("{} {}", name, tokens.join(" "))
+}
 
-    if allow_hashes {
-        for hash in script_hashes {
-            let hash_token = format!("'sha256-{}'", hash);
-            if !tokens.iter().any(|token| token == &hash_token) {
-                tokens.push(hash_token);
-            }
-        }
-    }
-
-    append_allowlist_tokens(&mut tokens, CAPTCHA_SCRIPT_ALLOWLIST);
-
-    ensure_eval_tokens(
+fn build_derived_script_elem_directive(flow: &mut Flow, default_src: &str) -> String {
+    let mut parts = default_src.split_whitespace();
+    let _ = parts.next();
+    let tokens: Vec<String> = parts.map(|token| token.to_string()).collect();
+    ensure_nonce_on_directive(
         flow,
-        &mut tokens,
-        saw_unsafe_eval,
-        saw_wasm_unsafe_eval,
-    );
-
-    if tokens.is_empty() {
-        tokens.push("'self'".to_string());
-    }
-
-    format!("{} {}", name, tokens.join(" "))
-}
-
-fn build_destination_directive(base: &str, default_name: &str, allowlist: &[&str]) -> String {
-    let mut parts = base.split_whitespace();
-    let name = parts.next().unwrap_or(default_name);
-    let mut tokens: Vec<String> = parts.map(|token| token.to_string()).collect();
-
-    if tokens.is_empty() {
-        tokens.push("'self'".to_string());
-    }
-
-    append_allowlist_tokens(&mut tokens, allowlist);
-
-    format!("{} {}", name, tokens.join(" "))
-}
-
-fn append_allowlist_tokens(tokens: &mut Vec<String>, allowlist: &[&str]) {
-    for origin in allowlist {
-        if !tokens.iter().any(|token| token == origin) {
-            tokens.push((*origin).to_string());
-        }
-    }
-}
-
-fn ensure_eval_tokens(
-    flow: &Flow,
-    tokens: &mut Vec<String>,
-    saw_unsafe_eval: bool,
-    saw_wasm_unsafe_eval: bool,
-) {
-    let host_needs_eval = host_requires_eval(flow);
-
-    if saw_unsafe_eval || host_needs_eval {
-        append_unique_token(tokens, "'unsafe-eval'");
-    }
-
-    if saw_wasm_unsafe_eval || host_needs_eval {
-        append_unique_token(tokens, "'wasm-unsafe-eval'");
-    }
-}
-
-fn append_unique_token(tokens: &mut Vec<String>, token: &str) {
-    if !tokens.iter().any(|existing| existing.eq_ignore_ascii_case(token)) {
-        tokens.push(token.to_string());
-    }
-}
-
-fn enforce_eval_on_value(flow: &Flow, value: &str) -> String {
-    if !host_requires_eval(flow) {
-        return value.to_string();
-    }
-
-    let mut directives = Vec::new();
-    let mut script_seen = false;
-
-    for directive in value.split(';') {
-        let trimmed = directive.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        if is_script_directive(trimmed) {
-            script_seen = true;
-            directives.push(add_eval_tokens_to_directive(trimmed));
-        } else {
-            directives.push(trimmed.to_string());
-        }
-    }
-
-    if !script_seen {
-        directives.push("script-src 'unsafe-eval' 'wasm-unsafe-eval'".to_string());
-    }
-
-    directives.join("; ")
-}
-
-fn add_eval_tokens_to_directive(directive: &str) -> String {
-    let mut parts = directive.split_whitespace();
-    let name = parts.next().unwrap_or("script-src");
-    let mut tokens: Vec<String> = parts.map(|token| token.to_string()).collect();
-    append_unique_token(&mut tokens, "'unsafe-eval'");
-    append_unique_token(&mut tokens, "'wasm-unsafe-eval'");
-    format!("{} {}", name, tokens.join(" "))
-}
-
-fn build_fallback_policy() -> String {
-    let mut script_tokens = vec!["'self'".to_string(), "'unsafe-inline'".to_string()];
-    append_allowlist_tokens(&mut script_tokens, CAPTCHA_SCRIPT_ALLOWLIST);
-
-    let mut frame_tokens = vec!["'self'".to_string()];
-    append_allowlist_tokens(&mut frame_tokens, CAPTCHA_FRAME_ALLOWLIST);
-    let frame_value = frame_tokens.join(" ");
-
-    format!(
-        "script-src {}; frame-src {}; child-src {}; object-src 'none'; base-uri 'none'",
-        script_tokens.join(" "),
-        frame_value,
-        frame_value
+        &format!("script-src-elem {}", tokens.join(" ")).trim_end().to_string(),
+        "script-src-elem",
     )
 }
 
@@ -450,55 +260,6 @@ fn extract_nonce_from_value(value: &str) -> Option<String> {
     None
 }
 
-fn should_passthrough_csp(flow: &Flow) -> bool {
-    match request_host(flow) {
-        Some(host) => CSP_PASSTHROUGH_HOSTS
-            .iter()
-            .any(|suffix| host_matches_suffix(&host, suffix)),
-        None => false,
-    }
-}
-
-fn host_requires_eval(flow: &Flow) -> bool {
-    match request_host(flow) {
-        Some(host) => CSP_EVAL_REQUIRED_HOSTS
-            .iter()
-            .any(|suffix| host_matches_suffix(&host, suffix)),
-        None => false,
-    }
-}
-
-fn request_host(flow: &Flow) -> Option<String> {
-    if let Some(host) = flow.request.uri.host() {
-        return Some(host.to_ascii_lowercase());
-    }
-    if let Some(sni) = &flow.metadata.tls_sni {
-        return Some(sni.to_ascii_lowercase());
-    }
-    if let Some(target) = &flow.metadata.connect_target {
-        if let Some((host, _)) = target.split_once(':') {
-            return Some(host.to_ascii_lowercase());
-        }
-        return Some(target.to_ascii_lowercase());
-    }
-    None
-}
-
-fn host_matches_suffix(host: &str, suffix: &str) -> bool {
-    if host == suffix {
-        return true;
-    }
-    if host.len() <= suffix.len() {
-        return false;
-    }
-    host.ends_with(suffix)
-        && host
-            .as_bytes()
-            .get(host.len() - suffix.len() - 1)
-            .map(|byte| *byte == b'.')
-            .unwrap_or(false)
-}
-
 fn capture_csp_headers(flow: &Flow) -> Vec<(HeaderName, Vec<String>)> {
     let mut snapshots = Vec::new();
     let response = match flow.response.as_ref() {
@@ -506,17 +267,15 @@ fn capture_csp_headers(flow: &Flow) -> Vec<(HeaderName, Vec<String>)> {
         None => return snapshots,
     };
 
-    for header in [CONTENT_SECURITY_POLICY, CONTENT_SECURITY_POLICY_REPORT_ONLY].iter() {
-        let values: Vec<String> = response
-            .headers
-            .get_all(header)
-            .iter()
-            .filter_map(|value| value.to_str().ok().map(|s| s.to_string()))
-            .collect();
+    let values: Vec<String> = response
+        .headers
+        .get_all(CONTENT_SECURITY_POLICY)
+        .iter()
+        .filter_map(|value| value.to_str().ok().map(|s| s.to_string()))
+        .collect();
 
-        if !values.is_empty() {
-            snapshots.push((header.clone(), values));
-        }
+    if !values.is_empty() {
+        snapshots.push((CONTENT_SECURITY_POLICY, values));
     }
 
     snapshots
@@ -526,46 +285,81 @@ fn capture_csp_headers(flow: &Flow) -> Vec<(HeaderName, Vec<String>)> {
 mod tests {
     use super::*;
     use crate::proxy::flow::{Flow, RequestParts, ResponseParts};
+    use http::header::CONTENT_SECURITY_POLICY_REPORT_ONLY;
 
     #[test]
-    fn script_directive_includes_captcha_hosts() {
+    fn script_src_elem_preserves_existing_policy_and_adds_nonce() {
         let mut flow = Flow::new(RequestParts::default());
-        let directive = build_script_directive(&mut flow, "script-src 'self'", &[]);
-        assert!(directive.contains("https://www.gstatic.com"));
-        assert!(directive.contains("https://www.google.com"));
+        let rewritten = rewrite_csp_value(
+            &mut flow,
+            "default-src 'self'; script-src-elem 'self' https://cdn.example; object-src 'none'",
+        );
+
+        assert!(rewritten.contains("default-src 'self'"));
+        assert!(rewritten.contains("script-src-elem 'self' https://cdn.example 'nonce-"));
+        assert!(rewritten.contains("object-src 'none'"));
     }
 
     #[test]
-    fn adds_frame_directive_when_missing() {
+    fn script_src_gets_nonce_when_script_src_elem_is_absent() {
+        let mut flow = Flow::new(RequestParts::default());
+        let rewritten = rewrite_csp_value(&mut flow, "script-src 'self' https://cdn.example");
+
+        assert_eq!(rewritten, format!("script-src 'self' https://cdn.example 'nonce-{}'", flow.metadata.csp_nonce.clone().unwrap()));
+    }
+
+    #[test]
+    fn default_src_is_copied_into_script_src_elem_when_needed() {
+        let mut flow = Flow::new(RequestParts::default());
+        let rewritten = rewrite_csp_value(&mut flow, "default-src 'self' https://cdn.example; object-src 'none'");
+
+        assert!(rewritten.contains("default-src 'self' https://cdn.example"));
+        assert!(rewritten.contains("script-src-elem 'self' https://cdn.example 'nonce-"));
+        assert!(rewritten.contains("object-src 'none'"));
+    }
+
+    #[test]
+    fn existing_nonce_is_reused() {
+        let mut flow = Flow::new(RequestParts::default());
+        let rewritten = rewrite_csp_value(&mut flow, "script-src-elem 'self' 'nonce-origin123' https://cdn.example");
+
+        assert_eq!(rewritten, "script-src-elem 'self' 'nonce-origin123' https://cdn.example");
+        assert_eq!(flow.metadata.csp_nonce.as_deref(), Some("origin123"));
+    }
+
+    #[test]
+    fn rewrite_headers_leaves_responses_without_csp_untouched() {
+        let mut flow = Flow::new(RequestParts::default());
+        flow.response = Some(ResponseParts::default());
+
+        let stage = CspStage;
+        stage.rewrite_headers(&mut flow, &[]).unwrap();
+
+        assert!(flow.response.as_ref().unwrap().headers.get(CONTENT_SECURITY_POLICY).is_none());
+    }
+
+    #[test]
+    fn rewrite_headers_leaves_report_only_policy_untouched() {
         let mut flow = Flow::new(RequestParts::default());
         let mut response = ResponseParts::default();
         response.headers.insert(
-            CONTENT_SECURITY_POLICY,
-            HeaderValue::from_static("script-src 'self'"),
+            CONTENT_SECURITY_POLICY_REPORT_ONLY,
+            HeaderValue::from_static("script-src 'self'; connect-src 'none'"),
         );
         flow.response = Some(response);
 
         let stage = CspStage;
         stage.rewrite_headers(&mut flow, &[]).unwrap();
-        let header_value = flow
-            .response
-            .as_ref()
-            .unwrap()
-            .headers
-            .get(CONTENT_SECURITY_POLICY)
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .to_string();
 
-        assert!(header_value.contains("frame-src"));
-        assert!(header_value.contains("https://www.google.com"));
-    }
-
-    #[test]
-    fn fallback_policy_whitelists_captcha() {
-        let fallback = build_fallback_policy();
-        assert!(fallback.contains("https://www.gstatic.com"));
-        assert!(fallback.contains("frame-src"));
+        assert_eq!(
+            flow.response
+                .as_ref()
+                .unwrap()
+                .headers
+                .get(CONTENT_SECURITY_POLICY_REPORT_ONLY)
+                .unwrap(),
+            &HeaderValue::from_static("script-src 'self'; connect-src 'none'")
+        );
+        assert!(flow.metadata.csp_nonce.is_none());
     }
 }
