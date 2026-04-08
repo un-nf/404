@@ -19,12 +19,19 @@ function hashString(input) {
   return hash
 }
 
+function secureRandomUint32() {
+  if (globalThis.crypto?.getRandomValues) {
+    return globalThis.crypto.getRandomValues(new Uint32Array(1))[0]
+  }
+  return (Date.now() >>> 0)
+}
+
 export function initEntropy() {
   const runtime = getRuntime()
   const fingerprint = runtime.config?.fingerprint || {}
   const driftEnabled = fingerprint.enable_fingerprint_drift !== false
   const sessionId = driftEnabled
-    ? (Date.now() ^ ((Math.random() * 0xFFFFFFFF) >>> 0)).toString(36)
+    ? (Date.now() ^ secureRandomUint32()).toString(36)
     : 'static'
   const sessionSeed = hashString(`${sessionId}:${fingerprint.canvas_hash || ''}`)
   const origin = (() => {
