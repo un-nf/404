@@ -25,14 +25,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 mod alt_svc;
 mod behavior;
 mod csp;
-mod cookie;
 mod header_profile;
 mod js;
 
 pub use alt_svc::AltSvcStage;
 pub use behavior::BehavioralNoiseStage;
 pub use csp::CspStage;
-pub use cookie::CookieIsolationStage;
 pub use header_profile::HeaderProfileStage;
 pub use js::JsInjectionStage;
 
@@ -58,9 +56,6 @@ impl StagePipeline {
     /// CSP/JS stages and response sanitizers run after script injection.
     pub fn build(cfg: &PipelineConfig, _telemetry: TelemetrySink) -> Result<Self> {
         let mut stages: Vec<Arc<dyn FlowStage>> = Vec::new();
-
-        let psl = Arc::new(publicsuffix::List::new());
-        stages.push(Arc::new(CookieIsolationStage::new(psl)));
 
         stages.push(Arc::new(HeaderProfileStage::new(
             cfg.profiles_path.clone(),

@@ -1,0 +1,11 @@
+{
+  "name": "static-js-build",
+  "private": true,
+  "scripts": {
+    "build": "node build.js",
+    "watch": "node build.js --watch"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.2"
+  }
+}

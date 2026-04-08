@@ -17,14 +17,24 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 */
 
-use std::{collections::HashMap, fs, path::PathBuf, str::FromStr, sync::Arc};
+use std::{
+    collections::{hash_map::DefaultHasher, HashMap},
+    fs,
+    hash::{Hash, Hasher},
+    path::PathBuf,
+    str::FromStr,
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use http::header::{HeaderName, HeaderValue, USER_AGENT};
+use http::header::{HeaderName, HeaderValue, ACCEPT, ACCEPT_ENCODING, IF_MODIFIED_SINCE, IF_NONE_MATCH, IF_RANGE, USER_AGENT};
 use parking_lot::RwLock;
+use serde_json::{Map, Value};
 
 use crate::proxy::flow::Flow;
+use crate::tls::profiles::validate_profile_coherence;
 
 use super::FlowStage;
 
@@ -37,6 +47,7 @@ pub struct HeaderProfileStage {
     path: PathBuf,
     profiles: Arc<RwLock<HashMap<String, Arc<ProfileRecord>>>>,
     default_profile: String,
+    startup_seed: u64,
 }
 
 struct ProfileRecord {
@@ -183,6 +194,9 @@ fn unescape_value(input: &str) -> String {
 }
 
 fn apply_profile_rules(flow: &mut Flow, rules: &HeaderProfileRules) -> Result<()> {
+    strip_html_navigation_cache_validators(flow);
+    normalize_html_navigation_accept_encoding(flow)?;
+
     let headers = &mut flow.request.headers;
     let request_path = flow.request.uri.path().to_string();
 
@@ -230,6 +244,110 @@ fn apply_profile_rules(flow: &mut Flow, rules: &HeaderProfileRules) -> Result<()
     }
 
     Ok(())
+}
+
+fn strip_html_navigation_cache_validators(flow: &mut Flow) {
+    if !is_html_navigation_request(flow) {
+        return;
+    }
+
+    flow.request.headers.remove(IF_NONE_MATCH);
+    flow.request.headers.remove(IF_MODIFIED_SINCE);
+    flow.request.headers.remove(IF_RANGE);
+}
+
+fn normalize_html_navigation_accept_encoding(flow: &mut Flow) -> Result<()> {
+    if !is_html_navigation_request(flow) {
+        return Ok(());
+    }
+
+    let Some(raw) = flow.request.headers.get(ACCEPT_ENCODING) else {
+        return Ok(());
+    };
+
+    let Some(normalized) = normalize_accept_encoding_value(raw.to_str().unwrap_or_default()) else {
+        flow.request.headers.remove(ACCEPT_ENCODING);
+        return Ok(());
+    };
+
+    let value = HeaderValue::from_str(&normalized)
+        .context("invalid Accept-Encoding value after HTML normalization")?;
+    flow.request.headers.insert(ACCEPT_ENCODING, value);
+    Ok(())
+}
+
+fn normalize_accept_encoding_value(raw: &str) -> Option<String> {
+    let filtered: Vec<String> = raw
+        .split(',')
+        .filter_map(|token| {
+            let trimmed = token.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+
+            let encoding = trimmed
+                .split(';')
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .to_ascii_lowercase();
+
+            if encoding == "zstd" {
+                return None;
+            }
+
+            Some(trimmed.to_string())
+        })
+        .collect();
+
+    if filtered.is_empty() {
+        None
+    } else {
+        Some(filtered.join(", "))
+    }
+}
+
+fn is_html_navigation_request(flow: &Flow) -> bool {
+    if flow.request.method != http::Method::GET && flow.request.method != http::Method::HEAD {
+        return false;
+    }
+
+    let accept_is_html = flow
+        .request
+        .headers
+        .get(ACCEPT)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| {
+            let lower = value.to_ascii_lowercase();
+            lower.contains("text/html") || lower.contains("application/xhtml+xml")
+        })
+        .unwrap_or(false);
+
+    if !accept_is_html {
+        return false;
+    }
+
+    let fetch_mode = flow
+        .request
+        .headers
+        .get("sec-fetch-mode")
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.eq_ignore_ascii_case("navigate"));
+
+    let fetch_dest = flow
+        .request
+        .headers
+        .get("sec-fetch-dest")
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.eq_ignore_ascii_case("document") || value.eq_ignore_ascii_case("iframe"));
+
+    match (fetch_mode, fetch_dest) {
+        (Some(true), Some(true)) => true,
+        (Some(true), None) => true,
+        (None, Some(true)) => true,
+        (None, None) => true,
+        _ => false,
+    }
 }
 
 fn header_value(name: &HeaderName, value: &str) -> Result<HeaderValue> {
@@ -331,6 +449,144 @@ fn ends_with_any(path: &str, suffixes: &[&str]) -> bool {
     suffixes.iter().any(|suffix| path.ends_with(suffix))
 }
 
+fn materialize_profile_config(base: &Value, profile_key: &str, startup_seed: u64) -> Value {
+    let Some(overlays) = base.get("seeded_overlays").and_then(Value::as_object) else {
+        return base.clone();
+    };
+
+    let mut materialized = base.clone();
+    let mut selected_overlays = Map::new();
+
+    for (category, entries_value) in overlays {
+        let Some(entries) = entries_value.as_array() else {
+            continue;
+        };
+        let Some(entry) = select_overlay_entry(entries, startup_seed, profile_key, category) else {
+            continue;
+        };
+
+        if let Some(id) = overlay_entry_id(entry) {
+            selected_overlays.insert(category.clone(), Value::String(id.to_string()));
+        }
+
+        apply_overlay_entry(&mut materialized, entry);
+    }
+
+    if let Some(object) = materialized.as_object_mut() {
+        object.remove("seeded_overlays");
+        if !selected_overlays.is_empty() {
+            object.insert("selected_overlays".to_string(), Value::Object(selected_overlays));
+        }
+    }
+
+    materialized
+}
+
+fn select_overlay_entry<'a>(
+    entries: &'a [Value],
+    startup_seed: u64,
+    profile_key: &str,
+    category: &str,
+) -> Option<&'a Map<String, Value>> {
+    let total_weight: f64 = entries
+        .iter()
+        .filter_map(Value::as_object)
+        .map(overlay_entry_weight)
+        .filter(|weight| *weight > 0.0)
+        .sum();
+
+    if total_weight <= 0.0 {
+        return None;
+    }
+
+    let target = deterministic_choice_fraction(startup_seed, profile_key, category) * total_weight;
+    let mut cursor = 0.0;
+    let mut fallback = None;
+
+    for entry in entries.iter().filter_map(Value::as_object) {
+        let weight = overlay_entry_weight(entry);
+        if weight <= 0.0 {
+            continue;
+        }
+
+        cursor += weight;
+        fallback = Some(entry);
+        if target < cursor {
+            return Some(entry);
+        }
+    }
+
+    fallback
+}
+
+fn overlay_entry_weight(entry: &Map<String, Value>) -> f64 {
+    entry
+        .get("weight")
+        .and_then(Value::as_f64)
+        .filter(|weight| *weight > 0.0)
+        .unwrap_or(1.0)
+}
+
+fn overlay_entry_id(entry: &Map<String, Value>) -> Option<&str> {
+    entry.get("id").and_then(Value::as_str)
+}
+
+fn deterministic_choice_fraction(startup_seed: u64, profile_key: &str, category: &str) -> f64 {
+    let mut hasher = DefaultHasher::new();
+    startup_seed.hash(&mut hasher);
+    profile_key.hash(&mut hasher);
+    category.hash(&mut hasher);
+    let hash = hasher.finish();
+
+    (hash as f64) / ((u64::MAX as f64) + 1.0)
+}
+
+fn apply_overlay_entry(materialized: &mut Value, entry: &Map<String, Value>) {
+    let Some(root) = materialized.as_object_mut() else {
+        return;
+    };
+
+    if let Some(fingerprint_patch) = entry.get("fingerprint") {
+        merge_value_at_key(root, "fingerprint", fingerprint_patch);
+    }
+
+    if let Some(headers_patch) = entry.get("headers").and_then(Value::as_object) {
+        for (key, value) in headers_patch {
+            merge_value_at_key(root, key, value);
+        }
+    }
+}
+
+fn merge_value_at_key(target: &mut Map<String, Value>, key: &str, patch: &Value) {
+    if let Some(existing) = target.get_mut(key) {
+        deep_merge_value(existing, patch);
+    } else {
+        target.insert(key.to_string(), patch.clone());
+    }
+}
+
+fn deep_merge_value(target: &mut Value, patch: &Value) {
+    match (target, patch) {
+        (Value::Object(target_object), Value::Object(patch_object)) => {
+            for (key, value) in patch_object {
+                if let Some(existing) = target_object.get_mut(key) {
+                    deep_merge_value(existing, value);
+                } else {
+                    target_object.insert(key.clone(), value.clone());
+                }
+            }
+        }
+        (target_value, patch_value) => *target_value = patch_value.clone(),
+    }
+}
+
+fn generate_startup_seed() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| (duration.as_nanos() as u64) ^ (std::process::id() as u64))
+        .unwrap_or_else(|_| std::process::id() as u64)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -413,6 +669,273 @@ mod tests {
             Some("image/avif,image/webp,image/png")
         );
     }
+
+    #[test]
+    fn strips_cache_validators_for_html_navigation_requests() {
+        let rules = HeaderProfileRules::default();
+        let mut flow = build_flow("https://example.com/");
+        flow.request.headers.insert(
+            ACCEPT,
+            HeaderValue::from_static("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"),
+        );
+        flow.request
+            .headers
+            .insert("sec-fetch-mode", HeaderValue::from_static("navigate"));
+        flow.request
+            .headers
+            .insert("sec-fetch-dest", HeaderValue::from_static("document"));
+        flow.request
+            .headers
+            .insert(IF_NONE_MATCH, HeaderValue::from_static("\"etag\""));
+        flow.request
+            .headers
+            .insert(IF_MODIFIED_SINCE, HeaderValue::from_static("Wed, 21 Oct 2015 07:28:00 GMT"));
+        flow.request
+            .headers
+            .insert(IF_RANGE, HeaderValue::from_static("\"etag\""));
+
+        apply_profile_rules(&mut flow, &rules).expect("apply rules");
+
+        assert!(flow.request.headers.get(IF_NONE_MATCH).is_none());
+        assert!(flow.request.headers.get(IF_MODIFIED_SINCE).is_none());
+        assert!(flow.request.headers.get(IF_RANGE).is_none());
+    }
+
+    #[test]
+    fn preserves_cache_validators_for_non_html_requests() {
+        let rules = HeaderProfileRules::default();
+        let mut flow = build_flow("https://example.com/api/data.json");
+        flow.request
+            .headers
+            .insert(ACCEPT, HeaderValue::from_static("application/json"));
+        flow.request
+            .headers
+            .insert(IF_NONE_MATCH, HeaderValue::from_static("\"etag\""));
+        flow.request
+            .headers
+            .insert(IF_MODIFIED_SINCE, HeaderValue::from_static("Wed, 21 Oct 2015 07:28:00 GMT"));
+        flow.request
+            .headers
+            .insert(IF_RANGE, HeaderValue::from_static("\"etag\""));
+
+        apply_profile_rules(&mut flow, &rules).expect("apply rules");
+
+        assert!(flow.request.headers.get(IF_NONE_MATCH).is_some());
+        assert!(flow.request.headers.get(IF_MODIFIED_SINCE).is_some());
+        assert!(flow.request.headers.get(IF_RANGE).is_some());
+    }
+
+    #[test]
+    fn strips_zstd_from_html_navigation_accept_encoding() {
+        let rules = HeaderProfileRules::default();
+        let mut flow = build_flow("https://example.com/");
+        flow.request.headers.insert(
+            ACCEPT,
+            HeaderValue::from_static("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"),
+        );
+        flow.request.headers.insert(
+            ACCEPT_ENCODING,
+            HeaderValue::from_static("gzip, deflate, br, zstd"),
+        );
+        flow.request
+            .headers
+            .insert("sec-fetch-mode", HeaderValue::from_static("navigate"));
+        flow.request
+            .headers
+            .insert("sec-fetch-dest", HeaderValue::from_static("document"));
+
+        apply_profile_rules(&mut flow, &rules).expect("apply rules");
+
+        assert_eq!(
+            flow.request
+                .headers
+                .get(ACCEPT_ENCODING)
+                .and_then(|h| h.to_str().ok()),
+            Some("gzip, deflate, br")
+        );
+    }
+
+    #[test]
+    fn preserves_zstd_for_non_html_requests() {
+        let rules = HeaderProfileRules::default();
+        let mut flow = build_flow("https://example.com/app.js");
+        flow.request
+            .headers
+            .insert(ACCEPT, HeaderValue::from_static("*/*"));
+        flow.request.headers.insert(
+            ACCEPT_ENCODING,
+            HeaderValue::from_static("gzip, deflate, br, zstd"),
+        );
+
+        apply_profile_rules(&mut flow, &rules).expect("apply rules");
+
+        assert_eq!(
+            flow.request
+                .headers
+                .get(ACCEPT_ENCODING)
+                .and_then(|h| h.to_str().ok()),
+            Some("gzip, deflate, br, zstd")
+        );
+    }
+
+    #[test]
+    fn materialized_profile_is_deterministic_for_same_seed() {
+        let config = serde_json::json!({
+            "fingerprint": {
+                "name": "Example",
+                "hardware_concurrency": 8
+            },
+            "seeded_overlays": {
+                "hardware_profiles": [
+                    {
+                        "id": "desktop_a",
+                        "weight": 1,
+                        "fingerprint": {
+                            "hardware_concurrency": 4,
+                            "max_touch_points": 0
+                        }
+                    },
+                    {
+                        "id": "desktop_b",
+                        "weight": 1,
+                        "fingerprint": {
+                            "hardware_concurrency": 8,
+                            "max_touch_points": 5
+                        }
+                    }
+                ]
+            }
+        });
+
+        let first = materialize_profile_config(&config, "example", 7);
+        let second = materialize_profile_config(&config, "example", 7);
+
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn materialized_profile_varies_across_seeds() {
+        let config = serde_json::json!({
+            "fingerprint": {
+                "name": "Example"
+            },
+            "seeded_overlays": {
+                "hardware_profiles": [
+                    {
+                        "id": "desktop_a",
+                        "weight": 1,
+                        "fingerprint": {
+                            "hardware_concurrency": 4
+                        }
+                    },
+                    {
+                        "id": "desktop_b",
+                        "weight": 1,
+                        "fingerprint": {
+                            "hardware_concurrency": 8
+                        }
+                    }
+                ]
+            }
+        });
+
+        let first = materialize_profile_config(&config, "example", 0);
+        let first_id = first
+            .get("selected_overlays")
+            .and_then(|value| value.get("hardware_profiles"))
+            .and_then(Value::as_str)
+            .expect("selected overlay id");
+
+        let different = (1_u64..128)
+            .map(|seed| materialize_profile_config(&config, "example", seed))
+            .find(|value| {
+                value
+                    .get("selected_overlays")
+                    .and_then(|entry| entry.get("hardware_profiles"))
+                    .and_then(Value::as_str)
+                    .map(|id| id != first_id)
+                    .unwrap_or(false)
+            })
+            .expect("different seed selects a different overlay");
+
+        assert_ne!(first, different);
+    }
+
+    #[test]
+    fn build_js_runtime_uses_materialized_profile_without_overlay_pool() {
+        let config = serde_json::json!({
+            "fingerprint": {
+                "name": "Example",
+                "hardware_concurrency": 8
+            },
+            "seeded_overlays": {
+                "hardware_profiles": [
+                    {
+                        "id": "desktop_a",
+                        "weight": 1,
+                        "fingerprint": {
+                            "hardware_concurrency": 16,
+                            "max_touch_points": 0
+                        }
+                    }
+                ]
+            }
+        });
+
+        let materialized = materialize_profile_config(&config, "example", 12);
+        let runtime = build_js_runtime_config(&materialized);
+
+        assert!(materialized.get("seeded_overlays").is_none());
+        assert_eq!(
+            runtime
+                .get("fingerprint")
+                .and_then(|value| value.get("hardware_concurrency"))
+                .and_then(Value::as_i64),
+            Some(16)
+        );
+        assert_eq!(
+            runtime
+                .get("fingerprint")
+                .and_then(|value| value.get("max_touch_points"))
+                .and_then(Value::as_i64),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn header_rules_are_built_from_materialized_overlay() {
+        let config = serde_json::json!({
+            "set": [],
+            "fingerprint": {
+                "name": "Example"
+            },
+            "seeded_overlays": {
+                "screen_profiles": [
+                    {
+                        "id": "screen_a",
+                        "weight": 1,
+                        "headers": {
+                            "set": [["X-Overlay-Screen", "screen_a"]]
+                        }
+                    }
+                ]
+            }
+        });
+
+        let materialized = materialize_profile_config(&config, "example", 1);
+        let rules = HeaderProfileRules::from_value(&materialized);
+        let mut flow = build_flow("https://example.com/");
+
+        apply_profile_rules(&mut flow, &rules).expect("apply rules");
+
+        assert_eq!(
+            flow.request
+                .headers
+                .get("x-overlay-screen")
+                .and_then(|h| h.to_str().ok()),
+            Some("screen_a")
+        );
+    }
 }
 
 impl HeaderProfileStage {
@@ -421,6 +944,7 @@ impl HeaderProfileStage {
             path,
             profiles: Arc::new(RwLock::new(HashMap::new())),
             default_profile,
+            startup_seed: generate_startup_seed(),
         };
         stage.reload()?;
         Ok(stage)
@@ -449,13 +973,15 @@ impl HeaderProfileStage {
                     .and_then(|s| s.to_str())
                     .unwrap_or("profile")
                     .to_string();
-                let display = profile_display_name(&value, &key);
-                let rules = HeaderProfileRules::from_value(&value);
+                let materialized = materialize_profile_config(&value, &key, self.startup_seed);
+                let display = profile_display_name(&materialized, &key);
+                let rules = HeaderProfileRules::from_value(&materialized);
+                log_profile_coherence_warnings(&key, &display, &materialized);
                 discovered.insert(
                     key,
                     Arc::new(ProfileRecord {
                         display_name: display,
-                        config: value,
+                        config: materialized,
                         rules,
                     }),
                 );
@@ -474,13 +1000,15 @@ impl HeaderProfileStage {
         if let Some(map) = value.get("profiles").and_then(|v| v.as_object()) {
             let mut parsed: HashMap<String, Arc<ProfileRecord>> = HashMap::new();
             for (k, v) in map {
-                let display = profile_display_name(v, k);
-                let rules = HeaderProfileRules::from_value(v);
+                let materialized = materialize_profile_config(v, k, self.startup_seed);
+                let display = profile_display_name(&materialized, k);
+                let rules = HeaderProfileRules::from_value(&materialized);
+                log_profile_coherence_warnings(k, &display, &materialized);
                 parsed.insert(
                     k.clone(),
                     Arc::new(ProfileRecord {
                         display_name: display,
-                        config: v.clone(),
+                        config: materialized,
                         rules,
                     }),
                 );
@@ -493,14 +1021,16 @@ impl HeaderProfileStage {
                 .and_then(|s| s.to_str())
                 .unwrap_or("profile")
                 .to_string();
-            let display = profile_display_name(&value, &key);
+            let materialized = materialize_profile_config(&value, &key, self.startup_seed);
+            let display = profile_display_name(&materialized, &key);
             let mut parsed = HashMap::new();
-            let rules = HeaderProfileRules::from_value(&value);
+            let rules = HeaderProfileRules::from_value(&materialized);
+            log_profile_coherence_warnings(&key, &display, &materialized);
             parsed.insert(
                 key,
                 Arc::new(ProfileRecord {
                     display_name: display,
-                    config: value,
+                    config: materialized,
                     rules,
                 }),
             );
@@ -542,6 +1072,7 @@ impl FlowStage for HeaderProfileStage {
             flow.metadata.profile_name = Some(profile.display_name.clone());
             flow.metadata.browser_profile = Some(key);
             flow.metadata.fingerprint_config = profile.config.clone();
+            flow.metadata.js_runtime_config = build_js_runtime_config(&profile.config);
 
             apply_profile_rules(flow, &profile.rules)?;
             flow.metadata.user_agent = flow
@@ -563,4 +1094,27 @@ fn profile_display_name(value: &serde_json::Value, fallback: &str) -> String {
         .and_then(|name| name.as_str())
         .map(|s| s.to_string())
         .unwrap_or_else(|| fallback.to_string())
+}
+
+fn build_js_runtime_config(config: &Value) -> Value {
+    let Some(fingerprint) = config.get("fingerprint") else {
+        return config.clone();
+    };
+
+    let mut runtime = Map::new();
+    runtime.insert("fingerprint".to_string(), fingerprint.clone());
+
+    for key in ["privacy", "privacy_rules", "behavior", "behavioral_noise"] {
+        if let Some(value) = config.get(key) {
+            runtime.insert(key.to_string(), value.clone());
+        }
+    }
+
+    Value::Object(runtime)
+}
+
+fn log_profile_coherence_warnings(key: &str, display_name: &str, value: &Value) {
+    for warning in validate_profile_coherence(value) {
+        tracing::warn!(profile = key, display_name, "{warning}");
+    }
 }

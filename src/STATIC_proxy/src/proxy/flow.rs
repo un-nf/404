@@ -175,20 +175,24 @@ pub struct FlowMetadata {
 
     pub fingerprint_config: Value,
 
+    pub js_runtime_config: Value,
+
     pub csp_nonce: Option<String>,
 
     pub script_hashes: Vec<String>,
 
     pub alt_svc_mutations: Vec<String>,
 
-    /// Registrable domain (eTLD+1) of the top-level site for this flow, used for cookie partitioning.
-    pub top_site: Option<String>,
-
-    
     pub client_protocol: Option<String>,
 
     
     pub upstream_protocol: Option<String>,
+
+    pub tls_variant_id: Option<String>,
+
+    pub tls_version: Option<String>,
+
+    pub tls_cipher_suite: Option<String>,
 
     
     pub behavioral_noise: BehavioralNoiseMetadata,

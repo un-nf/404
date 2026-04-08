@@ -3,39 +3,30 @@
   "replace": [
     [
       "User-Agent",
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:143.0) Gecko/20100101 Firefox/143.0"
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:149.0) Gecko/20100101 Firefox/149.0"
     ],
     [
       "Accept-Language",
-      "en-US,en;q=0.9"
-    ],
-    [
-      "Connection",
-      "keep-alive"
+      "en-US,en;q=0.5"
     ]
   ],
-  "replaceArbitrary": [
-    [
-      "Viewport-Width",
-      "1920"
-    ]
-  ],
+  "replaceArbitrary": [],
   "replaceDynamic": [
     [
       "Accept",
       {
-        "default": "text/html,application/xhtml+xml,application/xml;q=0.9,\\*/\\*;q=0.8",
-        "\\*/\\*": "\\*/\\*",
-        "image/": "image/avif,image/webp,image/png,image/svg+xml,image/*;q=0.8,\\*/\\*;q=0.5",
-        "text/css": "text/css,\\*/\\*;q=0.1",
-        "text/html": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,\\*/\\*;q=0.8",
-        "text/plain": "text/plain,\\*/\\*;q=0.01",
-        "application/font": "application/font-woff2;q=1.0,application/font-woff;q=0.9,\\*/\\*;q=0.8",
-        "application/json": "application/json,text/plain,\\*/\\*",
+        "default": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "*/*": "*/*",
+        "image/": "image/avif,image/webp,image/png,image/svg+xml,image/*;q=0.8,*/*;q=0.5",
+        "text/css": "text/css,*/*;q=0.1",
+        "text/html": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "text/plain": "text/plain,*/*;q=0.01",
+        "application/font": "application/font-woff2;q=1.0,application/font-woff;q=0.9,*/*;q=0.8",
+        "application/json": "application/json,text/plain,*/*",
         "text/vnd.reddit.partial+html": "text/vnd.reddit.partial+html,text/html;q=0.9",
         "text/vnd.reddit.hybrid+html": "text/vnd.reddit.hybrid+html,text/html;q=0.9",
-        "video/": "video/webm,video/ogg,video/*;q=0.9,application/ogg;q=0.7,audio/*;q=0.6,\\*/\\*;q=0.",
-        "audio/": "audio/webm,audio/ogg,audio/wav,audio/*;q=0.9,application/ogg;q=0.7,video/*;q=0.6,\\*/\\*;q=0.5"
+        "video/": "video/webm,video/ogg,video/*;q=0.9,application/ogg;q=0.7,audio/*;q=0.6,*/*;q=0.5",
+        "audio/": "audio/webm,audio/ogg,audio/wav,audio/*;q=0.9,application/ogg;q=0.7,video/*;q=0.6,*/*;q=0.5"
       }
     ]
   ],
@@ -87,25 +78,23 @@
     "access-control-request-method"
   ],
   "fingerprint": {
-    "name": "Firefox 143 - Windows 10",
+    "name": "Firefox 149 - Windows 10",
     "browser_type": "firefox",
-    "browser_version": "143.0",
+    "browser_version": "149.0",
     "os": "Windows",
-    "os_version": "10.0",
-    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:143.0) Gecko/20100101 Firefox/143.0",
+    "os_version": "10",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:149.0) Gecko/20100101 Firefox/149.0",
     "platform": "Win32",
     "vendor": "",
-    "vendor_flavors": null,
     "vendorSub": "",
     "productSub": "20100101",
     "oscpu": "Windows NT 10.0; Win64; x64",
-    "buildID": "20181001000000",
+    "buildID": "20260318190823",
     "hardware_concurrency": 8,
-    "device_memory": 8,
-    "max_touch_points": 0,
-    "screen_resolution": "1920x1080",
-    "screen_avail_width": 1920,
-    "screen_avail_height": 1040,
+    "max_touch_points": 5,
+    "screen_resolution": "1280x800",
+    "screen_avail_width": 1280,
+    "screen_avail_height": 750,
     "screen_avail_top": 0,
     "screen_avail_left": 0,
     "color_depth": 24,
@@ -114,12 +103,7 @@
     "screen_orientation_angle": 0,
     "screen_is_extended": false,
     "device_pixel_ratio": 1.0,
-    "window_inner_width": 1920,
-    "window_inner_height": 1032,
-    "window_outer_width": 1920,
-    "window_outer_height": 1080,
-    "timezone": "America/New_York",
-    "timezone_offset": 300,
+    "timezone": "America/Denver",
     "languages": [
       "en-US",
       "en"
@@ -136,8 +120,8 @@
       "touch_alpha": false,
       "log_activity": false
     },
-    "webgl_vendor": "Intel Inc.",
-    "webgl_renderer": "Intel(R) UHD Graphics 630",
+    "webgl_vendor": "Mozilla",
+    "webgl_renderer": "ANGLE (Intel, Intel(R) HD Graphics Direct3D11 vs_5_0 ps_5_0), or similar",
     "webgl_hash": "firefox_win10_webgl_v1",
     "webgl_parameters": {
       "MAX_VERTEX_ATTRIBS": 16,
@@ -190,21 +174,26 @@
     "audio_context": {
       "sample_rate": 48000,
       "channel_count": 2,
-      "max_channel_count": 3,
-      "number_of_inputs": 2,
+      "max_channel_count": 2,
+      "number_of_inputs": 1,
       "number_of_outputs": 0
     },
     "do_not_track": null,
     "cookie_enabled": true,
+    "pdf_viewer_enabled": true,
     "webdriver": false,
-    "plugins": "PDF Viewer",
+    "plugins": [
+      {
+        "name": "PDF Viewer",
+        "description": "Portable Document Format",
+        "filename": "internal-pdf-viewer"
+      }
+    ],
     "mimeTypes": [
-      "application/pdf"
+      "application/pdf",
+      "text/pdf"
     ],
     "storage_quota": 107374182400,
-    "webrtc_local_ips": [
-      "192.168.1.100"
-    ],
     "enable_headers_spoof": true,
     "enable_canvas_spoof": true,
     "enable_webgl_spoof": true,
@@ -218,26 +207,141 @@
     "enable_element_spoofing": true,
     "enable_dom_evasion": true,
     "enable_iframe_protection": true,
-    "enable_viewport_spoof": true,
     "enable_font_spoof": true,
     "enable_network_spoof": true,
     "enable_fingerprint_drift": true,
     "enable_speech_synthesis_spoof": true,
-    "viewport_rounding": 200,
-    "viewport_width": null,
-    "viewport_height": null,
     "fonts": [
-      "Arial",
-      "Times New Roman",
-      "Courier New",
-      "Verdana",
-      "Georgia",
-      "Comic Sans MS",
-      "Trebuchet MS",
-      "Arial Black",
-      "Impact"
+      "Calibri",
+      "HELV",
+      "MS UI Gothic",
+      "Marlett",
+      "Segoe UI Light",
+      "Small Fonts"
     ],
     "debug": false
+  },
+  "seeded_overlays": {
+    "hardware_profiles": [
+      {
+        "id": "desktop_4c_notouch",
+        "weight": 0.35,
+        "fingerprint": {
+          "hardware_concurrency": 4,
+          "max_touch_points": 0
+        }
+      },
+      {
+        "id": "desktop_8c_touch",
+        "weight": 0.45,
+        "fingerprint": {
+          "hardware_concurrency": 8,
+          "max_touch_points": 5
+        }
+      },
+      {
+        "id": "desktop_12c_touch",
+        "weight": 0.20,
+        "fingerprint": {
+          "hardware_concurrency": 12,
+          "max_touch_points": 10
+        }
+      }
+    ],
+    "screen_profiles": [
+      {
+        "id": "wxga_1280",
+        "weight": 0.40,
+        "fingerprint": {
+          "screen_resolution": "1280x800",
+          "screen_avail_width": 1280,
+          "screen_avail_height": 750
+        }
+      },
+      {
+        "id": "hd_1366",
+        "weight": 0.40,
+        "fingerprint": {
+          "screen_resolution": "1366x768",
+          "screen_avail_width": 1366,
+          "screen_avail_height": 728
+        }
+      },
+      {
+        "id": "fhd_1920",
+        "weight": 0.20,
+        "fingerprint": {
+          "screen_resolution": "1920x1080",
+          "screen_avail_width": 1920,
+          "screen_avail_height": 1040
+        }
+      }
+    ],
+    "media_device_profiles": [
+      {
+        "id": "integrated_av",
+        "weight": 0.50,
+        "fingerprint": {
+          "media_device_count": 3,
+          "media_devices": [
+            {
+              "kind": "audioinput",
+              "label": "Microphone Array (Realtek(R) Audio)"
+            },
+            {
+              "kind": "audiooutput",
+              "label": "Speakers (Realtek(R) Audio)"
+            },
+            {
+              "kind": "videoinput",
+              "label": "Integrated Camera"
+            }
+          ]
+        }
+      },
+      {
+        "id": "dock_audio_only",
+        "weight": 0.20,
+        "fingerprint": {
+          "media_device_count": 2,
+          "media_devices": [
+            {
+              "kind": "audioinput",
+              "label": "Microphone (USB Audio Device)"
+            },
+            {
+              "kind": "audiooutput",
+              "label": "Speakers (USB Audio Device)"
+            }
+          ]
+        }
+      },
+      {
+        "id": "integrated_plus_usb_cam",
+        "weight": 0.30,
+        "fingerprint": {
+          "media_device_count": 4,
+          "media_devices": [
+            {
+              "kind": "audioinput",
+              "label": "Microphone Array (Intel(R) Smart Sound Technology)"
+            },
+            {
+              "kind": "audiooutput",
+              "label": "Speakers (Realtek(R) Audio)"
+            },
+            {
+              "kind": "videoinput",
+              "label": "Integrated Camera"
+            },
+            {
+              "kind": "videoinput",
+              "label": "USB Camera"
+            }
+          ]
+        }
+      }
+    ]
   },
   "tls": {
     "schema_version": 2,
@@ -248,33 +352,31 @@
     },
     "cipher_catalog": {
       "tls13": [
-        {"name": "TLS_AES_128_GCM_SHA256", "iana_id": 4865},
-        {"name": "TLS_AES_256_GCM_SHA384", "iana_id": 4866},
-        {"name": "TLS_CHACHA20_POLY1305_SHA256", "iana_id": 4867}
+        {"name": "TLS_AES_128_GCM_SHA256"},
+        {"name": "TLS_AES_256_GCM_SHA384"},
+        {"name": "TLS_CHACHA20_POLY1305_SHA256"}
       ],
       "tls12": [
-        {"name": "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256", "iana_id": 49195},
-        {"name": "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256", "iana_id": 49199},
-        {"name": "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256", "iana_id": 52393},
-        {"name": "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256", "iana_id": 52392},
-        {"name": "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384", "iana_id": 49196},
-        {"name": "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384", "iana_id": 49200},
-        {"name": "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA", "iana_id": 49162},
-        {"name": "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA", "iana_id": 49161},
-        {"name": "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA", "iana_id": 49171},
-        {"name": "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA", "iana_id": 49172},
-        {"name": "TLS_RSA_WITH_AES_128_GCM_SHA256", "iana_id": 156},
-        {"name": "TLS_RSA_WITH_AES_256_GCM_SHA384", "iana_id": 157},
-        {"name": "TLS_RSA_WITH_AES_128_CBC_SHA", "iana_id": 47},
-        {"name": "TLS_RSA_WITH_AES_256_CBC_SHA", "iana_id": 53}
+        {"name": "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256"},
+        {"name": "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"},
+        {"name": "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256"},
+        {"name": "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256"},
+        {"name": "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"},
+        {"name": "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"},
+        {"name": "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA"},
+        {"name": "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA"},
+        {"name": "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA"},
+        {"name": "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA"},
+        {"name": "TLS_RSA_WITH_AES_128_GCM_SHA256"},
+        {"name": "TLS_RSA_WITH_AES_256_GCM_SHA384"},
+        {"name": "TLS_RSA_WITH_AES_128_CBC_SHA"},
+        {"name": "TLS_RSA_WITH_AES_256_CBC_SHA"}
       ]
     },
     "hello_variants": [
       {
-        "id": "ff_h3_release_a",
-        "weight": 0.45,
-        "ja3": "771,4865-4867-4866,51-43-13-0-45-23-28-5-65281-10-27-16-34-57-65037,4588-29-23-24-25,0",
-        "ja4": "q13d0315h3_1301,1302,1303_0005,000a,000d,0017,001b,001c,0022,002b,002d,0033,0039,fe0d,ff01_0403,0503,0603,0203,0804,0805,0806,0401,0501,0601,0201",
+        "id": "ff_h2_release_a",
+        "weight": 0.5,
         "alpn": ["h2", "http/1.1"],
         "cipher_order": {
           "mode": "catalog",
@@ -322,24 +424,7 @@
           "selection": "uniform",
           "seed": "flow_id"
         },
-        "extension_sequence": [
-          {"code": "0033", "name": "key_share"},
-          {"code": "002b", "name": "supported_versions"},
-          {"code": "000d", "name": "signature_algorithms"},
-          {"code": "0000", "name": "server_name"},
-          {"code": "002d", "name": "psk_key_exchange_modes"},
-          {"code": "0017", "name": "session_ticket"},
-          {"code": "001c", "name": "record_size_limit"},
-          {"code": "0005", "name": "status_request"},
-          {"code": "ff01", "name": "renegotiation_info"},
-          {"code": "000a", "name": "supported_groups"},
-          {"code": "001b", "name": "compress_certificate"},
-          {"code": "0010", "name": "application_layer_protocol_negotiation"},
-          {"code": "0022", "name": "encrypt_then_mac"},
-          {"code": "0039", "name": "post_handshake_auth"},
-          {"code": "65037", "name": "GREASE"}
-        ],
-        "supported_groups": ["x25519", "secp256r1", "secp384r1", "secp521r1", "ffdhe2048", "ffdhe3072"],
+        "supported_groups": ["x25519", "secp256r1", "secp384r1", "secp521r1"],
         "signature_algorithms": [
           "ecdsa_secp256r1_sha256",
           "rsa_pss_rsae_sha256",
@@ -354,20 +439,15 @@
         "key_share_order": ["x25519", "secp256r1"],
         "psk_key_exchange_modes": ["psk_dhe_ke"],
         "session_resumption": {
-          "enable_tickets": true,
-          "max_early_data": 0,
-          "ticket_lifetime_seconds": 43200
+          "enable_tickets": true
         },
         "record_layer": {
-          "padding_strategy": "firefox",
           "max_fragment": 16384
         }
       },
       {
-        "id": "ff_h3_release_b",
-        "weight": 0.35,
-        "ja3": "771,4865-4867-4866,10-0-34-16-27-45-28-65281-5-23-43-51-13-57-65037,4588-29-23-24-25,0",
-        "ja4": "q13d0317h3_1301,1302,1303_0005,000a,000d,0017,001b,001c,0022,0029,002a,002b,002d,0033,0039,fe0d,ff01_0403,0503,0603,0203,0804,0805,0806,0401,0501,0601,0201",
+        "id": "ff_h2_release_b",
+        "weight": 0.3,
         "alpn": ["h2", "http/1.1"],
         "cipher_order": {
           "mode": "catalog",
@@ -400,24 +480,7 @@
           "selection": "uniform",
           "seed": "flow_id"
         },
-        "extension_sequence": [
-          {"code": "000a", "name": "supported_groups"},
-          {"code": "0000", "name": "server_name"},
-          {"code": "0022", "name": "encrypt_then_mac"},
-          {"code": "0010", "name": "application_layer_protocol_negotiation"},
-          {"code": "001b", "name": "compress_certificate"},
-          {"code": "002d", "name": "psk_key_exchange_modes"},
-          {"code": "001c", "name": "record_size_limit"},
-          {"code": "ff01", "name": "renegotiation_info"},
-          {"code": "0005", "name": "status_request"},
-          {"code": "0017", "name": "session_ticket"},
-          {"code": "002b", "name": "supported_versions"},
-          {"code": "0033", "name": "key_share"},
-          {"code": "000d", "name": "signature_algorithms"},
-          {"code": "0039", "name": "post_handshake_auth"},
-          {"code": "65037", "name": "GREASE"}
-        ],
-        "supported_groups": ["x25519", "secp256r1", "secp384r1", "secp521r1", "ffdhe2048", "ffdhe3072"],
+        "supported_groups": ["x25519", "secp256r1", "secp384r1", "secp521r1"],
         "signature_algorithms": [
           "ecdsa_secp256r1_sha256",
           "rsa_pss_rsae_sha256",
@@ -431,20 +494,15 @@
         "key_share_order": ["x25519", "secp256r1"],
         "psk_key_exchange_modes": ["psk_dhe_ke"],
         "session_resumption": {
-          "enable_tickets": true,
-          "max_early_data": 0,
-          "ticket_lifetime_seconds": 43200
+          "enable_tickets": true
         },
         "record_layer": {
-          "padding_strategy": "firefox",
           "max_fragment": 16384
         }
       },
       {
-        "id": "ff_h2_fallback",
+        "id": "ff_h1_fallback",
         "weight": 0.2,
-        "ja3": "771,4865-4867-4866-49195-49199-52393-52392-49196-49200-49162-49161-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-34-18-51-43-13-45-28-27-65037,4588-29-23-24-25-256-257,0",
-        "ja4": "t13d1717h2_002f,0035,009c,009d,1301,1302,1303,c009,c00a,c013,c014,c02b,c02c,c02f,c030,cca8,cca9_0005,000a,000b,000d,0012,0017,001b,001c,0022,0023,002b,002d,0033,fe0d,ff01_0403,0503,0603,0804,0805,0806,0401,0501,0601,0203,0201",
         "alpn": ["http/1.1"],
         "cipher_order": {
           "mode": "explicit",
@@ -468,24 +526,6 @@
             "TLS_RSA_WITH_AES_256_CBC_SHA"
           ]
         },
-        "extension_sequence": [
-          {"code": "0000", "name": "server_name"},
-          {"code": "0017", "name": "session_ticket"},
-          {"code": "ff01", "name": "renegotiation_info"},
-          {"code": "000a", "name": "supported_groups"},
-          {"code": "000b", "name": "ec_point_formats"},
-          {"code": "000d", "name": "signature_algorithms"},
-          {"code": "0023", "name": "session_ticket_lifetime"},
-          {"code": "0010", "name": "application_layer_protocol_negotiation"},
-          {"code": "0005", "name": "status_request"},
-          {"code": "0033", "name": "key_share"},
-          {"code": "002d", "name": "psk_key_exchange_modes"},
-          {"code": "002b", "name": "supported_versions"},
-          {"code": "fe0d", "name": "padding"},
-          {"code": "0012", "name": "signed_certificate_timestamp"},
-          {"code": "001b", "name": "compress_certificate"},
-          {"code": "001c", "name": "record_size_limit"}
-        ],
         "supported_groups": ["x25519", "secp256r1", "secp384r1"],
         "signature_algorithms": [
           "ecdsa_secp256r1_sha256",
@@ -500,21 +540,47 @@
         "key_share_order": ["x25519"],
         "psk_key_exchange_modes": ["psk_dhe_ke"],
         "session_resumption": {
-          "enable_tickets": true,
-          "max_early_data": 0,
-          "ticket_lifetime_seconds": 21600
+          "enable_tickets": true
         },
         "record_layer": {
-          "padding_strategy": "none",
           "max_fragment": 16384
         }
       }
     ],
+    "http2": {
+      "initial_stream_id": 3,
+      "header_table_size": 65536,
+      "enable_push": false,
+      "initial_window_size": 131072,
+      "initial_connection_window_size": 12582912,
+      "max_frame_size": 16384,
+      "max_header_list_size": 65536,
+      "enable_connect_protocol": false,
+      "no_rfc7540_priorities": false,
+      "pseudo_header_order": [
+        "method",
+        "path",
+        "authority",
+        "scheme"
+      ],
+      "settings_order": [
+        "header_table_size",
+        "enable_push",
+        "max_concurrent_streams",
+        "initial_window_size",
+        "max_frame_size",
+        "max_header_list_size",
+        "enable_connect_protocol",
+        "no_rfc7540_priorities"
+      ],
+      "headers_stream_dependency": {
+        "stream_id": 0,
+        "weight": 41,
+        "exclusive": false
+      }
+    },
     "handshake_features": {
-      "grease": true,
-      "padding_seed": "flow_id",
-      "enable_early_data": false,
-      "track_ja3": true
+      "grease": true
     }
   }
 }

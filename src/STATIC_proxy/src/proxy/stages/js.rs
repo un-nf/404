@@ -23,14 +23,20 @@ use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use brotli::Decompressor;
 use flate2::read::{GzDecoder, ZlibDecoder};
-use http::header::{CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, TRANSFER_ENCODING};
-use http::HeaderValue;
+use http::header::{
+    CACHE_CONTROL, CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, ETAG, EXPIRES, LAST_MODIFIED,
+    PRAGMA, TRANSFER_ENCODING,
+};
+use http::{HeaderName, HeaderValue};
 use sha2::{Digest, Sha256};
-use std::{borrow::Cow, io::{Cursor, Read}};
+use std::io::{Cursor, Read};
+use zstd::stream::decode_all as zstd_decode_all;
 
 use crate::{assets::ScriptBundle, proxy::flow::{Flow, ResponseParts}};
 
 use super::FlowStage;
+
+const INJECTION_MARKER_HEADER: &str = "x-static-injected";
 
 #[derive(Clone)]
 pub struct JsInjectionStage {
@@ -72,7 +78,10 @@ impl JsInjectionStage {
         }
 
         if let Ok(body_str) = std::str::from_utf8(response.body.as_bytes()) {
-            if body_str.contains("__404_bootstrap_version") {
+            if body_str.contains("__404_bootstrap_version")
+                || body_str.contains("__STATIC_RUNTIME__")
+                || body_str.contains("__static_profile")
+            {
                 return Ok(false);
             }
         } else {
@@ -82,48 +91,67 @@ impl JsInjectionStage {
         Ok(true)
     }
 
-    fn render_config_layer(&self, flow: &Flow) -> String {
-        let mut config_json = serde_json::to_string(&flow.metadata.fingerprint_config)
-            .unwrap_or_else(|_| "{}".to_string());
-        config_json = config_json.replace('\\', "\\\\");
-        config_json = config_json.replace("</script>", "<\\/script>");
+    fn render_runtime_config(&self, flow: &Flow) -> String {
+        serde_json::to_string(&flow.metadata.js_runtime_config)
+            .unwrap_or_else(|_| "{}".to_string())
+            .replace("</script>", "<\\/script>")
+    }
 
-        self.bundle
-            .config_layer
-            .as_ref()
-            .replace("{{config_json}}", &config_json)
+    fn script_literal(script: &str) -> String {
+        serde_json::to_string(script)
+            .unwrap_or_else(|_| "\"\"".to_string())
+            .replace("</script>", "<\\/script>")
+    }
+
+    fn build_loader_script(&self, _flow: &Flow) -> String {
+        let runtime_script = self.bundle.runtime.as_ref();
+        let segments = [Self::script_literal(runtime_script)];
+
+        concat!(
+            "(function staticInstallBundle() {",
+            "var current = document.currentScript;",
+            "var nonce = '';",
+            "if (current) {",
+            "  nonce = current.nonce || (current.getAttribute && current.getAttribute('nonce')) || '';",
+            "}",
+            "var parent = document.head || document.documentElement || document.body;",
+            "if (!parent) { return; }",
+            "var segments = [__STATIC_SEGMENTS__];",
+            "for (var i = 0; i < segments.length; i += 1) {",
+            "  var node = document.createElement('script');",
+            "  if (nonce) {",
+            "    node.nonce = nonce;",
+            "    node.setAttribute('nonce', nonce);",
+            "  }",
+            "  node.text = segments[i];",
+            "  parent.appendChild(node);",
+            "}",
+            "})();"
+        )
+        .replace("__STATIC_SEGMENTS__", &segments.join(","))
     }
 
     fn build_injection_block(&self, flow: &Flow) -> (String, Vec<String>) {
-        let config_layer = self.render_config_layer(flow);
-        let segments: [Cow<'_, str>; 5] = [
-            Cow::Borrowed(self.bundle.boot.as_ref()),
-            Cow::Borrowed(self.bundle.shim.as_ref()),
-            Cow::Owned(config_layer),
-            Cow::Borrowed(self.bundle.spoofing.as_ref()),
-            Cow::Borrowed(self.bundle.behavioral_noise.as_ref()),
-        ];
-
-        let mut hashes = Vec::with_capacity(segments.len());
-        for segment in &segments {
-            hashes.push(self.compute_hash(segment.as_ref()));
-        }
+        let config_json = self.render_runtime_config(flow);
+        let loader_script = self.build_loader_script(flow);
+        let hashes = vec![self.compute_hash(loader_script.as_ref())];
 
         let nonce_attr = flow
             .metadata
             .csp_nonce
-            .as_ref()
+            .as_deref()
             .map(|nonce| format!(" nonce=\"{}\"", nonce))
             .unwrap_or_default();
 
-        let mut block = String::with_capacity(segments.iter().map(|s| s.len()).sum::<usize>() + 128);
-        for segment in segments {
-            block.push_str("<script");
-            block.push_str(&nonce_attr);
-            block.push('>');
-            block.push_str(segment.as_ref());
-            block.push_str("</script>\n");
-        }
+        let mut block = String::with_capacity(config_json.len() + loader_script.len() + 160);
+        block.push_str("<script type=\"application/json\" id=\"__static_profile\">");
+        block.push_str(&config_json);
+        block.push_str("</script>\n");
+        block.push_str("<script");
+        block.push_str(&nonce_attr);
+        block.push('>');
+        block.push_str(&loader_script);
+        block.push_str("</script>\n");
 
         (block, hashes)
     }
@@ -170,6 +198,7 @@ impl JsInjectionStage {
                 "gzip" | "x-gzip" => Self::decode_gzip(&decoded)?,
                 "deflate" => Self::decode_deflate(&decoded)?,
                 "br" => Self::decode_brotli(&decoded)?,
+                "zstd" | "zst" => Self::decode_zstd(&decoded)?,
                 other => {
                     tracing::debug!(encoding = %other, "js_injector: unsupported content-encoding");
                     return Ok(false);
@@ -206,6 +235,34 @@ impl JsInjectionStage {
         let mut out = Vec::new();
         decoder.read_to_end(&mut out)?;
         Ok(out)
+    }
+
+    fn decode_zstd(data: &[u8]) -> Result<Vec<u8>> {
+        Ok(zstd_decode_all(Cursor::new(data)).context("failed to decode zstd body")?)
+    }
+
+    fn disable_client_cache(response: &mut ResponseParts) -> Result<()> {
+        response.headers.remove(ETAG);
+        response.headers.remove(LAST_MODIFIED);
+        response.headers.remove(EXPIRES);
+        response.headers.insert(
+            CACHE_CONTROL,
+            HeaderValue::from_static("no-store, no-cache, must-revalidate"),
+        );
+        response
+            .headers
+            .insert(PRAGMA, HeaderValue::from_static("no-cache"));
+        let len_value = HeaderValue::from_str(&response.body.len().to_string())
+            .context("invalid content-length after cache header rewrite")?;
+        response.headers.insert(CONTENT_LENGTH, len_value);
+        Ok(())
+    }
+
+    fn mark_injected_response(response: &mut ResponseParts) {
+        response.headers.insert(
+            HeaderName::from_static(INJECTION_MARKER_HEADER),
+            HeaderValue::from_static("1"),
+        );
     }
 
     fn choose_insertion_strategy(&self, body_lower: &str) -> InsertionStrategy {
@@ -258,7 +315,117 @@ impl JsInjectionStage {
 enum InsertionStrategy {
     InsideHead(usize),
     CreateHeadAt(usize),
+    BeforeScript(usize),
     PrependHead,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::proxy::flow::RequestParts;
+    use serde_json::json;
+    use zstd::stream::encode_all as zstd_encode_all;
+
+    #[test]
+    fn render_runtime_config_escapes_script_terminator() {
+        let stage = JsInjectionStage::new(false);
+        let mut flow = Flow::new(RequestParts::default());
+        flow.metadata.js_runtime_config = json!({
+            "value": "before </script> after",
+        });
+
+        let rendered = stage.render_runtime_config(&flow);
+
+        assert!(rendered.contains("before <\\/script> after"));
+        assert!(!rendered.contains("</script>"));
+    }
+
+    #[test]
+    fn build_injection_block_emits_config_and_runtime_with_single_hash() {
+        let stage = JsInjectionStage::new(false);
+        let mut flow = Flow::new(RequestParts::default());
+        flow.metadata.csp_nonce = Some("nonce-123".to_string());
+        flow.metadata.js_runtime_config = json!({
+            "fingerprint": {
+                "platform": "Windows",
+            },
+        });
+
+        let (block, hashes) = stage.build_injection_block(&flow);
+        let loader_script = stage.build_loader_script(&flow);
+
+        assert!(block.contains("<script type=\"application/json\" id=\"__static_profile\">"));
+        assert!(block.contains("<script nonce=\"nonce-123\">"));
+        assert!(block.contains(&loader_script));
+        assert_eq!(hashes, vec![stage.compute_hash(loader_script.as_ref())]);
+    }
+
+    #[tokio::test]
+    async fn on_response_body_injects_runtime_block_and_records_hash() {
+        let stage = JsInjectionStage::new(false);
+        let mut flow = Flow::new(RequestParts::default());
+        flow.metadata.csp_nonce = Some("nonce-abc".to_string());
+        flow.metadata.js_runtime_config = json!({
+            "value": "</script>",
+        });
+
+        let mut response = ResponseParts::default();
+        response.headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
+        response.body.replace(b"<!doctype html><html><head><title>x</title></head><body>ok</body></html>");
+        flow.response = Some(response);
+
+        stage.on_response_body(&mut flow).await.unwrap();
+
+        let body = std::str::from_utf8(flow.response.as_ref().unwrap().body.as_bytes()).unwrap();
+        assert!(body.contains("<script type=\"application/json\" id=\"__static_profile\">"));
+        assert!(body.contains("<script nonce=\"nonce-abc\">"));
+        assert!(body.contains("<\\/script>"));
+        assert!(body.find("<script type=\"application/json\" id=\"__static_profile\">\n").is_none());
+        assert_eq!(flow.metadata.script_hashes, vec![stage.compute_hash(stage.build_loader_script(&flow).as_ref())]);
+        let response = flow.response.as_ref().unwrap();
+        assert_eq!(response.headers.get(CACHE_CONTROL).and_then(|value| value.to_str().ok()), Some("no-store, no-cache, must-revalidate"));
+        assert_eq!(response.headers.get(PRAGMA).and_then(|value| value.to_str().ok()), Some("no-cache"));
+    }
+
+    #[tokio::test]
+    async fn on_response_body_injects_before_first_script_when_script_precedes_head() {
+        let stage = JsInjectionStage::new(false);
+        let mut flow = Flow::new(RequestParts::default());
+
+        let mut response = ResponseParts::default();
+        response.headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/html"));
+        response.body.replace(b"<!doctype html><html><script>window.pageFirst = true;</script><head><title>x</title></head><body>ok</body></html>");
+        flow.response = Some(response);
+
+        stage.on_response_body(&mut flow).await.unwrap();
+
+        let body = std::str::from_utf8(flow.response.as_ref().unwrap().body.as_bytes()).unwrap();
+        let injected_idx = body.find("<script type=\"application/json\" id=\"__static_profile\">").unwrap();
+        let page_script_idx = body.find("<script>window.pageFirst = true;</script>").unwrap();
+        assert!(injected_idx < page_script_idx);
+    }
+
+    #[tokio::test]
+    async fn on_response_body_decodes_zstd_html_and_injects_runtime() {
+        let stage = JsInjectionStage::new(false);
+        let mut flow = Flow::new(RequestParts::default());
+
+        let html = b"<!doctype html><html><head><title>x</title></head><body>ok</body></html>";
+        let encoded = zstd_encode_all(Cursor::new(html), 0).unwrap();
+
+        let mut response = ResponseParts::default();
+        response.headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
+        response.headers.insert(CONTENT_ENCODING, HeaderValue::from_static("zstd"));
+        response.body.replace(&encoded);
+        flow.response = Some(response);
+
+        stage.on_response_body(&mut flow).await.unwrap();
+
+        let response = flow.response.as_ref().unwrap();
+        let body = std::str::from_utf8(response.body.as_bytes()).unwrap();
+        assert!(body.contains("<script type=\"application/json\" id=\"__static_profile\">"));
+        assert!(response.headers.get(CONTENT_ENCODING).is_none());
+    }
 }
 
 #[async_trait]
@@ -289,11 +456,11 @@ impl FlowStage for JsInjectionStage {
         let mut strategy = self.choose_insertion_strategy(&body_lower);
         if let Some(script_idx) = body_lower.find("<script") {
             let planned_idx = match strategy {
-                InsertionStrategy::InsideHead(i) | InsertionStrategy::CreateHeadAt(i) => i,
+                InsertionStrategy::InsideHead(i) | InsertionStrategy::CreateHeadAt(i) | InsertionStrategy::BeforeScript(i) => i,
                 InsertionStrategy::PrependHead => 0,
             };
             if script_idx < planned_idx {
-                strategy = InsertionStrategy::PrependHead;
+                strategy = InsertionStrategy::BeforeScript(script_idx);
             }
         }
         let wrapped_block = format!("<head>\n{}\n</head>\n", injection_block);
@@ -314,6 +481,13 @@ impl FlowStage for JsInjectionStage {
                 mutated.push_str(&wrapped_block);
                 mutated.push_str(tail);
             }
+            InsertionStrategy::BeforeScript(idx) => {
+                let safe_idx = idx.min(body.len());
+                let (head, tail) = body.split_at(safe_idx);
+                mutated.push_str(head);
+                mutated.push_str(&injection_block);
+                mutated.push_str(tail);
+            }
             InsertionStrategy::PrependHead => {
                 mutated.push_str(&wrapped_block);
                 mutated.push_str(&body);
@@ -321,6 +495,8 @@ impl FlowStage for JsInjectionStage {
         }
 
         response.body.replace(mutated.as_bytes());
+        Self::disable_client_cache(response)?;
+        Self::mark_injected_response(response);
         flow.metadata.script_hashes = hashes;
 
         if self.debug {

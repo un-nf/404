@@ -21,21 +21,13 @@ use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct ScriptBundle {
-    pub boot: Arc<str>,
-    pub shim: Arc<str>,
-    pub config_layer: Arc<str>,
-    pub spoofing: Arc<str>,
-    pub behavioral_noise: Arc<str>,
+    pub runtime: Arc<str>,
 }
 
 impl ScriptBundle {
     pub fn load() -> Self {
         Self {
-            boot: Arc::from(include_str!("../assets/js/0bootstrap_v4.js")),
-            shim: Arc::from(include_str!("../assets/js/1globals_shim_v4.js")),
-            config_layer: Arc::from(include_str!("../assets/js/config_layer_v3.js")),
-            spoofing: Arc::from(include_str!("../assets/js/2fingerprint_spoof_v4.js")),
-            behavioral_noise: Arc::from(include_str!("../assets/js/behavioral_noise_v1.js")),
+            runtime: Arc::from(include_str!("../assets/js/dist/runtime.bundle.js")),
         }
     }
 }
