@@ -1,0 +1,101 @@
+name: Build STATIC Release Binaries
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runs_on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x86_64
+            runs_on: windows-latest
+            target: x86_64-pc-windows-msvc
+            binary_name: static_proxy.exe
+            asset_name: static_proxy-windows-x86_64.exe
+          - name: linux-x86_64
+            runs_on: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            binary_name: static_proxy
+            asset_name: static_proxy-linux-x86_64
+          - name: macos-x86_64
+            runs_on: macos-13
+            target: x86_64-apple-darwin
+            binary_name: static_proxy
+            asset_name: static_proxy-macos-x86_64
+          - name: macos-aarch64
+            runs_on: macos-14
+            target: aarch64-apple-darwin
+            binary_name: static_proxy
+            asset_name: static_proxy-macos-aarch64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: src/STATIC_proxy/build/package-lock.json
+
+      - name: Install Rust target
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config clang cmake ninja-build perl make g++
+
+      - name: Install Windows build dependencies
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install strawberryperl ninja llvm -y
+          "LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Install macOS build dependencies
+        if: runner.os == 'macOS'
+        run: |
+          brew install cmake ninja perl
+
+      - name: Install STATIC JS build dependencies
+        run: npm ci --prefix src/STATIC_proxy/build
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src/STATIC_proxy -> target
+
+      - name: Build STATIC proxy
+        run: cargo build --release --locked --manifest-path src/STATIC_proxy/Cargo.toml --bin static_proxy --target ${{ matrix.target }}
+
+      - name: Stage asset
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/${{ matrix.binary_name }}" "dist/${{ matrix.asset_name }}"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: dist/${{ matrix.asset_name }}
+
+      - name: Publish release asset
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/${{ matrix.asset_name }}

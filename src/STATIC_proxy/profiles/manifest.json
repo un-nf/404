@@ -1,0 +1,19 @@
+{
+    "profiles":  [
+                     {
+                         "file_name":  "chrome-windows.json",
+                         "path":  "src/STATIC_proxy/profiles/chrome-windows.json",
+                         "sha256":  "b041a7063feb5059a2ca54eee1bb69925ce4a63a740cf9026ca4a990435e7361"
+                     },
+                     {
+                         "file_name":  "edge-windows.json",
+                         "path":  "src/STATIC_proxy/profiles/edge-windows.json",
+                         "sha256":  "0b5876feda594d73455ad4f4ebd5afb334bf1e341c967a921605c2b9a6612863"
+                     },
+                     {
+                         "file_name":  "firefox-windows.json",
+                         "path":  "src/STATIC_proxy/profiles/firefox-windows.json",
+                         "sha256":  "25417df406aada536a4d853bda097a752baa1a8f452064fa4d804b33fddd550f"
+                     }
+                 ]
+}

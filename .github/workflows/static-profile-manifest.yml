@@ -1,0 +1,65 @@
+name: Sync STATIC Profile Manifest
+
+on:
+  pull_request:
+    paths:
+      - "src/STATIC_proxy/profiles/*.json"
+      - "!src/STATIC_proxy/profiles/manifest.json"
+      - "scripts/update-static-profile-manifest.ps1"
+      - ".github/workflows/static-profile-manifest.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "src/STATIC_proxy/profiles/*.json"
+      - "!src/STATIC_proxy/profiles/manifest.json"
+      - "scripts/update-static-profile-manifest.ps1"
+      - ".github/workflows/static-profile-manifest.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Refresh manifest
+        shell: pwsh
+        run: ./scripts/update-static-profile-manifest.ps1
+
+      - name: Fail on stale manifest
+        run: git diff --exit-code -- src/STATIC_proxy/profiles/manifest.json
+
+  sync:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Refresh manifest
+        shell: pwsh
+        run: ./scripts/update-static-profile-manifest.ps1
+
+      - name: Commit refreshed manifest
+        shell: bash
+        run: |
+          if git diff --quiet -- src/STATIC_proxy/profiles/manifest.json; then
+            echo "manifest already up to date"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/STATIC_proxy/profiles/manifest.json
+          git commit -m "chore: refresh STATIC profile manifest"
+          git push

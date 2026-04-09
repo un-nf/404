@@ -19,7 +19,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 use std::{
     fs,
-    path::PathBuf,
     sync::{atomic::{AtomicU64, Ordering}, Arc},
     time::{Duration, Instant},
 };
@@ -34,14 +33,13 @@ use rustls::crypto::aws_lc_rs::sign::any_supported_type;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use rustls::{self, sign::CertifiedKey};
 
-use crate::{config::TlsConfig, keystore::{build_keystore, KeystoreMode}};
+use crate::{config::TlsConfig, ensure_rustls_crypto_provider, keystore::{build_keystore, KeystoreMode}};
 
 /// TlsProvider handles all the certificate magic that makes MITM interception work.
 #[derive(Debug)]
 pub struct TlsProvider {
     ca: CertificateAuthority,
     cache: CertificateCache,
-    cache_dir: PathBuf,
 }
 
 const FALLBACK_SNI: &str = "static.local";
@@ -54,20 +52,11 @@ impl TlsProvider {
     /// Subsequent Runs:
     /// Loads the existing CA from disk using rcgen's PEM parsing utilities.
     pub async fn new(cfg: TlsConfig) -> Result<Self> {
-        // Ensure the cache directory exists (though we don't use it yet)
-        if let Some(parent) = cfg.cache_dir.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::create_dir_all(&cfg.cache_dir)?;
-        let cache_dir = cfg.cache_dir.clone();
-
-        // Load existing CA from disk, or generate a fresh one and persist it
-        let ca = CertificateAuthority::load_or_generate(&cfg)?;
+        let ca = load_or_generate_ca(&cfg)?;
 
         Ok(Self {
             ca,
             cache: CertificateCache::new(),
-            cache_dir,
         })
     }
 
@@ -95,6 +84,11 @@ impl TlsProvider {
     pub fn cache_metrics(&self) -> CacheMetrics {
         self.cache.metrics()
     }
+}
+
+pub(crate) fn initialize_ca_material(cfg: &TlsConfig) -> Result<()> {
+    let _ = load_or_generate_ca(cfg)?;
+    Ok(())
 }
 
 /// Lock-free, thread-safe storage for issued leaf certificates.
@@ -282,6 +276,17 @@ impl CertificateAuthority {
     fn signer(&self) -> &Certificate {
         &self.cert
     }
+}
+
+fn load_or_generate_ca(cfg: &TlsConfig) -> Result<CertificateAuthority> {
+    ensure_rustls_crypto_provider()?;
+
+    if let Some(parent) = cfg.cache_dir.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::create_dir_all(&cfg.cache_dir)?;
+
+    CertificateAuthority::load_or_generate(cfg)
 }
 
 /// Converts rcgen Certificate into rustls CertifiedKey (cert chain + signing key).

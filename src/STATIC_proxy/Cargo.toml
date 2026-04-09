@@ -9,6 +9,7 @@ license = "AGPL-3.0"
 [dependencies]
 anyhow = "*"
 async-trait = "0.1"
+axum = { version = "0.8", features = ["json"] }
 base64 = "0.22"
 bytes = "1.11.1"
 clap = { version = "4", features = ["derive"] }

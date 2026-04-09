@@ -17,12 +17,32 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 */
 
+use std::sync::OnceLock;
+
+use anyhow::{anyhow, Result};
+
 pub mod app;
 pub mod assets;
 pub mod behavior;
 pub mod config;
+pub mod control;
 pub mod keystore;
 pub mod proxy;
 pub mod telemetry;
 pub mod tls;
 pub mod utils;
+
+static RUSTLS_PROVIDER_INIT: OnceLock<Result<(), String>> = OnceLock::new();
+
+pub fn ensure_rustls_crypto_provider() -> Result<()> {
+	let result = RUSTLS_PROVIDER_INIT.get_or_init(|| {
+		rustls::crypto::aws_lc_rs::default_provider()
+			.install_default()
+			.map_err(|_| "failed to install aws-lc-rs as the process-level rustls CryptoProvider".to_string())
+	});
+
+	result
+		.as_ref()
+		.map(|_| ())
+		.map_err(|message| anyhow!(message.clone()))
+}

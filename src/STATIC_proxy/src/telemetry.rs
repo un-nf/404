@@ -18,23 +18,29 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 use serde_json::Value;
-use std::sync::OnceLock;
-use tokio::sync::broadcast;
+use serde::{Deserialize, Serialize};
+use std::sync::{Mutex, OnceLock};
 use uuid::Uuid;
 
 use crate::config::{TelemetryConfig, TelemetryMode};
 
-#[derive(Clone, Debug)]
+const TELEMETRY_BUFFER_CAP: usize = 300;
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TelemetryEvent {
     pub event: String,
     pub flow_id: Uuid,
     pub payload: Value,
 }
 
-static TELEMETRY_TX: OnceLock<broadcast::Sender<TelemetryEvent>> = OnceLock::new();
+static TELEMETRY_BUFFER: OnceLock<Mutex<Vec<TelemetryEvent>>> = OnceLock::new();
 
-pub fn register_global_telemetry_sender(tx: broadcast::Sender<TelemetryEvent>) {
-    let _ = TELEMETRY_TX.set(tx);
+pub fn snapshot() -> Vec<TelemetryEvent> {
+    TELEMETRY_BUFFER
+        .get_or_init(|| Mutex::new(Vec::new()))
+        .lock()
+        .map(|events| events.clone())
+        .unwrap_or_default()
 }
 
 #[derive(Clone)]
@@ -65,12 +71,16 @@ impl TelemetrySink {
             }
         }
 
-        if let Some(tx) = TELEMETRY_TX.get() {
-            let _ = tx.send(TelemetryEvent {
-                event: event_name,
+        if let Ok(mut guard) = TELEMETRY_BUFFER.get_or_init(|| Mutex::new(Vec::new())).lock() {
+            guard.push(TelemetryEvent {
+                event: event.to_string(),
                 flow_id,
-                payload,
+                payload: payload_for_log,
             });
+            if guard.len() > TELEMETRY_BUFFER_CAP {
+                let overflow = guard.len() - TELEMETRY_BUFFER_CAP;
+                guard.drain(0..overflow);
+            }
         }
     }
 }

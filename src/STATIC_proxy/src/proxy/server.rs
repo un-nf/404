@@ -17,10 +17,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 */
 
-use std::{net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::{atomic::{AtomicBool, Ordering}, Arc}};
 
 use anyhow::Result;
-use tokio::net::TcpListener;
+use tokio::{net::TcpListener, sync::watch};
 
 use crate::{
     config::{Http3Config, ListenerConfig, ProxyProtocol},
@@ -39,6 +39,8 @@ pub struct ProxyServer {
     fetcher: Arc<dyn OriginFetcher>,
     stages: StagePipeline,
     telemetry: TelemetrySink,
+    ready: Arc<AtomicBool>,
+    shutdown_rx: watch::Receiver<bool>,
 }
 
 impl ProxyServer {
@@ -50,6 +52,8 @@ impl ProxyServer {
         fetcher: Arc<dyn OriginFetcher>,
         stages: StagePipeline,
         telemetry: TelemetrySink,
+        ready: Arc<AtomicBool>,
+        shutdown_rx: watch::Receiver<bool>,
     ) -> Self {
         Self {
             listener_cfg,
@@ -58,6 +62,8 @@ impl ProxyServer {
             fetcher,
             stages,
             telemetry,
+            ready,
+            shutdown_rx,
         }
     }
 
@@ -70,7 +76,7 @@ impl ProxyServer {
     }
 
     /// Main accept loop: binds the listener, accepts connections, spawns handler tasks.
-    async fn run_listener(self) -> Result<()> {
+    async fn run_listener(mut self) -> Result<()> {
 
         let addr = SocketAddr::new(
             self.listener_cfg.bind_address.parse()?,
@@ -79,12 +85,23 @@ impl ProxyServer {
 
         let listener = TcpListener::bind(addr).await?;
         tracing::info!(%addr, "STATIC listener online");
+        self.ready.store(true, Ordering::SeqCst);
 
         let http3_enabled = self.http3_cfg.enabled;
 
         loop {
+            let accept_result = tokio::select! {
+                changed = self.shutdown_rx.changed() => {
+                    match changed {
+                        Ok(_) if *self.shutdown_rx.borrow() => break,
+                        Ok(_) => continue,
+                        Err(_) => break,
+                    }
+                }
+                accepted = listener.accept() => accepted,
+            };
 
-            let (socket, peer) = listener.accept().await?;
+            let (socket, peer) = accept_result?;
             let tls = self.tls.clone();
             let fetcher = self.fetcher.clone();
             let stages = self.stages.clone();
@@ -103,5 +120,8 @@ impl ProxyServer {
                 
             });
         }
+
+        self.ready.store(false, Ordering::SeqCst);
+        Ok(())
     }
 }

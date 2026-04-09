@@ -19,8 +19,23 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 use std::path::PathBuf;
 
-use clap::Parser;
-use static_proxy::{app::StaticApp, config::StaticConfig, utils::init_tracing};
+use clap::{Parser, ValueEnum};
+use static_proxy::{app::{RunMode, StaticApp}, config::StaticConfig, utils::init_tracing};
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum CliMode {
+    Proxy,
+    Control,
+}
+
+impl From<CliMode> for RunMode {
+    fn from(value: CliMode) -> Self {
+        match value {
+            CliMode::Proxy => RunMode::Proxy,
+            CliMode::Control => RunMode::ControlOnly,
+        }
+    }
+}
 
 /// Command-line interface definition using clap's derive API.
 #[derive(Debug, Parser)]
@@ -36,6 +51,10 @@ struct Cli {
     /// Enable JSON-formatted logs (default: human-readable stdout).
     #[arg(long, default_value_t = false)]
     json_logs: bool,
+
+    /// Runtime mode: full proxy runtime or localhost control-only sidecar.
+    #[arg(long, value_enum, default_value_t = CliMode::Proxy)]
+    mode: CliMode,
 }
 
 /// Application entry point: parse CLI, initialize logging, load config, run server.
@@ -51,7 +70,7 @@ async fn main() -> anyhow::Result<()> {
 
     let config = StaticConfig::load(&cli.config)?;
 
-    let app = StaticApp::new(config).await?;
+    let app = StaticApp::new(config, cli.mode.into()).await?;
 
     app.run().await
 }
