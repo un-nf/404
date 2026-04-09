@@ -38,10 +38,9 @@ use crate::tls::profiles::validate_profile_coherence;
 
 use super::FlowStage;
 
-/// HeaderProfileStage is the Rust equivalent of the Python HeaderProfile addon. It reads the
-/// JSON profiles under `static_proxy/profiles/` once at startup, caches them in memory, and
-/// annotates Flow metadata so downstream stages—especially JS injection—see deterministic
-/// fingerprint data that matches the legacy pipeline.
+/// HeaderProfileStage loads JSON profiles at startup, caches them in memory, and annotates
+/// Flow metadata so downstream stages—especially JS injection—see deterministic
+/// fingerprint data for each request.
 #[derive(Clone)]
 pub struct HeaderProfileStage {
     path: PathBuf,
@@ -993,49 +992,29 @@ impl HeaderProfileStage {
         let raw = fs::read_to_string(&self.path)
             .with_context(|| format!("failed to read profiles: {}", self.path.display()))?;
 
-        // Support legacy aggregated profiles.json (with {"profiles": {...}})
         let value: serde_json::Value = serde_json::from_str(&raw)
             .with_context(|| format!("invalid profiles JSON: {}", self.path.display()))?;
 
-        if let Some(map) = value.get("profiles").and_then(|v| v.as_object()) {
-            let mut parsed: HashMap<String, Arc<ProfileRecord>> = HashMap::new();
-            for (k, v) in map {
-                let materialized = materialize_profile_config(v, k, self.startup_seed);
-                let display = profile_display_name(&materialized, k);
-                let rules = HeaderProfileRules::from_value(&materialized);
-                log_profile_coherence_warnings(k, &display, &materialized);
-                parsed.insert(
-                    k.clone(),
-                    Arc::new(ProfileRecord {
-                        display_name: display,
-                        config: materialized,
-                        rules,
-                    }),
-                );
-            }
-            *self.profiles.write() = parsed;
-        } else {
-            let key = self
-                .path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("profile")
-                .to_string();
-            let materialized = materialize_profile_config(&value, &key, self.startup_seed);
-            let display = profile_display_name(&materialized, &key);
-            let mut parsed = HashMap::new();
-            let rules = HeaderProfileRules::from_value(&materialized);
-            log_profile_coherence_warnings(&key, &display, &materialized);
-            parsed.insert(
-                key,
-                Arc::new(ProfileRecord {
-                    display_name: display,
-                    config: materialized,
-                    rules,
-                }),
-            );
-            *self.profiles.write() = parsed;
-        }
+        let key = self
+            .path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("profile")
+            .to_string();
+        let materialized = materialize_profile_config(&value, &key, self.startup_seed);
+        let display = profile_display_name(&materialized, &key);
+        let mut parsed = HashMap::new();
+        let rules = HeaderProfileRules::from_value(&materialized);
+        log_profile_coherence_warnings(&key, &display, &materialized);
+        parsed.insert(
+            key,
+            Arc::new(ProfileRecord {
+                display_name: display,
+                config: materialized,
+                rules,
+            }),
+        );
+        *self.profiles.write() = parsed;
         Ok(())
     }
 

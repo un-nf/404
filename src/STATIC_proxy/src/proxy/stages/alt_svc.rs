@@ -26,8 +26,8 @@ use crate::{config::AltSvcStrategy, proxy::flow::Flow};
 use super::FlowStage;
 
 /// AltSvcStage normalizes or removes `Alt-Svc` headers before they leave the proxy.
-/// Mirrors the legacy mitmproxy addon: downgrade HTTP/3 advertisements to h2, enforce
-/// safe ports, or strip the header entirely depending on `AltSvcStrategy`.
+/// It can downgrade HTTP/3 advertisements to h2, enforce safe ports, or strip the
+/// header entirely depending on `AltSvcStrategy`.
 #[derive(Debug, Clone)]
 pub struct AltSvcStage {
     strategy: AltSvcStrategy,

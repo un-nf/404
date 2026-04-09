@@ -37,7 +37,7 @@ pub struct TlsClientPlan {
     pub(super) supported_groups: Vec<String>,
     pub(super) key_share_order: Vec<String>,
     pub(super) signature_algorithms: Vec<String>,
-    pub(super) extension_sequence: Vec<String>,
+    pub(super) extension_sequence: Vec<TlsExtensionPlan>,
     pub(super) session_ticket: bool,
     pub(super) psk_dhe_ke: bool,
     pub(super) renegotiation: bool,
@@ -50,6 +50,30 @@ pub struct TlsClientPlan {
     pub(super) delegated_credentials: Option<String>,
     pub(super) preserve_tls13_cipher_list: bool,
     pub(super) http2: Option<Http2Plan>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TlsExtensionPlan {
+    pub(super) code: Option<u16>,
+    pub(super) name: String,
+}
+
+impl TlsExtensionPlan {
+    #[cfg(test)]
+    pub(crate) fn from_parts(code: Option<u16>, name: impl Into<String>) -> Self {
+        Self {
+            code,
+            name: name.into(),
+        }
+    }
+
+    pub fn code(&self) -> Option<u16> {
+        self.code
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
 }
 
 impl TlsClientPlan {
@@ -85,7 +109,7 @@ impl TlsClientPlan {
         &self.signature_algorithms
     }
 
-    pub fn extension_sequence(&self) -> &[String] {
+    pub fn extension_sequence(&self) -> &[TlsExtensionPlan] {
         &self.extension_sequence
     }
 
@@ -260,7 +284,7 @@ pub fn plan_from_profile(profile: &Value, flow_id: Uuid) -> Result<Option<TlsCli
         warn!(variant = %variant.id, "TLS profile produced zero supported key exchange groups");
     }
     let alpn = normalize_alpn(&variant.alpn);
-    let extension_sequence = variant.resolve_extension_names();
+    let extension_sequence = variant.resolve_extension_sequence();
     let enable_ocsp_stapling = contains_extension(&extension_sequence, "status_request");
     let enable_signed_cert_timestamps = contains_extension(
         &extension_sequence,
@@ -409,9 +433,17 @@ pub fn validate_profile_coherence(profile: &Value) -> Vec<String> {
             ));
         }
 
-        if !variant.extension_sequence.is_empty() {
+        let unsupported_extensions = variant
+            .extension_sequence
+            .iter()
+            .map(ExtensionDescriptor::normalized_name)
+            .filter(|name| !is_supported_wreq_extension_name(name))
+            .collect::<Vec<_>>();
+
+        if !unsupported_extensions.is_empty() {
             warnings.push(format!(
-                "TLS variant '{id}' specifies an explicit extension sequence, but the current wreq adapter cannot enforce extension ordering by type"
+                "TLS variant '{id}' includes extension sequence entries that the current wreq adapter cannot model exactly: {}",
+                unsupported_extensions.join(", ")
             ));
         }
 
@@ -459,33 +491,12 @@ pub fn validate_profile_coherence(profile: &Value) -> Vec<String> {
     }
 
     if let Some(http2) = schema.http2.as_ref() {
-        if http2.initial_max_send_streams.is_some() {
+        if http2.adaptive_window == Some(true)
+            && (http2.initial_window_size.is_some()
+                || http2.initial_connection_window_size.is_some())
+        {
             warnings.push(
-                "TLS http2.initial_max_send_streams is parsed but not applied by the current wreq adapter".to_string(),
-            );
-        }
-
-        if http2.max_concurrent_reset_streams.is_some() {
-            warnings.push(
-                "TLS http2.max_concurrent_reset_streams is parsed but not applied by the current wreq adapter".to_string(),
-            );
-        }
-
-        if http2.max_pending_accept_reset_streams.is_some() {
-            warnings.push(
-                "TLS http2.max_pending_accept_reset_streams is parsed but not applied by the current wreq adapter".to_string(),
-            );
-        }
-
-        if http2.max_send_buffer_size.is_some() {
-            warnings.push(
-                "TLS http2.max_send_buffer_size is parsed but not applied by the current wreq adapter".to_string(),
-            );
-        }
-
-        if http2.adaptive_window.is_some() {
-            warnings.push(
-                "TLS http2.adaptive_window is parsed but not applied by the current wreq adapter".to_string(),
+                "TLS http2.adaptive_window=true overrides explicit initial_window_size and initial_connection_window_size in wreq".to_string(),
             );
         }
     }
@@ -515,10 +526,40 @@ fn normalize_alpn(entries: &[String]) -> Vec<String> {
     normalized
 }
 
-fn contains_extension(extensions: &[String], expected: &str) -> bool {
+fn contains_extension(extensions: &[TlsExtensionPlan], expected: &str) -> bool {
     extensions
         .iter()
-        .any(|value| value.eq_ignore_ascii_case(expected))
+    .any(|value| value.name.eq_ignore_ascii_case(expected))
+}
+
+fn is_supported_wreq_extension_name(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "grease"
+            | "server_name"
+            | "extended_master_secret"
+            | "renegotiation_info"
+            | "supported_groups"
+            | "ec_point_formats"
+            | "session_ticket"
+            | "application_layer_protocol_negotiation"
+            | "application_settings"
+            | "status_request"
+            | "delegated_credential"
+            | "delegated_credentials"
+            | "signed_certificate_timestamp"
+            | "certificate_timestamp"
+            | "key_share"
+            | "supported_versions"
+            | "signature_algorithms"
+            | "psk_key_exchange_modes"
+            | "record_size_limit"
+            | "compress_certificate"
+            | "certificate_compression"
+            | "encrypted_client_hello"
+            | "ech"
+            | "padding"
+    )
 }
 
 fn variant_matches_browser(variant_id: &str, browser: &str) -> bool {
@@ -750,10 +791,10 @@ impl HelloVariant {
         self.resolve_supported_groups()
     }
 
-    fn resolve_extension_names(&self) -> Vec<String> {
+    fn resolve_extension_sequence(&self) -> Vec<TlsExtensionPlan> {
         self.extension_sequence
             .iter()
-            .map(|extension| extension.normalized_name())
+            .map(ExtensionDescriptor::to_plan)
             .collect()
     }
 }
@@ -773,6 +814,29 @@ impl ExtensionDescriptor {
         }
 
         self.code.trim().to_ascii_lowercase()
+    }
+
+    fn parsed_code(&self) -> Option<u16> {
+        let code = self.code.trim();
+        if code.is_empty() {
+            return None;
+        }
+
+        let trimmed = code
+            .strip_prefix("0x")
+            .or_else(|| code.strip_prefix("0X"))
+            .unwrap_or(code);
+
+        u16::from_str_radix(trimmed, 16)
+            .ok()
+            .or_else(|| code.parse::<u16>().ok())
+    }
+
+    fn to_plan(&self) -> TlsExtensionPlan {
+        TlsExtensionPlan {
+            code: self.parsed_code(),
+            name: self.normalized_name(),
+        }
     }
 }
 

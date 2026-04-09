@@ -23,15 +23,19 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use http::header::{HeaderValue, HOST};
 use wreq::{
-    AlpnProtos, Client, EmulationProvider, Http2Config, PseudoOrder, SettingsOrder, SslCurve,
-    StreamDependency, StreamId, TlsConfig,
+    Client, Emulation,
+    header::OrigHeaderMap,
+    http2::{
+        Http2Options, PseudoId, PseudoOrder, SettingId, SettingsOrder, StreamDependency,
+        StreamId,
+    },
     redirect::Policy,
-    tls::TlsVersion,
+    tls::{AlpnProtocol, AlpsProtocol, ExtensionType, TlsOptions, TlsVersion},
 };
 
 use crate::{
     proxy::{BodyBuffer, Flow, RequestParts, ResponseParts},
-    tls::profiles::{Http2Plan, ProfileTlsVersion, TlsClientPlan},
+    tls::profiles::{Http2Plan, ProfileTlsVersion, TlsClientPlan, TlsExtensionPlan},
 };
 
 #[derive(Debug, Clone)]
@@ -163,64 +167,136 @@ fn build_client(
     builder.build().context("failed to build wreq client")
 }
 
-fn build_tls_config(plan: &TlsClientPlan, mode: UpstreamMode) -> TlsConfig {
-    let mut config = TlsConfig::default();
-    config.alpn_protos = select_alpn(plan, mode);
-    config.session_ticket = plan.session_ticket();
-    config.pre_shared_key = plan.session_ticket();
-    config.psk_dhe_ke = plan.psk_dhe_ke();
-    config.renegotiation = plan.renegotiation();
-    config.enable_ocsp_stapling = plan.enable_ocsp_stapling();
-    config.enable_signed_cert_timestamps = plan.enable_signed_cert_timestamps();
-    config.enable_ech_grease = plan.enable_ech_grease();
-    config.min_tls_version = plan.min_tls_version().map(to_wreq_tls_version);
-    config.max_tls_version = plan.max_tls_version().map(to_wreq_tls_version);
-    config.grease_enabled = plan.grease_enabled();
-    config.permute_extensions = plan.permute_extensions();
-    config.record_size_limit = plan.record_size_limit();
-    config.delegated_credentials = plan
-        .delegated_credentials()
-        .map(|value| Cow::Owned(value.to_string()));
-    config.cipher_list = cipher_list(plan).map(Cow::Owned);
-    config.sigalgs_list = sigalgs_list(plan).map(Cow::Owned);
+fn build_tls_config(plan: &TlsClientPlan, mode: UpstreamMode) -> TlsOptions {
+    let alpn = select_alpn(plan, mode);
+    let mut builder = TlsOptions::builder()
+        .alpn_protocols(alpn.iter().copied())
+        .session_ticket(plan.session_ticket())
+        .pre_shared_key(plan.session_ticket())
+        .psk_dhe_ke(plan.psk_dhe_ke())
+        .renegotiation(plan.renegotiation())
+        .enable_ocsp_stapling(plan.enable_ocsp_stapling())
+        .enable_signed_cert_timestamps(plan.enable_signed_cert_timestamps())
+        .enable_ech_grease(plan.enable_ech_grease())
+        .min_tls_version(plan.min_tls_version().map(to_wreq_tls_version))
+        .max_tls_version(plan.max_tls_version().map(to_wreq_tls_version))
+        .grease_enabled(plan.grease_enabled())
+        .permute_extensions(plan.permute_extensions())
+        .preserve_tls13_cipher_list(plan.preserve_tls13_cipher_list())
+        .record_size_limit(plan.record_size_limit());
 
-    let curves = tls_curves(plan);
-    if !curves.is_empty() {
-        config.curves = Some(Cow::Owned(curves));
+    if let Some((alps, use_new_codepoint)) = select_alps(plan.extension_sequence(), &alpn) {
+        builder = builder.alps_protocols(alps);
+        if use_new_codepoint {
+            builder = builder.alps_use_new_codepoint(true);
+        }
     }
 
-    if !plan.extension_sequence().is_empty() {
+    if let Some(value) = plan.delegated_credentials() {
+        builder = builder.delegated_credentials(Cow::Owned(value.to_string()));
+    }
+
+    if let Some(value) = cipher_list(plan) {
+        builder = builder.cipher_list(Cow::Owned(value));
+    }
+
+    if let Some(value) = sigalgs_list(plan) {
+        builder = builder.sigalgs_list(Cow::Owned(value));
+    }
+
+    if let Some(value) = tls_curves_list(plan) {
+        builder = builder.curves_list(Cow::Owned(value));
+    }
+
+    let (extension_permutation, unsupported_extensions) =
+        to_wreq_extension_permutation(plan.extension_sequence());
+
+    if !extension_permutation.is_empty() {
+        builder = builder.extension_permutation(Cow::Owned(extension_permutation));
+    }
+
+    if !unsupported_extensions.is_empty() {
         tracing::debug!(
             variant = plan.variant_id(),
-            "the current wreq adapter does not expose explicit TLS extension ordering by type; keeping permutation flags only"
+            ?unsupported_extensions,
+            "the current wreq adapter cannot model every TLS extension from the profile sequence; unsupported entries are omitted from explicit permutation"
         );
     }
 
-    config
+    builder.build()
 }
 
-fn build_http2_config(plan: &Http2Plan) -> Http2Config {
-    let pseudo_order = to_wreq_pseudo_order(&plan.pseudo_header_order);
-    let settings_order = to_wreq_settings_order(&plan.settings_order);
-
-    let builder = Http2Config::builder()
+fn build_http2_config(plan: &Http2Plan) -> Http2Options {
+    let mut builder = Http2Options::builder()
         .initial_stream_id(plan.initial_stream_id)
         .initial_connection_window_size(plan.initial_connection_window_size)
+        .initial_max_send_streams(plan.initial_max_send_streams)
         .header_table_size(plan.header_table_size)
-        .enable_push(plan.enable_push)
         .max_concurrent_streams(plan.max_concurrent_streams)
-        .initial_stream_window_size(plan.initial_window_size)
-        .max_frame_size(plan.max_frame_size)
-        .max_header_list_size(plan.max_header_list_size)
-        .unknown_setting8(plan.enable_connect_protocol)
-        .unknown_setting9(plan.no_rfc7540_priorities)
-        .headers_priority(plan.headers_stream_dependency.as_ref().map(to_wreq_stream_dependency))
-        .headers_pseudo_order(pseudo_order);
+        .initial_window_size(plan.initial_window_size)
+        .max_frame_size(plan.max_frame_size);
 
-    match settings_order {
-        Some(settings_order) => builder.settings_order(settings_order).build(),
-        None => builder.build(),
+    if let Some(max_header_list_size) = plan.max_header_list_size {
+        builder = builder.max_header_list_size(max_header_list_size);
     }
+
+    if let Some(enable_push) = plan.enable_push {
+        builder = builder.enable_push(enable_push);
+    }
+
+    if let Some(enable_connect_protocol) = plan.enable_connect_protocol {
+        builder = builder.enable_connect_protocol(enable_connect_protocol);
+    }
+
+    if let Some(no_rfc7540_priorities) = plan.no_rfc7540_priorities {
+        builder = builder.no_rfc7540_priorities(no_rfc7540_priorities);
+    }
+
+    if let Some(max_concurrent_reset_streams) = plan.max_concurrent_reset_streams {
+        builder = builder.max_concurrent_reset_streams(max_concurrent_reset_streams);
+    }
+
+    if let Some(max_pending_accept_reset_streams) = plan.max_pending_accept_reset_streams {
+        builder = builder.max_pending_accept_reset_streams(max_pending_accept_reset_streams);
+    }
+
+    if let Some(max_send_buffer_size) = plan.max_send_buffer_size {
+        builder = builder.max_send_buf_size(max_send_buffer_size);
+    }
+
+    if let Some(adaptive_window) = plan.adaptive_window {
+        builder = builder.adaptive_window(adaptive_window);
+    }
+
+    if let Some(dependency) = plan.headers_stream_dependency.as_ref() {
+        builder = builder.headers_stream_dependency(to_wreq_stream_dependency(dependency));
+    }
+
+    if let Some(order) = to_wreq_pseudo_order(&plan.pseudo_header_order) {
+        builder = builder.headers_pseudo_order(order);
+    }
+
+    if let Some(order) = to_wreq_settings_order(&plan.settings_order) {
+        builder = builder.settings_order(order);
+    }
+
+    builder.build()
+}
+
+fn apply_emulation_options(
+    mut builder: wreq::EmulationBuilder,
+    tls_config: Option<TlsOptions>,
+    http2_config: Option<Http2Options>,
+) -> wreq::EmulationBuilder {
+    if let Some(tls_config) = tls_config {
+        builder = builder.tls_options(tls_config);
+    }
+
+    if let Some(http2_config) = http2_config {
+        builder = builder.http2_options(http2_config);
+    }
+
+    builder
 }
 
 fn build_request(
@@ -247,7 +323,7 @@ fn build_emulation_provider(
     headers: http::HeaderMap,
     tls_plan: Option<&TlsClientPlan>,
     mode: UpstreamMode,
-) -> EmulationProvider {
+) -> Emulation {
     let tls_config = tls_plan.map(|plan| build_tls_config(plan, mode));
     let http2_config = if mode != UpstreamMode::Http1Only {
         tls_plan.and_then(|plan| plan.http2()).map(build_http2_config)
@@ -255,12 +331,14 @@ fn build_emulation_provider(
         None
     };
 
-    EmulationProvider::builder()
-        .default_headers(headers.clone())
-        .headers_order(header_order(&headers))
-        .tls_config(tls_config)
-        .http2_config(http2_config)
-        .build()
+    apply_emulation_options(
+        Emulation::builder()
+        .headers(headers.clone())
+        .orig_headers(header_order(&headers)),
+        tls_config,
+        http2_config,
+    )
+    .build()
 }
 
 fn origin_url(request: &RequestParts, target: &OriginTarget) -> String {
@@ -327,8 +405,12 @@ fn upstream_headers(
     headers
 }
 
-fn header_order(headers: &http::HeaderMap) -> Vec<http::header::HeaderName> {
-    headers.keys().cloned().collect()
+fn header_order(headers: &http::HeaderMap) -> OrigHeaderMap {
+    let mut ordered = OrigHeaderMap::with_capacity(headers.len());
+    for name in headers.keys() {
+        ordered.insert(name.clone());
+    }
+    ordered
 }
 
 async fn response_into_parts(response: wreq::Response) -> Result<ResponseParts> {
@@ -374,9 +456,9 @@ fn to_wreq_tls_version(version: ProfileTlsVersion) -> TlsVersion {
     }
 }
 
-fn select_alpn(plan: &TlsClientPlan, mode: UpstreamMode) -> AlpnProtos {
+fn select_alpn(plan: &TlsClientPlan, mode: UpstreamMode) -> Vec<AlpnProtocol> {
     if mode == UpstreamMode::Http1Only {
-        return AlpnProtos::HTTP1;
+        return vec![AlpnProtocol::HTTP1];
     }
 
     if plan
@@ -400,9 +482,9 @@ fn select_alpn(plan: &TlsClientPlan, mode: UpstreamMode) -> AlpnProtos {
         .any(|value| value.eq_ignore_ascii_case("http/1.1"));
 
     match (has_h2, has_http1) {
-        (true, false) => AlpnProtos::HTTP2,
-        (true, true) => AlpnProtos::ALL,
-        _ => AlpnProtos::HTTP1,
+        (true, false) => vec![AlpnProtocol::HTTP2],
+        (true, true) => vec![AlpnProtocol::HTTP2, AlpnProtocol::HTTP1],
+        _ => vec![AlpnProtocol::HTTP1],
     }
 }
 
@@ -414,87 +496,122 @@ fn sigalgs_list(plan: &TlsClientPlan) -> Option<String> {
     }
 }
 
-fn tls_curves(plan: &TlsClientPlan) -> Vec<SslCurve> {
+fn tls_curves_list(plan: &TlsClientPlan) -> Option<String> {
     let groups = if !plan.key_share_order().is_empty() {
         plan.key_share_order()
     } else {
         plan.supported_groups()
     };
 
-    groups
+    let curves = groups
         .iter()
-        .filter_map(|group| to_wreq_curve(group))
-        .collect()
+        .filter_map(|group| to_wreq_curve_name(group))
+        .collect::<Vec<_>>();
+
+    if curves.is_empty() {
+        None
+    } else {
+        Some(curves.join(":"))
+    }
 }
 
-fn to_wreq_curve(name: &str) -> Option<SslCurve> {
+fn select_alps(
+    extension_sequence: &[TlsExtensionPlan],
+    alpn: &[AlpnProtocol],
+) -> Option<(Vec<AlpsProtocol>, bool)> {
+    let application_settings = extension_sequence
+        .iter()
+        .find(|extension| extension.name().eq_ignore_ascii_case("application_settings"));
+
+    let Some(application_settings) = application_settings else {
+        return None;
+    };
+
+    let mut alps = Vec::new();
+    if alpn.contains(&AlpnProtocol::HTTP2) {
+        alps.push(AlpsProtocol::HTTP2);
+    }
+    if alpn.contains(&AlpnProtocol::HTTP1) {
+        alps.push(AlpsProtocol::HTTP1);
+    }
+
+    if alps.is_empty() {
+        return None;
+    }
+
+    Some((
+        alps,
+        matches!(
+            application_settings.code().map(ExtensionType::from),
+            Some(code) if code == ExtensionType::APPLICATION_SETTINGS_NEW
+        ),
+    ))
+}
+
+fn to_wreq_extension_permutation(sequence: &[TlsExtensionPlan]) -> (Vec<ExtensionType>, Vec<String>) {
+    let mut mapped = Vec::new();
+    let mut unsupported = Vec::new();
+
+    for extension in sequence {
+        match to_wreq_extension_type(extension) {
+            Some(extension_type) => mapped.push(extension_type),
+            None if extension.name().eq_ignore_ascii_case("grease") => {}
+            None => unsupported.push(extension.name().to_string()),
+        }
+    }
+
+    (mapped, unsupported)
+}
+
+fn to_wreq_extension_type(extension: &TlsExtensionPlan) -> Option<ExtensionType> {
+    if let Some(code) = extension.code() {
+        return Some(ExtensionType::from(code));
+    }
+
+    match extension.name().to_ascii_lowercase().as_str() {
+        "server_name" => Some(ExtensionType::SERVER_NAME),
+        "extended_master_secret" => Some(ExtensionType::EXTENDED_MASTER_SECRET),
+        "renegotiation_info" => Some(ExtensionType::RENEGOTIATE),
+        "supported_groups" => Some(ExtensionType::SUPPORTED_GROUPS),
+        "ec_point_formats" => Some(ExtensionType::EC_POINT_FORMATS),
+        "session_ticket" => Some(ExtensionType::SESSION_TICKET),
+        "application_layer_protocol_negotiation" => {
+            Some(ExtensionType::APPLICATION_LAYER_PROTOCOL_NEGOTIATION)
+        }
+        "application_settings" => Some(ExtensionType::APPLICATION_SETTINGS),
+        "status_request" => Some(ExtensionType::STATUS_REQUEST),
+        "delegated_credential" | "delegated_credentials" => {
+            Some(ExtensionType::DELEGATED_CREDENTIAL)
+        }
+        "signed_certificate_timestamp" | "certificate_timestamp" => {
+            Some(ExtensionType::CERTIFICATE_TIMESTAMP)
+        }
+        "key_share" => Some(ExtensionType::KEY_SHARE),
+        "supported_versions" => Some(ExtensionType::SUPPORTED_VERSIONS),
+        "signature_algorithms" => Some(ExtensionType::SIGNATURE_ALGORITHMS),
+        "psk_key_exchange_modes" => Some(ExtensionType::PSK_KEY_EXCHANGE_MODES),
+        "record_size_limit" => Some(ExtensionType::RECORD_SIZE_LIMIT),
+        "compress_certificate" | "certificate_compression" => {
+            Some(ExtensionType::CERT_COMPRESSION)
+        }
+        "encrypted_client_hello" | "ech" => Some(ExtensionType::ENCRYPTED_CLIENT_HELLO),
+        "padding" => Some(ExtensionType::PADDING),
+        _ => None,
+    }
+}
+
+fn to_wreq_curve_name(name: &str) -> Option<&'static str> {
     match name.to_ascii_lowercase().as_str() {
-        "x25519" => Some(SslCurve::X25519),
-        "secp256r1" | "p256" => Some(SslCurve::SECP256R1),
-        "secp384r1" | "p384" => Some(SslCurve::SECP384R1),
-        "secp521r1" | "p521" => Some(SslCurve::SECP521R1),
-        "x25519mlkem768" => Some(SslCurve::X25519_MLKEM768),
+        "x25519" => Some("X25519"),
+        "secp256r1" | "p256" => Some("P-256"),
+        "secp384r1" | "p384" => Some("P-384"),
+        "secp521r1" | "p521" => Some("P-521"),
+        "x25519mlkem768" => Some("X25519MLKEM768"),
         other => {
             tracing::debug!(curve = other, "unsupported wreq curve in profile");
             None
         }
     }
-}
-
-fn to_wreq_pseudo_id(name: &str) -> Option<PseudoOrder> {
-    match name.to_ascii_lowercase().as_str() {
-        "method" | ":method" => Some(PseudoOrder::Method),
-        "path" | ":path" => Some(PseudoOrder::Path),
-        "authority" | ":authority" => Some(PseudoOrder::Authority),
-        "scheme" | ":scheme" => Some(PseudoOrder::Scheme),
-        other => {
-            tracing::debug!(pseudo = other, "unsupported HTTP/2 pseudo-header id in profile");
-            None
-        }
-    }
-}
-
-fn to_wreq_setting_id(name: &str) -> Option<SettingsOrder> {
-    match name.to_ascii_lowercase().as_str() {
-        "header_table_size" => Some(SettingsOrder::HeaderTableSize),
-        "enable_push" => Some(SettingsOrder::EnablePush),
-        "max_concurrent_streams" => Some(SettingsOrder::MaxConcurrentStreams),
-        "initial_window_size" => Some(SettingsOrder::InitialWindowSize),
-        "max_frame_size" => Some(SettingsOrder::MaxFrameSize),
-        "max_header_list_size" => Some(SettingsOrder::MaxHeaderListSize),
-        "enable_connect_protocol" => Some(SettingsOrder::UnknownSetting8),
-        "no_rfc7540_priorities" => Some(SettingsOrder::UnknownSetting9),
-        other => {
-            tracing::debug!(setting = other, "unsupported HTTP/2 setting id in profile");
-            None
-        }
-    }
-}
-
-fn to_wreq_pseudo_order(order: &[String]) -> Option<[PseudoOrder; 4]> {
-    let mapped = order
-        .iter()
-        .filter_map(|item| to_wreq_pseudo_id(item))
-        .collect::<Vec<_>>();
-
-    if !order.is_empty() && mapped.len() != 4 {
-        tracing::debug!(?order, "incomplete HTTP/2 pseudo-header order; leaving wreq default ordering in place");
-    }
-
-    mapped.try_into().ok()
-}
-
-fn to_wreq_settings_order(order: &[String]) -> Option<[SettingsOrder; 8]> {
-    let mapped = order
-        .iter()
-        .filter_map(|item| to_wreq_setting_id(item))
-        .collect::<Vec<_>>();
-
-    if !order.is_empty() && mapped.len() != 8 {
-        tracing::debug!(?order, "incomplete HTTP/2 settings order; leaving wreq default ordering in place");
-    }
-
-    mapped.try_into().ok()
 }
 
 fn to_wreq_stream_dependency(
@@ -509,10 +626,73 @@ fn to_wreq_stream_dependency(
     StreamDependency::new(stream_id, dependency.weight, dependency.exclusive)
 }
 
+fn to_wreq_pseudo_id(name: &str) -> Option<PseudoId> {
+    match name.to_ascii_lowercase().as_str() {
+        "method" => Some(PseudoId::Method),
+        "scheme" => Some(PseudoId::Scheme),
+        "authority" => Some(PseudoId::Authority),
+        "path" => Some(PseudoId::Path),
+        "protocol" => Some(PseudoId::Protocol),
+        "status" => Some(PseudoId::Status),
+        other => {
+            tracing::debug!(pseudo = other, "unsupported wreq pseudo-header id in profile");
+            None
+        }
+    }
+}
+
+fn to_wreq_setting_id(name: &str) -> Option<SettingId> {
+    match name.to_ascii_lowercase().as_str() {
+        "header_table_size" => Some(SettingId::HeaderTableSize),
+        "enable_push" => Some(SettingId::EnablePush),
+        "max_concurrent_streams" => Some(SettingId::MaxConcurrentStreams),
+        "initial_window_size" => Some(SettingId::InitialWindowSize),
+        "max_frame_size" => Some(SettingId::MaxFrameSize),
+        "max_header_list_size" => Some(SettingId::MaxHeaderListSize),
+        "enable_connect_protocol" => Some(SettingId::EnableConnectProtocol),
+        "no_rfc7540_priorities" => Some(SettingId::NoRfc7540Priorities),
+        other => {
+            tracing::debug!(setting = other, "unsupported wreq HTTP/2 setting id in profile");
+            None
+        }
+    }
+}
+
+fn to_wreq_pseudo_order(order: &[String]) -> Option<PseudoOrder> {
+    if order.is_empty() {
+        return None;
+    }
+
+    Some(
+        PseudoOrder::builder()
+            .extend(order.iter().filter_map(|name| to_wreq_pseudo_id(name)))
+            .build(),
+    )
+}
+
+fn to_wreq_settings_order(order: &[String]) -> Option<SettingsOrder> {
+    if order.is_empty() {
+        return None;
+    }
+
+    Some(
+        SettingsOrder::builder()
+            .extend(order.iter().filter_map(|name| to_wreq_setting_id(name)))
+            .build(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{select_alpn, to_wreq_pseudo_order, to_wreq_settings_order, AlpnProtos, UpstreamMode};
-    use crate::tls::profiles::{Http2Plan, TlsClientPlan};
+    use super::{
+        build_http2_config, select_alpn, select_alps, to_wreq_extension_permutation,
+        to_wreq_pseudo_id, to_wreq_setting_id, UpstreamMode,
+    };
+    use crate::tls::profiles::{Http2Plan, TlsClientPlan, TlsExtensionPlan};
+    use wreq::{
+        http2::{PseudoId, SettingId},
+        tls::{AlpnProtocol, AlpsProtocol, ExtensionType},
+    };
 
     fn sample_tls_plan(alpn: Vec<&str>) -> TlsClientPlan {
         TlsClientPlan::test_fixture(alpn.into_iter().map(str::to_string).collect())
@@ -522,39 +702,8 @@ mod tests {
     fn select_alpn_prefers_http2_and_http11_only() {
         let plan = sample_tls_plan(vec!["h3", "h2", "http/1.1"]);
 
-        assert_eq!(select_alpn(&plan, UpstreamMode::PreferHttp2), AlpnProtos::ALL);
-        assert_eq!(select_alpn(&plan, UpstreamMode::Http1Only), AlpnProtos::HTTP1);
-    }
-
-    #[test]
-    fn to_wreq_pseudo_order_requires_complete_mapping() {
-        let complete = vec![":method".to_string(), ":path".to_string(), ":authority".to_string(), ":scheme".to_string()];
-        let incomplete = vec![":method".to_string(), ":path".to_string(), "bogus".to_string()];
-
-        assert!(to_wreq_pseudo_order(&complete).is_some());
-        assert!(to_wreq_pseudo_order(&incomplete).is_none());
-    }
-
-    #[test]
-    fn to_wreq_settings_order_requires_complete_mapping() {
-        let complete = vec![
-            "header_table_size".to_string(),
-            "enable_push".to_string(),
-            "max_concurrent_streams".to_string(),
-            "initial_window_size".to_string(),
-            "max_frame_size".to_string(),
-            "max_header_list_size".to_string(),
-            "enable_connect_protocol".to_string(),
-            "no_rfc7540_priorities".to_string(),
-        ];
-        let incomplete = vec![
-            "header_table_size".to_string(),
-            "enable_push".to_string(),
-            "bogus".to_string(),
-        ];
-
-        assert!(to_wreq_settings_order(&complete).is_some());
-        assert!(to_wreq_settings_order(&incomplete).is_none());
+        assert_eq!(select_alpn(&plan, UpstreamMode::PreferHttp2), vec![AlpnProtocol::HTTP2, AlpnProtocol::HTTP1]);
+        assert_eq!(select_alpn(&plan, UpstreamMode::Http1Only), vec![AlpnProtocol::HTTP1]);
     }
 
     #[test]
@@ -563,7 +712,7 @@ mod tests {
             initial_stream_id: Some(1),
             initial_window_size: Some(65535),
             initial_connection_window_size: Some(1_048_576),
-            initial_max_send_streams: None,
+            initial_max_send_streams: Some(100),
             max_frame_size: Some(16384),
             max_header_list_size: Some(65536),
             header_table_size: Some(65536),
@@ -571,15 +720,109 @@ mod tests {
             enable_connect_protocol: Some(false),
             no_rfc7540_priorities: Some(false),
             max_concurrent_streams: Some(1000),
-            max_concurrent_reset_streams: None,
-            max_pending_accept_reset_streams: None,
-            max_send_buffer_size: None,
-            adaptive_window: None,
-            pseudo_header_order: vec![],
-            settings_order: vec![],
+            max_concurrent_reset_streams: Some(8),
+            max_pending_accept_reset_streams: Some(4),
+            max_send_buffer_size: Some(131072),
+            adaptive_window: Some(false),
+            pseudo_header_order: vec!["method".into(), "path".into(), "authority".into(), "scheme".into()],
+            settings_order: vec![
+                "header_table_size".into(),
+                "enable_push".into(),
+                "max_concurrent_streams".into(),
+                "initial_window_size".into(),
+                "max_frame_size".into(),
+                "max_header_list_size".into(),
+                "enable_connect_protocol".into(),
+                "no_rfc7540_priorities".into(),
+            ],
             headers_stream_dependency: None,
         };
 
         assert_eq!(plan.initial_stream_id, Some(1));
     }
+
+    #[test]
+    fn wreq6_pseudo_and_setting_ids_map_from_profile_names() {
+        assert_eq!(to_wreq_pseudo_id("method"), Some(PseudoId::Method));
+        assert_eq!(to_wreq_pseudo_id("scheme"), Some(PseudoId::Scheme));
+        assert_eq!(to_wreq_setting_id("enable_connect_protocol"), Some(SettingId::EnableConnectProtocol));
+        assert_eq!(to_wreq_setting_id("no_rfc7540_priorities"), Some(SettingId::NoRfc7540Priorities));
+    }
+
+    #[test]
+    fn build_http2_config_preserves_supported_wreq6_fields() {
+        let plan = Http2Plan {
+            initial_stream_id: Some(1),
+            initial_window_size: Some(65535),
+            initial_connection_window_size: Some(1_048_576),
+            initial_max_send_streams: Some(100),
+            max_frame_size: Some(16384),
+            max_header_list_size: Some(65536),
+            header_table_size: Some(65536),
+            enable_push: Some(false),
+            enable_connect_protocol: Some(true),
+            no_rfc7540_priorities: Some(true),
+            max_concurrent_streams: Some(1000),
+            max_concurrent_reset_streams: Some(8),
+            max_pending_accept_reset_streams: Some(4),
+            max_send_buffer_size: Some(131072),
+            adaptive_window: Some(false),
+            pseudo_header_order: vec!["method".into(), "path".into(), "authority".into(), "scheme".into()],
+            settings_order: vec![
+                "header_table_size".into(),
+                "enable_push".into(),
+                "max_concurrent_streams".into(),
+                "initial_window_size".into(),
+                "max_frame_size".into(),
+                "max_header_list_size".into(),
+                "enable_connect_protocol".into(),
+                "no_rfc7540_priorities".into(),
+            ],
+            headers_stream_dependency: None,
+        };
+
+        let options = build_http2_config(&plan);
+
+        assert_eq!(options.initial_stream_id, Some(1));
+        assert_eq!(options.initial_max_send_streams, 100);
+        assert_eq!(options.enable_connect_protocol, Some(true));
+        assert_eq!(options.no_rfc7540_priorities, Some(true));
+        assert!(options.headers_pseudo_order.is_some());
+        assert!(options.settings_order.is_some());
+    }
+
+    #[test]
+    fn tls_extension_sequence_maps_to_wreq_permutation() {
+        let (mapped, unsupported) = to_wreq_extension_permutation(&[
+            TlsExtensionPlan::from_parts(Some(0x6a6a), "grease"),
+            TlsExtensionPlan::from_parts(Some(0x0000), "server_name"),
+            TlsExtensionPlan::from_parts(Some(0x445c), "application_settings"),
+            TlsExtensionPlan::from_parts(Some(0x0031), "post_handshake_auth"),
+            TlsExtensionPlan::from_parts(Some(0xfe0d), "padding"),
+        ]);
+
+        assert_eq!(
+            mapped,
+            vec![
+                ExtensionType::SERVER_NAME,
+                ExtensionType::from(0x445c),
+                ExtensionType::from(0x0031),
+                ExtensionType::PADDING,
+            ]
+        );
+        assert!(unsupported.is_empty());
+    }
+
+    #[test]
+    fn application_settings_enables_alps_for_selected_h2() {
+        let alps = select_alps(
+            &[TlsExtensionPlan::from_parts(Some(0x445c), "application_settings")],
+            &[AlpnProtocol::HTTP2, AlpnProtocol::HTTP1],
+        )
+        .expect("alps should be enabled when application_settings is requested");
+
+        assert_eq!(alps.0, vec![AlpsProtocol::HTTP2, AlpsProtocol::HTTP1]);
+        assert!(!alps.1);
+    }
+
 }

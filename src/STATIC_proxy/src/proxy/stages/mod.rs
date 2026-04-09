@@ -17,10 +17,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 */
 
-/// Flow stages replicate the mitmproxy addon chain that lives under `src/proxy/AOs/` in the
-/// legacy tree. Each stage implements [`FlowStage`] and the `StagePipeline` drives them in
-/// the same deterministic order so HTTP request/response mutations stay identical between
-/// the Python prototype and `static_proxy/src/proxy/stages/`.
+/// Flow stages run in a deterministic order so HTTP request/response mutations remain
+/// consistent across the proxy pipeline.
 
 mod alt_svc;
 mod behavior;

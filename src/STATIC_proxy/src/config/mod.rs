@@ -17,11 +17,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 */
 
-/// Configuration-related modules (settings + fingerprint profiles) exposed by the crate.
-pub mod profiles;
+/// Configuration settings exposed by the crate.
 pub mod settings;
 
-pub use profiles::{HeaderProfile, ProfileStore};
 pub use settings::{
     managed_cache_dir, managed_ca_cert_path, managed_ca_key_path, AltSvcStrategy, Http3Config,
     ListenerConfig, PipelineConfig, ProxyProtocol, StaticConfig, TelemetryConfig,
