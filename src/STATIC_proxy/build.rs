@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
@@ -81,7 +81,7 @@ fn resolve_command(candidates: &[&str]) -> Option<String> {
     #[cfg(windows)]
     {
         for candidate in windows_fallback_candidates(candidates) {
-            if command_works(candidate.as_os_str()) {
+            if command_works(&candidate) {
                 return Some(candidate.to_string_lossy().into_owned());
             }
         }
@@ -104,7 +104,6 @@ where
 #[cfg(windows)]
 fn windows_fallback_candidates(candidates: &[&str]) -> Vec<PathBuf> {
     use std::env;
-    use std::path::PathBuf;
 
     let mut paths = Vec::new();
     let mut bases = Vec::new();
