@@ -1,19 +1,19 @@
 {
-    "profiles":  [
-                     {
-                         "file_name":  "chrome-windows.json",
-                         "path":  "src/STATIC_proxy/profiles/chrome-windows.json",
-                         "sha256":  "b041a7063feb5059a2ca54eee1bb69925ce4a63a740cf9026ca4a990435e7361"
-                     },
-                     {
-                         "file_name":  "edge-windows.json",
-                         "path":  "src/STATIC_proxy/profiles/edge-windows.json",
-                         "sha256":  "0b5876feda594d73455ad4f4ebd5afb334bf1e341c967a921605c2b9a6612863"
-                     },
-                     {
-                         "file_name":  "firefox-windows.json",
-                         "path":  "src/STATIC_proxy/profiles/firefox-windows.json",
-                         "sha256":  "25417df406aada536a4d853bda097a752baa1a8f452064fa4d804b33fddd550f"
-                     }
-                 ]
+  "profiles": [
+    {
+      "file_name": "chrome-windows.json",
+      "path": "/src/STATIC_proxy/profiles/chrome-windows.json",
+      "sha256": "262bde77b631ae3a7ba6556f90c6059d748ab5d5e9472bba1bdf5f9ac08335d7"
+    },
+    {
+      "file_name": "edge-windows.json",
+      "path": "/src/STATIC_proxy/profiles/edge-windows.json",
+      "sha256": "74f73fdd27180a37829a27df8a7349f5b1eb54a135cb5b330e6788189ca70cc0"
+    },
+    {
+      "file_name": "firefox-windows.json",
+      "path": "/src/STATIC_proxy/profiles/firefox-windows.json",
+      "sha256": "5a290b318f083c10a50139fee46a0d553cada74436a57f63879073c6cf71a094"
+    }
+  ]
 }
