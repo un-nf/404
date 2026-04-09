@@ -18,13 +18,73 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 use std::{
+    borrow::Cow,
     fs,
     path::{Component, Path, PathBuf},
 };
 
 use anyhow::{anyhow, Context, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use crate::keystore::KeystoreConfig;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedPath(PathBuf);
+
+impl ManagedPath {
+    pub fn as_path(&self) -> &Path {
+        &self.0
+    }
+
+    pub fn to_path_buf(&self) -> PathBuf {
+        self.0.clone()
+    }
+
+    pub fn exists(&self) -> bool {
+        self.0.exists()
+    }
+
+    pub fn parent(&self) -> Option<&Path> {
+        self.0.parent()
+    }
+
+    pub fn to_string_lossy(&self) -> Cow<'_, str> {
+        self.0.to_string_lossy()
+    }
+
+    fn validate(path: &Path) -> Result<PathBuf> {
+        let mut normalized = PathBuf::new();
+
+        for component in path.components() {
+            match component {
+                Component::Normal(part) => normalized.push(part),
+                Component::CurDir => {}
+                Component::ParentDir => {
+                    return Err(anyhow!("managed paths must not contain parent directory traversal"));
+                }
+                Component::RootDir | Component::Prefix(_) => {
+                    return Err(anyhow!("managed paths must be relative to STATIC runtime storage"));
+                }
+            }
+        }
+
+        if normalized.as_os_str().is_empty() {
+            return Err(anyhow!("managed paths must not be empty"));
+        }
+
+        Ok(normalized)
+    }
+}
+
+impl<'de> Deserialize<'de> for ManagedPath {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = PathBuf::deserialize(deserializer)?;
+        let normalized = Self::validate(&raw).map_err(serde::de::Error::custom)?;
+        Ok(Self(normalized))
+    }
+}
 
 /// Configuration loaders and structures for the STATIC proxy.
 ///
@@ -61,7 +121,6 @@ impl StaticConfig {
 
         let base_dir = path.parent();
         Self::absolutize_dir(base_dir, &mut cfg.pipeline.profiles_path);
-        Self::normalize_tls_storage_paths(&mut cfg.tls)?;
 
         Ok(cfg)
     }
@@ -73,48 +132,6 @@ impl StaticConfig {
                 *target = dir.join(&*target);
             }
         }
-    }
-
-    fn normalize_tls_storage_paths(tls: &mut TlsConfig) -> Result<()> {
-        tls.ca_cert_path = Self::normalize_managed_path(&tls.ca_cert_path, "tls.ca_cert_path")?;
-        tls.ca_key_path = Self::normalize_managed_path(&tls.ca_key_path, "tls.ca_key_path")?;
-        tls.cache_dir = Self::normalize_managed_path(&tls.cache_dir, "tls.cache_dir")?;
-
-        if let Some(fallback_path) = tls.keystore.fallback_path.as_mut() {
-            *fallback_path = Self::normalize_managed_path(
-                fallback_path,
-                "tls.keystore.fallback_path",
-            )?;
-        }
-
-        Ok(())
-    }
-
-    fn normalize_managed_path(path: &Path, field_name: &str) -> Result<PathBuf> {
-        let mut normalized = PathBuf::new();
-
-        for component in path.components() {
-            match component {
-                Component::Normal(part) => normalized.push(part),
-                Component::CurDir => {}
-                Component::ParentDir => {
-                    return Err(anyhow!(
-                        "{field_name} must not contain parent directory traversal"
-                    ));
-                }
-                Component::RootDir | Component::Prefix(_) => {
-                    return Err(anyhow!(
-                        "{field_name} must be a managed relative path"
-                    ));
-                }
-            }
-        }
-
-        if normalized.as_os_str().is_empty() {
-            return Err(anyhow!("{field_name} must not be empty"));
-        }
-
-        Ok(normalized)
     }
 }
 
@@ -159,11 +176,11 @@ impl Default for ProxyProtocol {
 #[derive(Debug, Clone, Deserialize)]
 pub struct TlsConfig {
     /// Path to the CA certificate browsers must trust for interception.
-    pub ca_cert_path: PathBuf,
+    pub ca_cert_path: ManagedPath,
     /// Path to the CA private key used for leaf issuance.
-    pub ca_key_path: PathBuf,
+    pub ca_key_path: ManagedPath,
     /// Directory used for caching generated leaf certificates per hostname.
-    pub cache_dir: PathBuf,
+    pub cache_dir: ManagedPath,
     /// Keystore backend selection (file, keychain, etc.). Defaults to file for backward compatibility.
     #[serde(default)]
     pub keystore: KeystoreConfig,
