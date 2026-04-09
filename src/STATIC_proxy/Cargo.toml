@@ -38,7 +38,7 @@ lru = "0.16.3"
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 brotli = "3"
 zstd = "0.13"
-wreq = "5.3.0"
+wreq = "6.0.0-rc.28"
 
 keyring = { version = "3.6.3", features = ["apple-native"] }
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security_Cryptography", "Win32_System_Memory"] }

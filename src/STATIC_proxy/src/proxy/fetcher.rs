@@ -192,7 +192,7 @@ fn build_tls_config(plan: &TlsClientPlan, mode: UpstreamMode) -> TlsConfig {
     if !plan.extension_sequence().is_empty() {
         tracing::debug!(
             variant = plan.variant_id(),
-            "wreq 5.3 does not expose explicit TLS extension ordering by extension type; keeping permutation flags only"
+            "the current wreq adapter does not expose explicit TLS extension ordering by type; keeping permutation flags only"
         );
     }
 

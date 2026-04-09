@@ -411,7 +411,7 @@ pub fn validate_profile_coherence(profile: &Value) -> Vec<String> {
 
         if !variant.extension_sequence.is_empty() {
             warnings.push(format!(
-                "TLS variant '{id}' specifies an explicit extension sequence, but wreq 5.3 cannot enforce extension ordering by type"
+                "TLS variant '{id}' specifies an explicit extension sequence, but the current wreq adapter cannot enforce extension ordering by type"
             ));
         }
 

@@ -46,7 +46,7 @@ Profile and transport effects:
 
 Important implementation boundary:
 
-- Exact extension ordering is still not fully controllable through wreq 5.3; the runtime can control extension permutation behavior and several handshake features, but not arbitrary extension-by-type ordering.
+- Exact extension ordering is still not fully controllable through the current wreq adapter; the runtime can control extension permutation behavior and several handshake features, but not arbitrary extension-by-type ordering.
 - Some HTTP/2 knobs remain schema-level metadata only because *wreq does not currently expose them*.
 
 Build and packaging notes:
