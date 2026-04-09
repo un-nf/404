@@ -6,6 +6,8 @@ use std::path::PathBuf;
 use keyring::{Entry, Error as KeyringError};
 
 #[cfg(target_os = "windows")]
+use std::fs;
+#[cfg(target_os = "windows")]
 use std::ptr;
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::{
@@ -64,7 +66,7 @@ pub trait KeyStore: Send + Sync {
 }
 
 /// Factory to build a keystore from config.
-pub fn build_keystore(cfg: &KeystoreConfig, _protected_storage_path: PathBuf) -> Box<dyn KeyStore> {
+pub fn build_keystore(cfg: &KeystoreConfig, protected_storage_path: PathBuf) -> Box<dyn KeyStore> {
     match cfg.mode {
         KeystoreMode::Keychain => {
             #[cfg(target_os = "windows")]
