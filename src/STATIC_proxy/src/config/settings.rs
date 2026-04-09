@@ -30,6 +30,18 @@ const MANAGED_CA_CERT_PATH: &str = "certs/static-ca.crt";
 const MANAGED_CA_KEY_PATH: &str = "certs/static-ca.key";
 const MANAGED_CACHE_DIR: &str = "certs/cache";
 
+pub fn managed_ca_cert_path() -> &'static Path {
+    Path::new(MANAGED_CA_CERT_PATH)
+}
+
+pub fn managed_ca_key_path() -> &'static Path {
+    Path::new(MANAGED_CA_KEY_PATH)
+}
+
+pub fn managed_cache_dir() -> &'static Path {
+    Path::new(MANAGED_CACHE_DIR)
+}
+
 /// Configuration loaders and structures for the STATIC proxy.
 ///
 /// These types mirror `static.example.toml`, apply sane defaults, and normalize any
@@ -100,9 +112,6 @@ impl StaticConfig {
         }
 
         Ok(TlsConfig {
-            ca_cert_path: PathBuf::from(MANAGED_CA_CERT_PATH),
-            ca_key_path: PathBuf::from(MANAGED_CA_KEY_PATH),
-            cache_dir: PathBuf::from(MANAGED_CACHE_DIR),
             keystore,
         })
     }
@@ -182,12 +191,6 @@ impl Default for ProxyProtocol {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct TlsConfig {
-    /// Path to the CA certificate browsers must trust for interception.
-    pub ca_cert_path: PathBuf,
-    /// Path to the CA private key used for leaf issuance.
-    pub ca_key_path: PathBuf,
-    /// Directory used for caching generated leaf certificates per hostname.
-    pub cache_dir: PathBuf,
     /// Keystore backend selection (file, keychain, etc.). Defaults to file for backward compatibility.
     pub keystore: KeystoreConfig,
 }

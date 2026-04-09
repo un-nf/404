@@ -23,6 +23,7 @@ pub mod settings;
 
 pub use profiles::{HeaderProfile, ProfileStore};
 pub use settings::{
-    AltSvcStrategy, Http3Config, ListenerConfig, PipelineConfig, ProxyProtocol, StaticConfig,
-    TelemetryConfig, TelemetryMode, TlsConfig,
+    managed_cache_dir, managed_ca_cert_path, managed_ca_key_path, AltSvcStrategy, Http3Config,
+    ListenerConfig, PipelineConfig, ProxyProtocol, StaticConfig, TelemetryConfig,
+    TelemetryMode, TlsConfig,
 };

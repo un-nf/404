@@ -18,7 +18,7 @@ use serde_json::Value;
 use tokio::{net::TcpListener, sync::watch};
 
 use crate::{
-    config::StaticConfig,
+    config::{managed_ca_cert_path, StaticConfig},
     telemetry,
     tls::{cert::initialize_ca_material, profiles::validate_profile_coherence},
 };
@@ -145,10 +145,11 @@ async fn get_status(State(state): State<ControlState>) -> Json<StatusResponse> {
     })
 }
 
-async fn get_ca_status(State(state): State<ControlState>) -> Json<CaStatusResponse> {
+async fn get_ca_status() -> Json<CaStatusResponse> {
+    let cert_path = managed_ca_cert_path();
     Json(CaStatusResponse {
-        cert_path: state.config.tls.ca_cert_path.to_string_lossy().to_string(),
-        exists: state.config.tls.ca_cert_path.exists(),
+        cert_path: cert_path.to_string_lossy().to_string(),
+        exists: cert_path.exists(),
     })
 }
 
@@ -158,9 +159,10 @@ async fn post_ca_init(
     initialize_ca_material(&state.config.tls)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to init CA: {e}")))?;
 
+    let cert_path = managed_ca_cert_path();
     Ok(Json(CaStatusResponse {
-        cert_path: state.config.tls.ca_cert_path.to_string_lossy().to_string(),
-        exists: state.config.tls.ca_cert_path.exists(),
+        cert_path: cert_path.to_string_lossy().to_string(),
+        exists: cert_path.exists(),
     }))
 }
 

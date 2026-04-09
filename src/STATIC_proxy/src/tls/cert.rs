@@ -33,7 +33,7 @@ use rustls::crypto::aws_lc_rs::sign::any_supported_type;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use rustls::{self, sign::CertifiedKey};
 
-use crate::{config::TlsConfig, ensure_rustls_crypto_provider, keystore::{build_keystore, KeystoreMode}};
+use crate::{config::{managed_cache_dir, managed_ca_cert_path, managed_ca_key_path, TlsConfig}, ensure_rustls_crypto_provider, keystore::{build_keystore, KeystoreMode}};
 
 /// TlsProvider handles all the certificate magic that makes MITM interception work.
 #[derive(Debug)]
@@ -177,8 +177,10 @@ impl CertificateAuthority {
     /// - PEM parsing errors (malformed CA files from manual editing)
     /// - rcgen errors (invalid cert params, unsupported key types)
     fn load_or_generate(cfg: &TlsConfig) -> Result<Self> {
-        let keystore = build_keystore(&cfg.keystore, cfg.ca_key_path.clone());
-        let ca_cert_exists = cfg.ca_cert_path.exists();
+        let ca_cert_path = managed_ca_cert_path();
+        let ca_key_path = managed_ca_key_path();
+        let keystore = build_keystore(&cfg.keystore, ca_key_path.to_path_buf());
+        let ca_cert_exists = ca_cert_path.exists();
         let ca_key_in_keystore = keystore.get_secret(CA_KEY_NAME)?;
 
         #[cfg(target_os = "windows")]
@@ -192,7 +194,7 @@ impl CertificateAuthority {
             || cfg.keystore.fallback_path.is_some();
         let allow_disk_presence = allow_plain_disk || dpapi_mode;
 
-        let ca_key_exists = ca_key_in_keystore.is_some() || (allow_disk_presence && cfg.ca_key_path.exists());
+        let ca_key_exists = ca_key_in_keystore.is_some() || (allow_disk_presence && ca_key_path.exists());
 
         // If a cert already exists but no key is available, refuse to regenerate to avoid breaking trust.
         if ca_cert_exists && !ca_key_exists {
@@ -204,7 +206,7 @@ impl CertificateAuthority {
         if ca_cert_exists && ca_key_exists {
             let key_bytes = match keystore.get_secret(CA_KEY_NAME)? {
                 Some(bytes) => bytes,
-                None if allow_plain_disk => fs::read(&cfg.ca_key_path)?,
+                None if allow_plain_disk => fs::read(ca_key_path)?,
                 None if dpapi_mode => {
                     return Err(anyhow!(
                         "CA certificate exists but DPAPI keystore missing; run cleanup/reinit CA to restore the protected key"
@@ -231,7 +233,7 @@ impl CertificateAuthority {
         } else {
             // Generate a new CA and persist to disk
             // Ensure parent directories exist (e.g., ~/.static_proxy/ca/)
-            if let Some(parent) = cfg.ca_cert_path.parent() {
+            if let Some(parent) = ca_cert_path.parent() {
                 fs::create_dir_all(parent)?;
             }
 
@@ -239,7 +241,7 @@ impl CertificateAuthority {
             let cert = generate_ca();
 
             // Serialize and write to disk (PEM format for human readability)
-            fs::write(&cfg.ca_cert_path, cert.serialize_pem()?)?;
+            fs::write(ca_cert_path, cert.serialize_pem()?)?;
             let key_pem = cert.serialize_private_key_pem();
             keystore.set_secret(CA_KEY_NAME, key_pem.as_bytes())?;
 
@@ -247,7 +249,7 @@ impl CertificateAuthority {
             match keystore.get_secret(CA_KEY_NAME)? {
                 Some(_) => {
                     if allow_plain_disk {
-                        fs::write(&cfg.ca_key_path, &key_pem)?;
+                        fs::write(ca_key_path, &key_pem)?;
                     }
                     Ok(Self { cert })
                 }
@@ -281,10 +283,12 @@ impl CertificateAuthority {
 fn load_or_generate_ca(cfg: &TlsConfig) -> Result<CertificateAuthority> {
     ensure_rustls_crypto_provider()?;
 
-    if let Some(parent) = cfg.cache_dir.parent() {
+    let cache_dir = managed_cache_dir();
+
+    if let Some(parent) = cache_dir.parent() {
         fs::create_dir_all(parent)?;
     }
-    fs::create_dir_all(&cfg.cache_dir)?;
+    fs::create_dir_all(cache_dir)?;
 
     CertificateAuthority::load_or_generate(cfg)
 }
