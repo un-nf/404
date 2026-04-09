@@ -28,7 +28,7 @@ jobs:
             binary_name: static_proxy
             asset_name: static_proxy-linux-x86_64
           - name: macos-x86_64
-            runs_on: macos-13
+            runs_on: macos-15-intel
             target: x86_64-apple-darwin
             binary_name: static_proxy
             asset_name: static_proxy-macos-x86_64
