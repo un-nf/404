@@ -211,3 +211,34 @@ pub struct BehavioralNoiseMetadata {
 
     pub markers: Vec<String>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::BodyBuffer;
+
+    #[test]
+    fn push_bytes_limited_rejects_oversized_append() {
+        let mut body = BodyBuffer::default();
+        body.push_bytes(b"abcd");
+
+        let err = body
+            .push_bytes_limited(b"ef", 5, "request body")
+            .expect_err("limit should be enforced");
+
+        assert!(err.to_string().contains("request body exceeds configured limit"));
+        assert_eq!(body.as_bytes(), b"abcd");
+    }
+
+    #[test]
+    fn replace_limited_rejects_oversized_replacement() {
+        let mut body = BodyBuffer::default();
+        body.push_bytes(b"abcd");
+
+        let err = body
+            .replace_limited(b"abcdef", 5, "response body")
+            .expect_err("limit should be enforced");
+
+        assert!(err.to_string().contains("response body exceeds configured limit"));
+        assert_eq!(body.as_bytes(), b"abcd");
+    }
+}

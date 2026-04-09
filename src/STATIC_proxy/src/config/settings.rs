@@ -20,26 +20,54 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 use std::{
     fs,
     path::{Path, PathBuf},
+    sync::OnceLock,
 };
 
 use anyhow::{anyhow, Context, Result};
+use directories::ProjectDirs;
 use serde::Deserialize;
 use crate::keystore::KeystoreConfig;
 
-const MANAGED_CA_CERT_PATH: &str = "certs/static-ca.crt";
-const MANAGED_CA_KEY_PATH: &str = "certs/static-ca.key";
-const MANAGED_CACHE_DIR: &str = "certs/cache";
+const APP_QUALIFIER: &str = "io";
+const APP_ORGANIZATION: &str = "404";
+const APP_NAME: &str = "static_proxy";
+const LEGACY_MANAGED_CA_CERT_PATH: &str = "certs/static-ca.crt";
+const LEGACY_MANAGED_CA_KEY_PATH: &str = "certs/static-ca.key";
+const LEGACY_MANAGED_CACHE_DIR: &str = "certs/cache";
+const MANAGED_CA_CERT_RELATIVE_PATH: &str = "certs/static-ca.crt";
+const MANAGED_KEYSTORE_BLOB_RELATIVE_PATH: &str = "certs/static-ca.key.dpapi";
+const MANAGED_CACHE_RELATIVE_PATH: &str = "certs/cache";
 
-pub fn managed_ca_cert_path() -> &'static Path {
-    Path::new(MANAGED_CA_CERT_PATH)
+static MANAGED_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
+static MANAGED_CA_CERT_PATH: OnceLock<PathBuf> = OnceLock::new();
+static MANAGED_KEYSTORE_BLOB_PATH: OnceLock<PathBuf> = OnceLock::new();
+static MANAGED_CACHE_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+fn managed_data_dir() -> &'static PathBuf {
+    MANAGED_DATA_DIR.get_or_init(|| {
+        ProjectDirs::from(APP_QUALIFIER, APP_ORGANIZATION, APP_NAME)
+            .expect("STATIC requires an OS app-data directory")
+            .data_local_dir()
+            .to_path_buf()
+    })
 }
 
-pub fn managed_ca_key_path() -> &'static Path {
-    Path::new(MANAGED_CA_KEY_PATH)
+pub fn managed_ca_cert_path() -> &'static Path {
+    MANAGED_CA_CERT_PATH
+        .get_or_init(|| managed_data_dir().join(MANAGED_CA_CERT_RELATIVE_PATH))
+        .as_path()
+}
+
+pub fn managed_keystore_blob_path() -> &'static Path {
+    MANAGED_KEYSTORE_BLOB_PATH
+        .get_or_init(|| managed_data_dir().join(MANAGED_KEYSTORE_BLOB_RELATIVE_PATH))
+        .as_path()
 }
 
 pub fn managed_cache_dir() -> &'static Path {
-    Path::new(MANAGED_CACHE_DIR)
+    MANAGED_CACHE_DIR
+        .get_or_init(|| managed_data_dir().join(MANAGED_CACHE_RELATIVE_PATH))
+        .as_path()
 }
 
 /// Configuration loaders and structures for the STATIC proxy.
@@ -101,26 +129,20 @@ impl StaticConfig {
     }
 
     fn build_managed_tls_config(raw_tls: RawTlsConfig) -> Result<TlsConfig> {
-        Self::require_managed_path(raw_tls.ca_cert_path.as_deref(), MANAGED_CA_CERT_PATH, "tls.ca_cert_path")?;
-        Self::require_managed_path(raw_tls.ca_key_path.as_deref(), MANAGED_CA_KEY_PATH, "tls.ca_key_path")?;
-        Self::require_managed_path(raw_tls.cache_dir.as_deref(), MANAGED_CACHE_DIR, "tls.cache_dir")?;
-
-        let mut keystore = raw_tls.keystore;
-        if let Some(fallback_path) = keystore.fallback_path.as_deref() {
-            Self::require_managed_path(Some(fallback_path), MANAGED_CA_KEY_PATH, "tls.keystore.fallback_path")?;
-            keystore.fallback_path = Some(PathBuf::from(MANAGED_CA_KEY_PATH));
-        }
+        Self::require_legacy_managed_path(raw_tls.ca_cert_path.as_deref(), LEGACY_MANAGED_CA_CERT_PATH, "tls.ca_cert_path")?;
+        Self::require_legacy_managed_path(raw_tls.ca_key_path.as_deref(), LEGACY_MANAGED_CA_KEY_PATH, "tls.ca_key_path")?;
+        Self::require_legacy_managed_path(raw_tls.cache_dir.as_deref(), LEGACY_MANAGED_CACHE_DIR, "tls.cache_dir")?;
 
         Ok(TlsConfig {
-            keystore,
+            keystore: raw_tls.keystore,
         })
     }
 
-    fn require_managed_path(raw_path: Option<&Path>, expected: &str, field_name: &str) -> Result<()> {
+    fn require_legacy_managed_path(raw_path: Option<&Path>, expected: &str, field_name: &str) -> Result<()> {
         if let Some(path) = raw_path {
             if path != Path::new(expected) {
                 return Err(anyhow!(
-                    "{field_name} is managed by STATIC and must remain set to {expected}"
+                    "{field_name} is managed by STATIC and may not be overridden"
                 ));
             }
         }
@@ -208,6 +230,29 @@ pub struct PipelineConfig {
     /// Strategy for Alt-Svc header handling (remove, normalize, or redirect for HTTP/3 suppression).
     #[serde(default)]
     pub alt_svc_strategy: AltSvcStrategy,
+    /// Hard caps for buffered request, response, and decompressed HTML bodies.
+    #[serde(default)]
+    pub body_limits: BodyLimitsConfig,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct BodyLimitsConfig {
+    #[serde(default = "default_request_body_limit_bytes")]
+    pub max_request_body_bytes: usize,
+    #[serde(default = "default_response_body_limit_bytes")]
+    pub max_response_body_bytes: usize,
+    #[serde(default = "default_decompressed_html_limit_bytes")]
+    pub max_decompressed_html_bytes: usize,
+}
+
+impl Default for BodyLimitsConfig {
+    fn default() -> Self {
+        Self {
+            max_request_body_bytes: default_request_body_limit_bytes(),
+            max_response_body_bytes: default_response_body_limit_bytes(),
+            max_decompressed_html_bytes: default_decompressed_html_limit_bytes(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -252,6 +297,18 @@ impl Default for AltSvcStrategy {
 
 fn default_profile_name() -> String {
     "firefox-windows".to_string()
+}
+
+fn default_request_body_limit_bytes() -> usize {
+    16 * 1024 * 1024
+}
+
+fn default_response_body_limit_bytes() -> usize {
+    32 * 1024 * 1024
+}
+
+fn default_decompressed_html_limit_bytes() -> usize {
+    16 * 1024 * 1024
 }
 
 fn default_http3_bind_address() -> String {

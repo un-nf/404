@@ -13,27 +13,15 @@ fn main() {
     let bundle_path = Path::new("assets/js/dist/runtime.bundle.js");
 
     let Some(node_command) = node_command else {
-        println!(
-            "cargo:warning=Skipping STATIC JS bundle build because node/npm is unavailable; the last generated runtime bundle will continue to be used."
+        panic!(
+            "STATIC JS bundle build requires node to be available; refusing to compile without a freshly generated runtime bundle"
         );
-        if !bundle_path.exists() {
-            println!(
-                "cargo:warning=No generated runtime bundle exists yet at assets/js/dist/runtime.bundle.js."
-            );
-        }
-        return;
     };
 
     let Some(npm_command) = npm_command else {
-        println!(
-            "cargo:warning=Skipping STATIC JS bundle build because node/npm is unavailable; the last generated runtime bundle will continue to be used."
+        panic!(
+            "STATIC JS bundle build requires npm to be available; refusing to compile without a freshly generated runtime bundle"
         );
-        if !bundle_path.exists() {
-            println!(
-                "cargo:warning=No generated runtime bundle exists yet at assets/js/dist/runtime.bundle.js."
-            );
-        }
-        return;
     };
 
     let esbuild_installed = Path::new("build/node_modules/esbuild").exists();
@@ -45,18 +33,15 @@ fn main() {
         match status {
             Ok(result) if result.success() => {}
             Ok(result) => {
-                println!(
-                    "cargo:warning=STATIC JS npm install exited with status {}. The last generated runtime bundle will continue to be used.",
+                panic!(
+                    "STATIC JS npm install exited with status {}; refusing to compile with a stale runtime bundle",
                     result
                 );
-                return;
             }
             Err(error) => {
-                println!(
-                    "cargo:warning=STATIC JS npm install failed: {}. The last generated runtime bundle will continue to be used.",
-                    error
+                panic!(
+                    "STATIC JS npm install failed: {error}; refusing to compile with a stale runtime bundle"
                 );
-                return;
             }
         }
     }
@@ -65,17 +50,23 @@ fn main() {
         .args(["build/build.js"])
         .status();
     match status {
-        Ok(result) if result.success() => {}
+        Ok(result) if result.success() => {
+            if !bundle_path.exists() {
+                panic!(
+                    "STATIC JS bundle build succeeded but {} was not produced",
+                    bundle_path.display()
+                );
+            }
+        }
         Ok(result) => {
-            println!(
-                "cargo:warning=STATIC JS bundle build exited with status {}. The last generated runtime bundle will continue to be used.",
+            panic!(
+                "STATIC JS bundle build exited with status {}; refusing to compile with a stale runtime bundle",
                 result
             );
         }
         Err(error) => {
-            println!(
-                "cargo:warning=STATIC JS bundle build failed: {}. The last generated runtime bundle will continue to be used.",
-                error
+            panic!(
+                "STATIC JS bundle build failed: {error}; refusing to compile with a stale runtime bundle"
             );
         }
     }

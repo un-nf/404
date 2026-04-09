@@ -4,24 +4,14 @@ bind_port = 4040
 proxy_protocol = "tls"
 
 [tls]
-ca_cert_path = "certs/static-ca.crt"
-ca_key_path = "certs/static-ca.key"
-cache_dir = "certs/cache"
-
-	[tls.keystore]
-	# file = write/read key at ca_key_path (default)
-	mode = "file"
-	# service/account used for OS keychains (ignored for file mode)
-	service = "404.static_proxy"
-	account = "ca_key"
-	# fallback_path can write a copy alongside keychain storage (leave unset to avoid disk copy)
-	# fallback_path = "certs/static-ca.key"
+keystore = { mode = "keychain", service = "404.static_proxy", account = "ca_key" }
 
 [pipeline]
 profiles_path = "../profiles"
 default_profile = "firefox-windows"
 js_debug = false
 alt_svc_strategy = "normalize"
+body_limits = { max_request_body_bytes = 16777216, max_response_body_bytes = 33554432, max_decompressed_html_bytes = 16777216 }
 
 [http3]
 enabled = false

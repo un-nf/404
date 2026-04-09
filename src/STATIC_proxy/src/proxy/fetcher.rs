@@ -19,9 +19,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 use std::borrow::Cow;
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
-use http::header::{HeaderValue, HOST};
+use http::header::{HeaderValue, CONTENT_LENGTH, HOST};
 use wreq::{
     Client, Emulation,
     header::OrigHeaderMap,
@@ -73,12 +73,16 @@ pub trait OriginFetcher: Send + Sync {
     ) -> Result<OriginResponse>;
 }
 
-#[derive(Debug, Default)]
-pub struct WreqOriginFetcher;
+#[derive(Debug)]
+pub struct WreqOriginFetcher {
+    max_response_body_bytes: usize,
+}
 
 impl WreqOriginFetcher {
-    pub fn new() -> Self {
-        Self
+    pub fn new(max_response_body_bytes: usize) -> Self {
+        Self {
+            max_response_body_bytes,
+        }
     }
 }
 
@@ -91,7 +95,15 @@ impl OriginFetcher for WreqOriginFetcher {
         tls_plan: Option<TlsClientPlan>,
         mode: UpstreamMode,
     ) -> Result<OriginResponse> {
-        match attempt_fetch(flow, target, tls_plan.as_ref(), mode).await {
+        match attempt_fetch(
+            flow,
+            target,
+            tls_plan.as_ref(),
+            mode,
+            self.max_response_body_bytes,
+        )
+        .await
+        {
             Ok(origin) => Ok(origin),
             Err(err) if mode == UpstreamMode::PreferHttp2 => {
                 tracing::warn!(
@@ -99,7 +111,14 @@ impl OriginFetcher for WreqOriginFetcher {
                     error = %format_args!("{err:#}"),
                     "preferred HTTP/2 upstream fetch failed, retrying over HTTP/1.1"
                 );
-                attempt_fetch(flow, target, tls_plan.as_ref(), UpstreamMode::Http1Only).await
+                attempt_fetch(
+                    flow,
+                    target,
+                    tls_plan.as_ref(),
+                    UpstreamMode::Http1Only,
+                    self.max_response_body_bytes,
+                )
+                .await
             }
             Err(err) => Err(err),
         }
@@ -111,6 +130,7 @@ async fn attempt_fetch(
     target: &OriginTarget,
     tls_plan: Option<&TlsClientPlan>,
     mode: UpstreamMode,
+    max_response_body_bytes: usize,
 ) -> Result<OriginResponse> {
     let client = build_client(&flow.request, target, tls_plan, mode)?;
     let request = build_request(&client, flow, target, mode)?;
@@ -133,7 +153,7 @@ async fn attempt_fetch(
         })?;
 
     let upstream_protocol = negotiated_protocol_label(response.version());
-    let response = response_into_parts(response).await?;
+    let response = response_into_parts(response, max_response_body_bytes).await?;
 
     Ok(OriginResponse {
         response,
@@ -413,17 +433,35 @@ fn header_order(headers: &http::HeaderMap) -> OrigHeaderMap {
     ordered
 }
 
-async fn response_into_parts(response: wreq::Response) -> Result<ResponseParts> {
+async fn response_into_parts(response: wreq::Response, max_response_body_bytes: usize) -> Result<ResponseParts> {
     let status = response.status();
     let version = response.version();
+    if let Some(content_length) = response
+        .headers()
+        .get(CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<usize>().ok())
+    {
+        if content_length > max_response_body_bytes {
+            return Err(anyhow!(
+                "upstream response body exceeds configured limit of {max_response_body_bytes} bytes"
+            ));
+        }
+    }
     let headers = response.headers().clone();
     let bytes = response
         .bytes()
         .await
         .context("failed to buffer upstream response body")?;
 
+    if bytes.len() > max_response_body_bytes {
+        return Err(anyhow!(
+            "upstream response body exceeds configured limit of {max_response_body_bytes} bytes"
+        ));
+    }
+
     let mut body = BodyBuffer::default();
-    body.push_bytes(bytes.as_ref());
+    body.push_bytes_limited(bytes.as_ref(), max_response_body_bytes, "upstream response body")?;
 
     Ok(ResponseParts {
         status,

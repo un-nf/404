@@ -42,13 +42,15 @@ const INJECTION_MARKER_HEADER: &str = "x-static-injected";
 pub struct JsInjectionStage {
     bundle: ScriptBundle,
     debug: bool,
+    max_decompressed_html_bytes: usize,
 }
 
 impl JsInjectionStage {
-    pub fn new(debug: bool) -> Self {
+    pub fn new(debug: bool, max_decompressed_html_bytes: usize) -> Self {
         Self {
             bundle: ScriptBundle::load(),
             debug,
+            max_decompressed_html_bytes,
         }
     }
 
@@ -69,7 +71,7 @@ impl JsInjectionStage {
             return Ok(false);
         }
 
-        if !Self::prepare_html_body(response)? {
+        if !self.prepare_html_body(response)? {
             return Ok(false);
         }
 
@@ -156,7 +158,7 @@ impl JsInjectionStage {
         (block, hashes)
     }
 
-    fn prepare_html_body(response: &mut ResponseParts) -> Result<bool> {
+    fn prepare_html_body(&self, response: &mut ResponseParts) -> Result<bool> {
         let content_type = response
             .headers
             .get(CONTENT_TYPE)
@@ -168,14 +170,14 @@ impl JsInjectionStage {
             return Ok(false);
         }
 
-        if !Self::ensure_plain_body(response)? {
+        if !self.ensure_plain_body(response)? {
             return Ok(false);
         }
 
         Ok(true)
     }
 
-    fn ensure_plain_body(response: &mut ResponseParts) -> Result<bool> {
+    fn ensure_plain_body(&self, response: &mut ResponseParts) -> Result<bool> {
         let Some(raw) = response.headers.get(CONTENT_ENCODING) else {
             return Ok(true);
         };
@@ -195,10 +197,10 @@ impl JsInjectionStage {
         let mut decoded = response.body.as_bytes().to_vec();
         for encoding in encodings.into_iter().rev() {
             decoded = match encoding.as_str() {
-                "gzip" | "x-gzip" => Self::decode_gzip(&decoded)?,
-                "deflate" => Self::decode_deflate(&decoded)?,
-                "br" => Self::decode_brotli(&decoded)?,
-                "zstd" | "zst" => Self::decode_zstd(&decoded)?,
+                "gzip" | "x-gzip" => self.decode_gzip(&decoded)?,
+                "deflate" => self.decode_deflate(&decoded)?,
+                "br" => self.decode_brotli(&decoded)?,
+                "zstd" | "zst" => self.decode_zstd(&decoded)?,
                 other => {
                     tracing::debug!(encoding = %other, "js_injector: unsupported content-encoding");
                     return Ok(false);
@@ -206,7 +208,9 @@ impl JsInjectionStage {
             };
         }
 
-        response.body.replace(&decoded);
+        response
+            .body
+            .replace_limited(&decoded, self.max_decompressed_html_bytes, "decompressed HTML response body")?;
         response.headers.remove(CONTENT_ENCODING);
         response.headers.remove(TRANSFER_ENCODING);
         let len_value = HeaderValue::from_str(&response.body.len().to_string())
@@ -215,30 +219,46 @@ impl JsInjectionStage {
         Ok(true)
     }
 
-    fn decode_gzip(data: &[u8]) -> Result<Vec<u8>> {
+    fn decode_gzip(&self, data: &[u8]) -> Result<Vec<u8>> {
         let mut decoder = GzDecoder::new(data);
         let mut out = Vec::new();
         decoder.read_to_end(&mut out)?;
+        self.ensure_decompressed_limit(&out)?;
         Ok(out)
     }
 
-    fn decode_deflate(data: &[u8]) -> Result<Vec<u8>> {
+    fn decode_deflate(&self, data: &[u8]) -> Result<Vec<u8>> {
         let mut decoder = ZlibDecoder::new(data);
         let mut out = Vec::new();
         decoder.read_to_end(&mut out)?;
+        self.ensure_decompressed_limit(&out)?;
         Ok(out)
     }
 
-    fn decode_brotli(data: &[u8]) -> Result<Vec<u8>> {
+    fn decode_brotli(&self, data: &[u8]) -> Result<Vec<u8>> {
         let cursor = Cursor::new(data);
         let mut decoder = Decompressor::new(cursor, 4096);
         let mut out = Vec::new();
         decoder.read_to_end(&mut out)?;
+        self.ensure_decompressed_limit(&out)?;
         Ok(out)
     }
 
-    fn decode_zstd(data: &[u8]) -> Result<Vec<u8>> {
-        Ok(zstd_decode_all(Cursor::new(data)).context("failed to decode zstd body")?)
+    fn decode_zstd(&self, data: &[u8]) -> Result<Vec<u8>> {
+        let decoded = zstd_decode_all(Cursor::new(data)).context("failed to decode zstd body")?;
+        self.ensure_decompressed_limit(&decoded)?;
+        Ok(decoded)
+    }
+
+    fn ensure_decompressed_limit(&self, data: &[u8]) -> Result<()> {
+        if data.len() > self.max_decompressed_html_bytes {
+            anyhow::bail!(
+                "decompressed HTML response body exceeds configured limit of {} bytes",
+                self.max_decompressed_html_bytes
+            );
+        }
+
+        Ok(())
     }
 
     fn disable_client_cache(response: &mut ResponseParts) -> Result<()> {
@@ -328,7 +348,7 @@ mod tests {
 
     #[test]
     fn render_runtime_config_escapes_script_terminator() {
-        let stage = JsInjectionStage::new(false);
+        let stage = JsInjectionStage::new(false, 16 * 1024 * 1024);
         let mut flow = Flow::new(RequestParts::default());
         flow.metadata.js_runtime_config = json!({
             "value": "before </script> after",
@@ -342,7 +362,7 @@ mod tests {
 
     #[test]
     fn build_injection_block_emits_config_and_runtime_with_single_hash() {
-        let stage = JsInjectionStage::new(false);
+        let stage = JsInjectionStage::new(false, 16 * 1024 * 1024);
         let mut flow = Flow::new(RequestParts::default());
         flow.metadata.csp_nonce = Some("nonce-123".to_string());
         flow.metadata.js_runtime_config = json!({
@@ -362,7 +382,7 @@ mod tests {
 
     #[tokio::test]
     async fn on_response_body_injects_runtime_block_and_records_hash() {
-        let stage = JsInjectionStage::new(false);
+        let stage = JsInjectionStage::new(false, 16 * 1024 * 1024);
         let mut flow = Flow::new(RequestParts::default());
         flow.metadata.csp_nonce = Some("nonce-abc".to_string());
         flow.metadata.js_runtime_config = json!({
@@ -389,7 +409,7 @@ mod tests {
 
     #[tokio::test]
     async fn on_response_body_injects_before_first_script_when_script_precedes_head() {
-        let stage = JsInjectionStage::new(false);
+        let stage = JsInjectionStage::new(false, 16 * 1024 * 1024);
         let mut flow = Flow::new(RequestParts::default());
 
         let mut response = ResponseParts::default();
@@ -407,7 +427,7 @@ mod tests {
 
     #[tokio::test]
     async fn on_response_body_decodes_zstd_html_and_injects_runtime() {
-        let stage = JsInjectionStage::new(false);
+        let stage = JsInjectionStage::new(false, 16 * 1024 * 1024);
         let mut flow = Flow::new(RequestParts::default());
 
         let html = b"<!doctype html><html><head><title>x</title></head><body>ok</body></html>";
@@ -425,6 +445,28 @@ mod tests {
         let body = std::str::from_utf8(response.body.as_bytes()).unwrap();
         assert!(body.contains("<script type=\"application/json\" id=\"__static_profile\">"));
         assert!(response.headers.get(CONTENT_ENCODING).is_none());
+    }
+
+    #[tokio::test]
+    async fn on_response_body_rejects_oversized_decompressed_html() {
+        let stage = JsInjectionStage::new(false, 32);
+        let mut flow = Flow::new(RequestParts::default());
+
+        let html = b"<!doctype html><html><head><title>x</title></head><body>this body is intentionally too large</body></html>";
+        let encoded = zstd_encode_all(Cursor::new(html), 0).unwrap();
+
+        let mut response = ResponseParts::default();
+        response.headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
+        response.headers.insert(CONTENT_ENCODING, HeaderValue::from_static("zstd"));
+        response.body.replace(&encoded);
+        flow.response = Some(response);
+
+        let err = stage
+            .on_response_body(&mut flow)
+            .await
+            .expect_err("oversized decompressed HTML should fail");
+
+        assert!(err.to_string().contains("decompressed HTML response body exceeds configured limit"));
     }
 }
 

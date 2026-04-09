@@ -33,6 +33,7 @@ use tokio::net::TcpStream;
 use tokio_rustls::{server as rustls_server, TlsAcceptor};
 
 use crate::{
+    config::BodyLimitsConfig,
     proxy::{
         fetcher::{OriginFetcher, OriginTarget, UpstreamMode},
         flow::BodyBuffer, flow::Flow, flow::RequestParts, flow::ResponseParts,
@@ -74,6 +75,7 @@ enum Protocol {
 pub async fn handle_connection(
     mut socket: TcpStream,
     peer: SocketAddr,
+    body_limits: BodyLimitsConfig,
     tls: Arc<TlsProvider>,
     fetcher: Arc<dyn OriginFetcher>,
     stages: StagePipeline,
@@ -136,6 +138,7 @@ pub async fn handle_connection(
             handle_http2_session(
                 client_tls,
                 peer,
+                body_limits,
                 fetcher,
                 stages,
                 telemetry,
@@ -149,6 +152,7 @@ pub async fn handle_connection(
             handle_http1_session(
                 client_tls,
                 peer,
+                body_limits,
                 fetcher,
                 stages,
                 telemetry,
@@ -210,6 +214,7 @@ async fn handle_http1_session(
 
     mut client_stream: ClientTlsStream,
     peer: SocketAddr,
+    body_limits: BodyLimitsConfig,
     fetcher: Arc<dyn OriginFetcher>,
     stages: StagePipeline,
     telemetry: TelemetrySink,
@@ -218,7 +223,7 @@ async fn handle_http1_session(
 
 ) -> Result<()> {
 
-    let request = parse_http_request(&mut client_stream).await?;
+    let request = parse_http_request(&mut client_stream, body_limits.max_request_body_bytes).await?;
     tracing::debug!(%peer, method = %request.method, uri = %request.uri, "parsed HTTP/1.1 request");
 
     let mut flow = Flow::new(request);
@@ -274,6 +279,7 @@ async fn handle_http1_session(
 async fn handle_http2_session(
     client_stream: ClientTlsStream,
     peer: SocketAddr,
+    body_limits: BodyLimitsConfig,
     fetcher: Arc<dyn OriginFetcher>,
     stages: StagePipeline,
     telemetry: TelemetrySink,
@@ -306,11 +312,13 @@ async fn handle_http2_session(
         let telemetry_clone = telemetry.clone();
         let sni_clone = sni.clone();
         let target_clone = target_host.clone();
+        let body_limits_clone = body_limits.clone();
 
         tokio::spawn(async move {
             if let Err(err) = process_http2_stream(
                 request,
                 respond,
+            body_limits_clone,
                 fetcher_clone,
                 stages_clone,
                 telemetry_clone,
@@ -366,6 +374,7 @@ fn is_benign_client_h2_stream_error(err: &anyhow::Error) -> bool {
 async fn process_http2_stream(
     request: http::Request<h2::RecvStream>,
     respond: SendResponse<Bytes>,
+    body_limits: BodyLimitsConfig,
     fetcher: Arc<dyn OriginFetcher>,
     stages: StagePipeline,
     telemetry: TelemetrySink,
@@ -373,7 +382,7 @@ async fn process_http2_stream(
     sni: Option<String>,
     target_host: Option<String>,
 ) -> Result<()> {
-    let request_parts = request_parts_from_h2(request).await?;
+    let request_parts = request_parts_from_h2(request, body_limits.max_request_body_bytes).await?;
     let mut flow = Flow::new(request_parts);
     flow.metadata.tls_sni = sni.clone();
     flow.metadata.connect_target = target_host;
@@ -485,7 +494,7 @@ fn enforce_content_length(response: &mut ResponseParts) -> Result<()> {
     normalize_content_length(&mut response.headers, response.body.len())
 }
 
-async fn parse_http_request(stream: &mut ClientTlsStream) -> Result<RequestParts> {
+async fn parse_http_request(stream: &mut ClientTlsStream, max_request_body_bytes: usize) -> Result<RequestParts> {
     let mut reader = BufReader::new(stream);
 
     let mut request_line = String::new();
@@ -557,6 +566,12 @@ async fn parse_http_request(stream: &mut ClientTlsStream) -> Result<RequestParts
         .and_then(|value| value.parse::<usize>().ok())
         .unwrap_or(0);
 
+    if body_len > max_request_body_bytes {
+        anyhow::bail!(
+            "request body exceeds configured limit of {max_request_body_bytes} bytes"
+        );
+    }
+
     let mut body = BodyBuffer::default();
     if body_len > 0 {
         let mut bytes = vec![0u8; body_len];
@@ -564,7 +579,7 @@ async fn parse_http_request(stream: &mut ClientTlsStream) -> Result<RequestParts
             .read_exact(&mut bytes)
             .await
             .with_context(|| format!("expected {body_len} request body bytes, hit EOF"))?;
-        body.push_bytes(&bytes);
+        body.push_bytes_limited(&bytes, max_request_body_bytes, "request body")?;
     }
 
     Ok(RequestParts {
@@ -688,13 +703,16 @@ async fn send_response_to_client(
 }
 
 /// Converts an `h2::RecvStream` into our HTTP/1-style `RequestParts` container.
-async fn request_parts_from_h2(request: http::Request<h2::RecvStream>) -> Result<RequestParts> {
+async fn request_parts_from_h2(
+    request: http::Request<h2::RecvStream>,
+    max_request_body_bytes: usize,
+) -> Result<RequestParts> {
     let (parts, mut body_stream) = request.into_parts();
     let mut body = BodyBuffer::default();
 
     while let Some(frame) = body_stream.data().await {
         let chunk = frame?;
-        body.push_bytes(&chunk);
+        body.push_bytes_limited(&chunk, max_request_body_bytes, "request body")?;
         if let Err(err) = body_stream.flow_control().release_capacity(chunk.len()) {
             tracing::warn!(?err, "failed to release client HTTP/2 flow-control capacity");
             break;

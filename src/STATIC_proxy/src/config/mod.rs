@@ -21,7 +21,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 pub mod settings;
 
 pub use settings::{
-    managed_cache_dir, managed_ca_cert_path, managed_ca_key_path, AltSvcStrategy, Http3Config,
-    ListenerConfig, PipelineConfig, ProxyProtocol, StaticConfig, TelemetryConfig,
+    managed_cache_dir, managed_ca_cert_path, managed_keystore_blob_path, AltSvcStrategy,
+    BodyLimitsConfig, Http3Config, ListenerConfig, PipelineConfig, ProxyProtocol, StaticConfig, TelemetryConfig,
     TelemetryMode, TlsConfig,
 };

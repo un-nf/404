@@ -253,9 +253,7 @@ bind_port = 8081
 #### **TLS**
 ```toml
 [tls]
-ca_cert_path = "certs/static-ca.crt"
-ca_key_path = "certs/static-ca.key"
-cache_dir = "certs/cache"
+keystore = { mode = "keychain", service = "404.static_proxy", account = "ca_key" }
 ```
 
 #### **Pipeline**
@@ -265,6 +263,7 @@ profiles_path = "../profiles"
 default_profile = "firefox-windows"
 js_debug = false
 alt_svc_strategy = "normalize"
+body_limits = { max_request_body_bytes = 16777216, max_response_body_bytes = 33554432, max_decompressed_html_bytes = 16777216 }
 ```
 
 #### **Telemetry**
@@ -349,7 +348,7 @@ pub struct Flow {
 - Upstream protocol (HTTP/1.1 vs HTTP/2)
 - Stage mutation logs
 
-> **Performance**: Buffers use `BytesMut` for zero-copy mutations during pipeline stages.
+> **Resource limits**: Request bodies are capped at 16 MiB, origin responses at 32 MiB, and decompressed HTML at 16 MiB by default. Oversized bodies are rejected before the proxy continues processing them.
 
 ### Pipeline
 
@@ -425,8 +424,7 @@ send_response_to_client()
 
 - Bodyless codes (1xx/204/205/304) to avoid Content-Length hangs
 - Chunked encoding normalization
-
-> TODO: Streaming bodies for large payloads
+- Configurable request-body cap before allocation
 
 ### HTTP/2 Engine
 
@@ -467,13 +465,18 @@ send_response_to_client()
 **`tls::cert::TlsProvider`** bootstraps CA:
 
 1. **On first run**: Generate CA via `rcgen` (with `pem` feature)
-2. **Write** `certs/static-ca.{crt,key}` to disk
+2. **Write** the public CA certificate to the OS app-data directory
+3. **Store** the private key only in secure platform storage:
+   - Windows: DPAPI-protected blob in app-data
+   - macOS/Linux: OS keyring via the `keyring` crate
 3. **Leaf cache**: `DashMap<String, CachedCert>` keyed by lowercase SNI
    - Entries store `Arc<CertifiedKey>` + `Instant` timestamp
    - **TTL**: 24 hours (lazy invalidation on lookup)
 4. **`ResolvesServerCert`** impl returns cached cert or generates new leaf signed by CA
    - Chain: `[leaf, ca]`
    - Missing SNI falls back to `static.local`
+
+STATIC no longer supports plaintext CA private-key storage on disk. Startup fails if secure storage is unavailable.
 
 ### TLS Planner
 
@@ -610,6 +613,23 @@ Profiles located in `static_proxy/profiles/*.json` (Chrome/Edge/Firefox).
 ### Embedded JavaScript
 
 **`assets.rs`** uses `include_str!` to embed JS files and `sha2` for SHA-256 digests at compile time.
+
+`build.rs` now fails the Rust build if Node, npm, or the JS bundle step is unavailable. STATIC will not embed a stale `runtime.bundle.js` from a previous local build.
+
+### Release Verification
+
+The release workflow now publishes these sidecars for every STATIC binary:
+
+- `<asset>.sha256`
+- `<asset>.sha256.sig`
+- `<asset>.sha256.pem`
+
+It also publishes a signed `static_proxy-release-manifest.json` with the per-asset digests. The intended updater flow is:
+
+1. Download the signed manifest and verify its signature.
+2. Select the platform asset from the verified manifest.
+3. Download the binary and its checksum sidecar.
+4. Verify the binary digest matches the signed manifest before replacing the installed binary.
 
 **`AssetCatalog`** exposes:
 - `content`: Raw JavaScript

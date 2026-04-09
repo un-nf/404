@@ -33,7 +33,7 @@ use rustls::crypto::aws_lc_rs::sign::any_supported_type;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use rustls::{self, sign::CertifiedKey};
 
-use crate::{config::{managed_cache_dir, managed_ca_cert_path, managed_ca_key_path, TlsConfig}, ensure_rustls_crypto_provider, keystore::{build_keystore, KeystoreMode}};
+use crate::{config::{managed_cache_dir, managed_ca_cert_path, managed_keystore_blob_path, TlsConfig}, ensure_rustls_crypto_provider, keystore::build_keystore};
 
 /// TlsProvider handles all the certificate magic that makes MITM interception work.
 #[derive(Debug)]
@@ -178,46 +178,22 @@ impl CertificateAuthority {
     /// - rcgen errors (invalid cert params, unsupported key types)
     fn load_or_generate(cfg: &TlsConfig) -> Result<Self> {
         let ca_cert_path = managed_ca_cert_path();
-        let ca_key_path = managed_ca_key_path();
-        let keystore = build_keystore(&cfg.keystore, ca_key_path.to_path_buf());
+        let keystore = build_keystore(&cfg.keystore, managed_keystore_blob_path().to_path_buf());
         let ca_cert_exists = ca_cert_path.exists();
         let ca_key_in_keystore = keystore.get_secret(CA_KEY_NAME)?;
-
-        #[cfg(target_os = "windows")]
-        let dpapi_mode = matches!(cfg.keystore.mode, KeystoreMode::Keychain) && cfg.keystore.fallback_path.is_none();
-        #[cfg(not(target_os = "windows"))]
-        let dpapi_mode = false;
-
-        // Plaintext on disk is only permitted for file mode or an explicit fallback.
-        // DPAPI mode persists a ciphertext blob for retrieval, but must never write the PEM.
-        let allow_plain_disk = matches!(cfg.keystore.mode, KeystoreMode::File)
-            || cfg.keystore.fallback_path.is_some();
-        let allow_disk_presence = allow_plain_disk || dpapi_mode;
-
-        let ca_key_exists = ca_key_in_keystore.is_some() || (allow_disk_presence && ca_key_path.exists());
+        let ca_key_exists = ca_key_in_keystore.is_some();
 
         // If a cert already exists but no key is available, refuse to regenerate to avoid breaking trust.
-        if ca_cert_exists && !ca_key_exists {
+        if ca_cert_exists != ca_key_exists {
             return Err(anyhow!(
-                "CA certificate exists but no private key found in keystore or fallback path; remove stale certs and re-run CA setup"
+                "managed CA state is inconsistent; remove stale CA artifacts and re-run CA setup"
             ));
         }
 
         if ca_cert_exists && ca_key_exists {
-            let key_bytes = match keystore.get_secret(CA_KEY_NAME)? {
-                Some(bytes) => bytes,
-                None if allow_plain_disk => fs::read(ca_key_path)?,
-                None if dpapi_mode => {
-                    return Err(anyhow!(
-                        "CA certificate exists but DPAPI keystore missing; run cleanup/reinit CA to restore the protected key"
-                    ))
-                }
-                None => {
-                    return Err(anyhow!(
-                        "CA certificate exists but no private key found in keystore; remove stale certs and re-run CA setup"
-                    ))
-                }
-            };
+            let key_bytes = keystore
+                .get_secret(CA_KEY_NAME)?
+                .ok_or_else(|| anyhow!("CA certificate exists but no private key was recovered from secure storage"))?;
             let key_pem = String::from_utf8(key_bytes)?;
 
             let key_pair = rcgen::KeyPair::from_pem(&key_pem)?;
@@ -240,17 +216,13 @@ impl CertificateAuthority {
             // Generate self-signed CA certificate
             let cert = generate_ca();
 
-            // Serialize and write to disk (PEM format for human readability)
-            fs::write(ca_cert_path, cert.serialize_pem()?)?;
             let key_pem = cert.serialize_private_key_pem();
             keystore.set_secret(CA_KEY_NAME, key_pem.as_bytes())?;
 
             // Verify the keystore actually retained the secret (fail fast instead of silently running without a key).
             match keystore.get_secret(CA_KEY_NAME)? {
                 Some(_) => {
-                    if allow_plain_disk {
-                        fs::write(ca_key_path, &key_pem)?;
-                    }
+                    fs::write(ca_cert_path, cert.serialize_pem()?)?;
                     Ok(Self { cert })
                 }
                 None => Err(anyhow!("keystore did not persist CA key; aborting to avoid thumbprint drift")),
