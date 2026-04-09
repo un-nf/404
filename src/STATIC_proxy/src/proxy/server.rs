@@ -23,7 +23,7 @@ use anyhow::Result;
 use tokio::{net::TcpListener, sync::watch};
 
 use crate::{
-    config::{Http3Config, ListenerConfig, ProxyProtocol},
+    config::{BodyLimitsConfig, Http3Config, ListenerConfig, ProxyProtocol},
     proxy::{fetcher::OriginFetcher, stages::StagePipeline},
     telemetry::TelemetrySink,
     tls::cert::TlsProvider,
@@ -35,6 +35,7 @@ use super::connection::handle_connection;
 pub struct ProxyServer {
     listener_cfg: ListenerConfig,
     http3_cfg: Http3Config,
+    body_limits: BodyLimitsConfig,
     tls: Arc<TlsProvider>,
     fetcher: Arc<dyn OriginFetcher>,
     stages: StagePipeline,
@@ -48,6 +49,7 @@ impl ProxyServer {
     pub fn new(
         listener_cfg: ListenerConfig,
         http3_cfg: Http3Config,
+        body_limits: BodyLimitsConfig,
         tls: Arc<TlsProvider>,
         fetcher: Arc<dyn OriginFetcher>,
         stages: StagePipeline,
@@ -58,6 +60,7 @@ impl ProxyServer {
         Self {
             listener_cfg,
             http3_cfg,
+            body_limits,
             tls,
             fetcher,
             stages,
@@ -106,13 +109,14 @@ impl ProxyServer {
             let fetcher = self.fetcher.clone();
             let stages = self.stages.clone();
             let telemetry = self.telemetry.clone();
+            let body_limits = self.body_limits.clone();
 
             tracing::debug!(%peer, "accepted client");
 
             tokio::spawn(async move {
 
                 if let Err(err) =
-                    handle_connection(socket, peer, tls, fetcher, stages, telemetry, http3_enabled).await
+                    handle_connection(socket, peer, body_limits, tls, fetcher, stages, telemetry, http3_enabled).await
                 {
                     
                     tracing::warn!(%peer, error = %format_args!("{err:#}"), "client session ended with error");

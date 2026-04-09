@@ -61,7 +61,10 @@ impl StagePipeline {
         )?));
         stages.push(Arc::new(BehavioralNoiseStage::new()));
         stages.push(Arc::new(CspStage::default()));
-        stages.push(Arc::new(JsInjectionStage::new(cfg.js_debug)));
+        stages.push(Arc::new(JsInjectionStage::new(
+            cfg.js_debug,
+            cfg.body_limits.max_decompressed_html_bytes,
+        )));
         stages.push(Arc::new(AltSvcStage::new(cfg.alt_svc_strategy.clone())));
 
         Ok(Self {

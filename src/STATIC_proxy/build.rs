@@ -1,5 +1,4 @@
-use std::env;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 fn main() {
@@ -104,6 +103,9 @@ where
 
 #[cfg(windows)]
 fn windows_fallback_candidates(candidates: &[&str]) -> Vec<PathBuf> {
+    use std::env;
+    use std::path::PathBuf;
+
     let mut paths = Vec::new();
     let mut bases = Vec::new();
 

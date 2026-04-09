@@ -63,8 +63,8 @@ pub trait KeyStore: Send + Sync {
     fn delete_secret(&self, key: &str) -> Result<()>;
 }
 
-/// Factory to build a keystore from config. `fallback` is used for file mode and optional disk copies.
-pub fn build_keystore(cfg: &KeystoreConfig, protected_storage_path: PathBuf) -> Box<dyn KeyStore> {
+/// Factory to build a keystore from config.
+pub fn build_keystore(cfg: &KeystoreConfig, _protected_storage_path: PathBuf) -> Box<dyn KeyStore> {
     match cfg.mode {
         KeystoreMode::Keychain => {
             #[cfg(target_os = "windows")]

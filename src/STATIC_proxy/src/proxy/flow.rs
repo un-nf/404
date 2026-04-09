@@ -17,6 +17,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 */
 
+use anyhow::{anyhow, Result};
 use crate::behavior::BehavioralNoisePlan;
 use bytes::BytesMut;
 use http::{header::HeaderName, HeaderMap, Method, Uri, Version};
@@ -135,6 +136,17 @@ impl BodyBuffer {
         self.data.extend_from_slice(chunk);
     }
 
+    pub fn push_bytes_limited(&mut self, chunk: &[u8], max_len: usize, label: &str) -> Result<()> {
+        if chunk.len() > max_len.saturating_sub(self.data.len()) {
+            return Err(anyhow!(
+                "{label} exceeds configured limit of {max_len} bytes"
+            ));
+        }
+
+        self.data.extend_from_slice(chunk);
+        Ok(())
+    }
+
     /// Returns a read-only view of the buffered data so stages can inspect payloads.
     pub fn as_bytes(&self) -> &[u8] {
         &self.data
@@ -149,6 +161,18 @@ impl BodyBuffer {
     pub fn replace(&mut self, chunk: &[u8]) {
         self.data.clear();
         self.data.extend_from_slice(chunk);
+    }
+
+    pub fn replace_limited(&mut self, chunk: &[u8], max_len: usize, label: &str) -> Result<()> {
+        if chunk.len() > max_len {
+            return Err(anyhow!(
+                "{label} exceeds configured limit of {max_len} bytes"
+            ));
+        }
+
+        self.data.clear();
+        self.data.extend_from_slice(chunk);
+        Ok(())
     }
 
     /// Returns true when no bytes are buffered.

@@ -62,11 +62,15 @@ impl StaticApp {
                 let telemetry = TelemetrySink::new(config.telemetry.clone());
                 let tls = Arc::new(TlsProvider::new(config.tls.clone()).await?);
                 let pipeline = StagePipeline::build(&config.pipeline, telemetry.clone())?;
-                let fetcher: Arc<dyn OriginFetcher> = Arc::new(WreqOriginFetcher::new());
+                let body_limits = config.pipeline.body_limits.clone();
+                let fetcher: Arc<dyn OriginFetcher> = Arc::new(WreqOriginFetcher::new(
+                    body_limits.max_response_body_bytes,
+                ));
 
                 Some(ProxyServer::new(
                     config.listener.clone(),
                     config.http3.clone(),
+                    body_limits,
                     tls,
                     fetcher,
                     pipeline,
