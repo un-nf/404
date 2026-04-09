@@ -177,7 +177,7 @@ impl CertificateAuthority {
     /// - PEM parsing errors (malformed CA files from manual editing)
     /// - rcgen errors (invalid cert params, unsupported key types)
     fn load_or_generate(cfg: &TlsConfig) -> Result<Self> {
-        let keystore = build_keystore(&cfg.keystore, cfg.ca_key_path.to_path_buf());
+        let keystore = build_keystore(&cfg.keystore, cfg.ca_key_path.clone());
         let ca_cert_exists = cfg.ca_cert_path.exists();
         let ca_key_in_keystore = keystore.get_secret(CA_KEY_NAME)?;
 
@@ -204,7 +204,7 @@ impl CertificateAuthority {
         if ca_cert_exists && ca_key_exists {
             let key_bytes = match keystore.get_secret(CA_KEY_NAME)? {
                 Some(bytes) => bytes,
-                None if allow_plain_disk => fs::read(cfg.ca_key_path.as_path())?,
+                None if allow_plain_disk => fs::read(&cfg.ca_key_path)?,
                 None if dpapi_mode => {
                     return Err(anyhow!(
                         "CA certificate exists but DPAPI keystore missing; run cleanup/reinit CA to restore the protected key"
@@ -239,7 +239,7 @@ impl CertificateAuthority {
             let cert = generate_ca();
 
             // Serialize and write to disk (PEM format for human readability)
-            fs::write(cfg.ca_cert_path.as_path(), cert.serialize_pem()?)?;
+            fs::write(&cfg.ca_cert_path, cert.serialize_pem()?)?;
             let key_pem = cert.serialize_private_key_pem();
             keystore.set_secret(CA_KEY_NAME, key_pem.as_bytes())?;
 
@@ -247,7 +247,7 @@ impl CertificateAuthority {
             match keystore.get_secret(CA_KEY_NAME)? {
                 Some(_) => {
                     if allow_plain_disk {
-                        fs::write(cfg.ca_key_path.as_path(), &key_pem)?;
+                        fs::write(&cfg.ca_key_path, &key_pem)?;
                     }
                     Ok(Self { cert })
                 }
@@ -284,7 +284,7 @@ fn load_or_generate_ca(cfg: &TlsConfig) -> Result<CertificateAuthority> {
     if let Some(parent) = cfg.cache_dir.parent() {
         fs::create_dir_all(parent)?;
     }
-    fs::create_dir_all(cfg.cache_dir.as_path())?;
+    fs::create_dir_all(&cfg.cache_dir)?;
 
     CertificateAuthority::load_or_generate(cfg)
 }

@@ -18,73 +18,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 use std::{
-    borrow::Cow,
     fs,
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
 };
 
 use anyhow::{anyhow, Context, Result};
-use serde::{Deserialize, Deserializer};
+use serde::Deserialize;
 use crate::keystore::KeystoreConfig;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ManagedPath(PathBuf);
-
-impl ManagedPath {
-    pub fn as_path(&self) -> &Path {
-        &self.0
-    }
-
-    pub fn to_path_buf(&self) -> PathBuf {
-        self.0.clone()
-    }
-
-    pub fn exists(&self) -> bool {
-        self.0.exists()
-    }
-
-    pub fn parent(&self) -> Option<&Path> {
-        self.0.parent()
-    }
-
-    pub fn to_string_lossy(&self) -> Cow<'_, str> {
-        self.0.to_string_lossy()
-    }
-
-    fn validate(path: &Path) -> Result<PathBuf> {
-        let mut normalized = PathBuf::new();
-
-        for component in path.components() {
-            match component {
-                Component::Normal(part) => normalized.push(part),
-                Component::CurDir => {}
-                Component::ParentDir => {
-                    return Err(anyhow!("managed paths must not contain parent directory traversal"));
-                }
-                Component::RootDir | Component::Prefix(_) => {
-                    return Err(anyhow!("managed paths must be relative to STATIC runtime storage"));
-                }
-            }
-        }
-
-        if normalized.as_os_str().is_empty() {
-            return Err(anyhow!("managed paths must not be empty"));
-        }
-
-        Ok(normalized)
-    }
-}
-
-impl<'de> Deserialize<'de> for ManagedPath {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let raw = PathBuf::deserialize(deserializer)?;
-        let normalized = Self::validate(&raw).map_err(serde::de::Error::custom)?;
-        Ok(Self(normalized))
-    }
-}
+const MANAGED_CA_CERT_PATH: &str = "certs/static-ca.crt";
+const MANAGED_CA_KEY_PATH: &str = "certs/static-ca.key";
+const MANAGED_CACHE_DIR: &str = "certs/cache";
 
 /// Configuration loaders and structures for the STATIC proxy.
 ///
@@ -116,11 +60,21 @@ impl StaticConfig {
         let path = path.as_ref();
         let raw = fs::read_to_string(path)
             .with_context(|| format!("failed to read config file: {}", path.display()))?;
-        let mut cfg: StaticConfig = toml::from_str(&raw)
+        let mut raw_cfg: RawStaticConfig = toml::from_str(&raw)
             .with_context(|| format!("invalid STATIC config: {}", path.display()))?;
 
         let base_dir = path.parent();
-        Self::absolutize_dir(base_dir, &mut cfg.pipeline.profiles_path);
+        Self::absolutize_dir(base_dir, &mut raw_cfg.pipeline.profiles_path);
+
+        let tls = Self::build_managed_tls_config(raw_cfg.tls)?;
+
+        let cfg = StaticConfig {
+            listener: raw_cfg.listener,
+            tls,
+            pipeline: raw_cfg.pipeline,
+            http3: raw_cfg.http3,
+            telemetry: raw_cfg.telemetry,
+        };
 
         Ok(cfg)
     }
@@ -133,6 +87,59 @@ impl StaticConfig {
             }
         }
     }
+
+    fn build_managed_tls_config(raw_tls: RawTlsConfig) -> Result<TlsConfig> {
+        Self::require_managed_path(raw_tls.ca_cert_path.as_deref(), MANAGED_CA_CERT_PATH, "tls.ca_cert_path")?;
+        Self::require_managed_path(raw_tls.ca_key_path.as_deref(), MANAGED_CA_KEY_PATH, "tls.ca_key_path")?;
+        Self::require_managed_path(raw_tls.cache_dir.as_deref(), MANAGED_CACHE_DIR, "tls.cache_dir")?;
+
+        let mut keystore = raw_tls.keystore;
+        if let Some(fallback_path) = keystore.fallback_path.as_deref() {
+            Self::require_managed_path(Some(fallback_path), MANAGED_CA_KEY_PATH, "tls.keystore.fallback_path")?;
+            keystore.fallback_path = Some(PathBuf::from(MANAGED_CA_KEY_PATH));
+        }
+
+        Ok(TlsConfig {
+            ca_cert_path: PathBuf::from(MANAGED_CA_CERT_PATH),
+            ca_key_path: PathBuf::from(MANAGED_CA_KEY_PATH),
+            cache_dir: PathBuf::from(MANAGED_CACHE_DIR),
+            keystore,
+        })
+    }
+
+    fn require_managed_path(raw_path: Option<&Path>, expected: &str, field_name: &str) -> Result<()> {
+        if let Some(path) = raw_path {
+            if path != Path::new(expected) {
+                return Err(anyhow!(
+                    "{field_name} is managed by STATIC and must remain set to {expected}"
+                ));
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct RawStaticConfig {
+    pub listener: ListenerConfig,
+    pub tls: RawTlsConfig,
+    pub pipeline: PipelineConfig,
+    #[serde(default)]
+    pub http3: Http3Config,
+    pub telemetry: TelemetryConfig,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct RawTlsConfig {
+    #[serde(default)]
+    pub ca_cert_path: Option<PathBuf>,
+    #[serde(default)]
+    pub ca_key_path: Option<PathBuf>,
+    #[serde(default)]
+    pub cache_dir: Option<PathBuf>,
+    #[serde(default)]
+    pub keystore: KeystoreConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -176,13 +183,12 @@ impl Default for ProxyProtocol {
 #[derive(Debug, Clone, Deserialize)]
 pub struct TlsConfig {
     /// Path to the CA certificate browsers must trust for interception.
-    pub ca_cert_path: ManagedPath,
+    pub ca_cert_path: PathBuf,
     /// Path to the CA private key used for leaf issuance.
-    pub ca_key_path: ManagedPath,
+    pub ca_key_path: PathBuf,
     /// Directory used for caching generated leaf certificates per hostname.
-    pub cache_dir: ManagedPath,
+    pub cache_dir: PathBuf,
     /// Keystore backend selection (file, keychain, etc.). Defaults to file for backward compatibility.
-    #[serde(default)]
     pub keystore: KeystoreConfig,
 }
 
