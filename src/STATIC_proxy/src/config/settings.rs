@@ -19,10 +19,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 use std::{
     fs,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
 use crate::keystore::KeystoreConfig;
 
@@ -61,6 +61,7 @@ impl StaticConfig {
 
         let base_dir = path.parent();
         Self::absolutize_dir(base_dir, &mut cfg.pipeline.profiles_path);
+        Self::normalize_tls_storage_paths(&mut cfg.tls)?;
 
         Ok(cfg)
     }
@@ -72,6 +73,48 @@ impl StaticConfig {
                 *target = dir.join(&*target);
             }
         }
+    }
+
+    fn normalize_tls_storage_paths(tls: &mut TlsConfig) -> Result<()> {
+        tls.ca_cert_path = Self::normalize_managed_path(&tls.ca_cert_path, "tls.ca_cert_path")?;
+        tls.ca_key_path = Self::normalize_managed_path(&tls.ca_key_path, "tls.ca_key_path")?;
+        tls.cache_dir = Self::normalize_managed_path(&tls.cache_dir, "tls.cache_dir")?;
+
+        if let Some(fallback_path) = tls.keystore.fallback_path.as_mut() {
+            *fallback_path = Self::normalize_managed_path(
+                fallback_path,
+                "tls.keystore.fallback_path",
+            )?;
+        }
+
+        Ok(())
+    }
+
+    fn normalize_managed_path(path: &Path, field_name: &str) -> Result<PathBuf> {
+        let mut normalized = PathBuf::new();
+
+        for component in path.components() {
+            match component {
+                Component::Normal(part) => normalized.push(part),
+                Component::CurDir => {}
+                Component::ParentDir => {
+                    return Err(anyhow!(
+                        "{field_name} must not contain parent directory traversal"
+                    ));
+                }
+                Component::RootDir | Component::Prefix(_) => {
+                    return Err(anyhow!(
+                        "{field_name} must be a managed relative path"
+                    ));
+                }
+            }
+        }
+
+        if normalized.as_os_str().is_empty() {
+            return Err(anyhow!("{field_name} must not be empty"));
+        }
+
+        Ok(normalized)
     }
 }
 
