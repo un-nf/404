@@ -17,6 +17,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 */
 
+use std::io::ErrorKind;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -334,6 +335,33 @@ fn is_benign_client_h2_shutdown(message: &str) -> bool {
         || lower.contains("unexpected eof")
 }
 
+fn is_benign_client_h2_stream_error(err: &anyhow::Error) -> bool {
+    for cause in err.chain() {
+        if let Some(h2_err) = cause.downcast_ref::<h2::Error>() {
+            if matches!(
+                h2_err.reason(),
+                Some(Reason::CANCEL | Reason::NO_ERROR | Reason::STREAM_CLOSED)
+            ) {
+                return true;
+            }
+        }
+
+        if let Some(io_err) = cause.downcast_ref::<std::io::Error>() {
+            if matches!(
+                io_err.kind(),
+                ErrorKind::BrokenPipe
+                    | ErrorKind::ConnectionAborted
+                    | ErrorKind::ConnectionReset
+                    | ErrorKind::UnexpectedEof
+            ) {
+                return true;
+            }
+        }
+    }
+
+    is_benign_client_h2_shutdown(&err.to_string())
+}
+
 /// Executes the full HTTP/2 request lifecycle for a single client stream.
 async fn process_http2_stream(
     request: http::Request<h2::RecvStream>,
@@ -399,7 +427,19 @@ async fn process_http2_stream(
                 .response
                 .as_ref()
                 .context("response missing after response stages")?;
-            send_http2_response(&mut respond, response)?;
+            if let Err(err) = send_http2_response(&mut respond, response) {
+                if is_benign_client_h2_stream_error(&err) {
+                    tracing::debug!(
+                        %peer,
+                        status = %response.status,
+                        error = %format_args!("{err:#}"),
+                        "client closed/reset HTTP/2 stream before downstream response completed"
+                    );
+                    return Ok(());
+                }
+
+                return Err(err);
+            }
             emit_flow_telemetry(&telemetry, &flow, &sni, peer);
             Ok(())
         }
@@ -773,5 +813,37 @@ impl ResolvesServerCert for OnDemandCertResolver {
                 None
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_benign_client_h2_shutdown, is_benign_client_h2_stream_error};
+
+    #[test]
+    fn benign_h2_stream_error_accepts_reset_like_io_kinds() {
+        let err = anyhow::Error::from(std::io::Error::new(
+            std::io::ErrorKind::ConnectionReset,
+            "stream reset by peer",
+        ));
+
+        assert!(is_benign_client_h2_stream_error(&err));
+    }
+
+    #[test]
+    fn benign_h2_stream_error_rejects_unrelated_io_kinds() {
+        let err = anyhow::Error::from(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "write timed out",
+        ));
+
+        assert!(!is_benign_client_h2_stream_error(&err));
+    }
+
+    #[test]
+    fn benign_h2_shutdown_matches_known_close_notify_pattern() {
+        assert!(is_benign_client_h2_shutdown(
+            "peer closed connection without sending TLS close_notify"
+        ));
     }
 }
