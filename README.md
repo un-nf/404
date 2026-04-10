@@ -1,12 +1,12 @@
-# 404 v1.0
-*404 acts as the middleman between you and those collecting your data.*
+# 404 v2.1.6
+*404 acts as the middleman between you and those collecting your data.* [more...](https://404privacy.com)
 Rust privacy proxy & Linux kernel module. Full client-fingerprint control. 
 
 > **404 is a dual-module network application designed to give uers profile-driven control over multiple layers of their fingerprint: TCP/IP options (TTL, MSS, etc.), TLS cipher-suite, HTTP headers, browser APIs, canvas, WebRTC, and more...**
 
 ---
 
-**ToC:**
+**Manual Links:**
 - [***View the manual instead***](https://un-nf.github.io/404-docs/)
 - [What is 404?](https://un-nf.github.io/404-docs/Overview/whatIs/)
 - [Quick Start](https://un-nf.github.io/404-docs/dev/downloadDev/)
@@ -107,6 +107,8 @@ winget install --id Kitware.CMake -e && winget install --id NASM.NASM -e
 
 ```
 
+Current source builds also require LLVM/libclang, Ninja, and Perl available on your `PATH`.
+
 *Restart your shell after installation. Tools should be on your PATH automatically.*
 
 </details>
@@ -138,7 +140,7 @@ b.
 3. Download dependencies w/ homebrew:
 
 ```zsh
-brew install rust nasm cmake
+brew install rust nasm cmake ninja perl
 
 ```
 
@@ -154,13 +156,13 @@ brew install rust nasm cmake
 ```bash
 # Debian/Ubuntu
 $ sudo apt update
-$ sudo apt install -y curl build-essential nasm cmake
+$ sudo apt install -y curl build-essential clang pkg-config cmake ninja-build perl nasm
 
 # Arch
-$ sudo pacman -S rust nasm cmake
+$ sudo pacman -S rust clang pkgconf cmake ninja perl nasm
 
 # Fedora/RHEL
-$ sudo dnf install -y rust cargo nasm cmake
+$ sudo dnf install -y rust cargo clang pkgconf-pkg-config cmake ninja-build perl gcc-c++ nasm
 
 # Install Rust via rustup (if not installed via package manager)
 $ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
@@ -213,7 +215,7 @@ certutil.exe -addstore root C:\\path\\to\\myCA.pem
 
 **...or manually:**
 
-1. Navigate to the `404/` directory and locate the `../static_proxy/certs/` directory.
+1. Navigate to the `404/` directory and locate the `src/STATIC_proxy/certs/` directory.
 
 2. Double-click the file labeled `static-ca.crt` (may appear without .crt extension)
 
@@ -233,7 +235,7 @@ certutil.exe -addstore root C:\\path\\to\\myCA.pem
 <summary><b>macOS</b></summary>
 
 ```zsh
-sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain static_proxy/certs/static-ca.crt
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain certs/static-ca.crt
 
 ```
 
@@ -251,7 +253,7 @@ sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keyc
 
 ```bash
 # Copy CA to system trust store
-sudo cp static_proxy/certs/static-ca.crt /usr/local/share/ca-certificates/static-ca.crt
+sudo cp certs/static-ca.crt /usr/local/share/ca-certificates/static-ca.crt
 sudo update-ca-certificates
 
 ```

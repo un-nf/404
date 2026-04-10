@@ -140,6 +140,27 @@ jobs:
             --output-certificate dist-release/static_proxy-release-manifest.json.pem \
             dist-release/static_proxy-release-manifest.json
 
+      - name: Normalize STATIC manifest certificate PEM
+        run: |
+          node <<'EOF'
+          const fs = require('node:fs');
+
+          const certificatePath = 'dist-release/static_proxy-release-manifest.json.pem';
+          const raw = fs.readFileSync(certificatePath, 'utf8').trim();
+
+          if (raw.includes('-----BEGIN CERTIFICATE-----')) {
+            fs.writeFileSync(certificatePath, `${raw}\n`, 'utf8');
+            process.exit(0);
+          }
+
+          const decoded = Buffer.from(raw, 'base64').toString('utf8').trim();
+          if (!decoded.includes('-----BEGIN CERTIFICATE-----')) {
+            throw new Error('cosign certificate output was neither raw PEM nor base64-encoded PEM');
+          }
+
+          fs.writeFileSync(certificatePath, `${decoded}\n`, 'utf8');
+          EOF
+
       - name: Upload manifest workflow artifact
         uses: actions/upload-artifact@v4
         with:
