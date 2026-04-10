@@ -106,31 +106,10 @@ impl JsInjectionStage {
     }
 
     fn build_loader_script(&self, _flow: &Flow) -> String {
-        let runtime_script = self.bundle.runtime.as_ref();
-        let segments = [Self::script_literal(runtime_script)];
-
-        concat!(
-            "(function staticInstallBundle() {",
-            "var current = document.currentScript;",
-            "var nonce = '';",
-            "if (current) {",
-            "  nonce = current.nonce || (current.getAttribute && current.getAttribute('nonce')) || '';",
-            "}",
-            "var parent = document.head || document.documentElement || document.body;",
-            "if (!parent) { return; }",
-            "var segments = [__STATIC_SEGMENTS__];",
-            "for (var i = 0; i < segments.length; i += 1) {",
-            "  var node = document.createElement('script');",
-            "  if (nonce) {",
-            "    node.nonce = nonce;",
-            "    node.setAttribute('nonce', nonce);",
-            "  }",
-            "  node.text = segments[i];",
-            "  parent.appendChild(node);",
-            "}",
-            "})();"
-        )
-        .replace("__STATIC_SEGMENTS__", &segments.join(","))
+        self.bundle
+            .runtime
+            .as_ref()
+            .replace("</script>", "<\\/script>")
     }
 
     fn build_injection_block(&self, flow: &Flow) -> (String, Vec<String>) {
