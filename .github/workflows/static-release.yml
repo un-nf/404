@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   build:
@@ -99,3 +100,59 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/${{ matrix.asset_name }}
+
+  publish-release-manifest:
+    name: Publish STATIC release manifest
+    runs-on: ubuntu-latest
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Download staged STATIC binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-release
+          pattern: static_proxy-*
+          merge-multiple: false
+
+      - name: Build STATIC release manifest
+        run: |
+          node .github/scripts/build-static-release-manifest.mjs \
+            --input dist-release \
+            --output dist-release/static_proxy-release-manifest.json \
+            --version "${GITHUB_REF_NAME}"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3.8.1
+
+      - name: Sign STATIC release manifest
+        run: |
+          cosign sign-blob --yes \
+            --output-signature dist-release/static_proxy-release-manifest.json.sig \
+            --output-certificate dist-release/static_proxy-release-manifest.json.pem \
+            dist-release/static_proxy-release-manifest.json
+
+      - name: Upload manifest workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: static_proxy-release-manifest
+          path: |
+            dist-release/static_proxy-release-manifest.json
+            dist-release/static_proxy-release-manifest.json.sig
+            dist-release/static_proxy-release-manifest.json.pem
+
+      - name: Publish manifest release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist-release/static_proxy-release-manifest.json
+            dist-release/static_proxy-release-manifest.json.sig
+            dist-release/static_proxy-release-manifest.json.pem
