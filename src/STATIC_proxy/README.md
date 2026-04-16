@@ -366,7 +366,7 @@ pub struct Flow {
 
 3. CspStage
    └─ Inject CSP nonces
-   └─ Rewrite headers to allow injected JS
+   └─ Reuse or append a nonce on script directives only
 
 4. JsInjectionStage
    └─ Embed bootstrap + shim + config + spoof
@@ -658,12 +658,11 @@ It also publishes a signed `static_proxy-release-manifest.json` with the per-ass
 
 ### CSP Integration
 
-**`CspStage`** uses asset hashes and per-flow nonce to rewrite `Content-Security-Policy` headers:
+**`CspStage`** captures or generates a per-flow nonce before injection, then appends that nonce only to the script directive that governs inline script execution after STATIC injects its runtime:
 
-- Adds `'strict-dynamic'` only when upstream policy allows
-- Hashes inline JS from origins to avoid breakage
-- Appends STATIC script hashes
 - Reuses origin nonces when available
+- Falls back to `default-src` only when no explicit script directive exists
+- Leaves non-script directives untouched
 
 **Injection point**: Near `</head>` or `</body>` (deterministic fallback to synthesize `<head>` if missing)
 

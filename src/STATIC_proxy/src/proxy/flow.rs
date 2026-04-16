@@ -20,7 +20,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 use anyhow::{anyhow, Result};
 use crate::behavior::BehavioralNoisePlan;
 use bytes::BytesMut;
-use http::{header::HeaderName, HeaderMap, Method, Uri, Version};
+use http::{HeaderMap, Method, Uri, Version};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -220,8 +220,6 @@ pub struct FlowMetadata {
 
     
     pub behavioral_noise: BehavioralNoiseMetadata,
-
-    pub original_csp_headers: Option<Vec<(HeaderName, Vec<String>)>>,
 }
 
 #[derive(Debug, Default)]
