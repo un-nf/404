@@ -148,9 +148,9 @@ fn modify_policy(flow: &mut Flow, policy: &str) -> String {
     if let Some(index) = script_elem_index {
         directives[index] = ensure_nonce_on_directive(flow, &directives[index], "script-src-elem");
     } else if let Some(index) = script_index {
-        directives[index] = ensure_nonce_on_directive(flow, &directives[index], "script-src");
+        directives.push(build_derived_script_elem_directive(flow, &directives[index], "script-src-elem"));
     } else if let Some(default_src) = default_src {
-        directives.push(build_derived_script_elem_directive(flow, &default_src));
+        directives.push(build_derived_script_elem_directive(flow, &default_src, "script-src-elem"));
     }
 
     directives.join("; ")
@@ -214,14 +214,14 @@ fn ensure_nonce_on_directive(flow: &mut Flow, base: &str, fallback_name: &str) -
     format!("{} {}", name, tokens.join(" "))
 }
 
-fn build_derived_script_elem_directive(flow: &mut Flow, default_src: &str) -> String {
-    let mut parts = default_src.split_whitespace();
+fn build_derived_script_elem_directive(flow: &mut Flow, source_directive: &str, target_name: &str) -> String {
+    let mut parts = source_directive.split_whitespace();
     let _ = parts.next();
     let tokens: Vec<String> = parts.map(|token| token.to_string()).collect();
     ensure_nonce_on_directive(
         flow,
-        &format!("script-src-elem {}", tokens.join(" ")).trim_end().to_string(),
-        "script-src-elem",
+        &format!("{} {}", target_name, tokens.join(" ")).trim_end().to_string(),
+        target_name,
     )
 }
 
@@ -305,7 +305,13 @@ mod tests {
         let mut flow = Flow::new(RequestParts::default());
         let rewritten = rewrite_csp_value(&mut flow, "script-src 'self' https://cdn.example");
 
-        assert_eq!(rewritten, format!("script-src 'self' https://cdn.example 'nonce-{}'", flow.metadata.csp_nonce.clone().unwrap()));
+        assert_eq!(
+            rewritten,
+            format!(
+                "script-src 'self' https://cdn.example; script-src-elem 'self' https://cdn.example 'nonce-{}'",
+                flow.metadata.csp_nonce.clone().unwrap()
+            )
+        );
     }
 
     #[test]
@@ -324,6 +330,33 @@ mod tests {
         let rewritten = rewrite_csp_value(&mut flow, "script-src-elem 'self' 'nonce-origin123' https://cdn.example");
 
         assert_eq!(rewritten, "script-src-elem 'self' 'nonce-origin123' https://cdn.example");
+        assert_eq!(flow.metadata.csp_nonce.as_deref(), Some("origin123"));
+    }
+
+    #[test]
+    fn script_src_unsafe_inline_is_preserved_for_attributes() {
+        let mut flow = Flow::new(RequestParts::default());
+        let rewritten = rewrite_csp_value(
+            &mut flow,
+            "script-src blob: https://duckduckgo.com 'unsafe-inline' 'unsafe-eval' 'nonce-origin123'",
+        );
+
+        assert_eq!(
+            rewritten,
+            "script-src blob: https://duckduckgo.com 'unsafe-inline' 'unsafe-eval' 'nonce-origin123'; script-src-elem blob: https://duckduckgo.com 'unsafe-inline' 'unsafe-eval' 'nonce-origin123'"
+        );
+        assert_eq!(flow.metadata.csp_nonce.as_deref(), Some("origin123"));
+    }
+
+    #[test]
+    fn script_src_nonce_does_not_gain_additional_nonce_token() {
+        let mut flow = Flow::new(RequestParts::default());
+        let rewritten = rewrite_csp_value(&mut flow, "script-src 'self' 'nonce-origin123'");
+
+        assert_eq!(
+            rewritten,
+            "script-src 'self' 'nonce-origin123'; script-src-elem 'self' 'nonce-origin123'"
+        );
         assert_eq!(flow.metadata.csp_nonce.as_deref(), Some("origin123"));
     }
 
