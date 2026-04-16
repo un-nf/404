@@ -28,6 +28,13 @@ use crate::proxy::flow::Flow;
 
 use super::FlowStage;
 
+const CSP_COMPAT_BYPASS_HOSTS: &[&str] = &[
+    "duckduckgo.com",
+    "duck.ai",
+    "tuta.com",
+    "tutanota.com",
+];
+
 /// CSP stage preserves origin CSP and only adds or reuses a nonce on the relevant
 /// script directive so the injected runtime can execute.
 #[derive(Clone, Default)]
@@ -35,6 +42,10 @@ pub struct CspStage;
 
 impl CspStage {
     fn rewrite_headers(&self, flow: &mut Flow, _script_hashes: &[String]) -> Result<()> {
+        if should_bypass_csp_rewrite(flow) {
+            return Ok(());
+        }
+
         if flow.response.is_none() {
             return Ok(());
         }
@@ -77,6 +88,16 @@ impl CspStage {
 
         Ok(())
     }
+}
+
+fn should_bypass_csp_rewrite(flow: &Flow) -> bool {
+    let Some(host) = flow.request.uri.host() else {
+        return false;
+    };
+
+    CSP_COMPAT_BYPASS_HOSTS.iter().any(|suffix| {
+        host == *suffix || host.ends_with(&format!(".{suffix}"))
+    })
 }
 
 #[async_trait]
@@ -394,5 +415,25 @@ mod tests {
             &HeaderValue::from_static("script-src 'self'; connect-src 'none'")
         );
         assert!(flow.metadata.csp_nonce.is_none());
+    }
+
+    #[test]
+    fn bypasses_csp_rewrite_for_duckduckgo() {
+        let flow = Flow::new(RequestParts {
+            uri: http::Uri::from_static("https://duckduckgo.com/?q=tie"),
+            ..RequestParts::default()
+        });
+
+        assert!(should_bypass_csp_rewrite(&flow));
+    }
+
+    #[test]
+    fn bypasses_csp_rewrite_for_tuta_subdomains() {
+        let flow = Flow::new(RequestParts {
+            uri: http::Uri::from_static("https://mail.tutanota.com/"),
+            ..RequestParts::default()
+        });
+
+        assert!(should_bypass_csp_rewrite(&flow));
     }
 }
