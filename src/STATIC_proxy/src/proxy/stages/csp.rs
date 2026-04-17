@@ -28,12 +28,27 @@ use crate::proxy::flow::Flow;
 
 use super::FlowStage;
 
+/// Sites where CSP should not be modified (they are bypassed from JS injection 
+/// and have their own strict CSP requirements for dynamic module loading) -- WORKAROUND ONLY - these sites should be audited and removed from this list where possible
+/// Though, privacy respecting sites like DuckDuckGo and Tutanota are expected to not require script injection, so they may be permanent members of this list.
+const CSP_PASSTHROUGH_HOSTS: &[&str] = &[
+    "duckduckgo.com",
+    "duck.ai",
+    "tuta.com",
+    "tutanota.com",
+];
+
 #[derive(Clone, Default)]
 pub struct CspStage;
 
 #[async_trait]
 impl FlowStage for CspStage {
     async fn on_response_headers(&self, flow: &mut Flow) -> Result<()> {
+        // Don't process CSP for sites that have dynamic module requirements
+        if should_skip_csp_processing(flow) {
+            return Ok(());
+        }
+
         let response = match flow.response.as_ref() {
             Some(response) => response,
             None => return Ok(()),
@@ -62,6 +77,11 @@ impl FlowStage for CspStage {
     }
 
     async fn on_response_finalized(&self, flow: &mut Flow) -> Result<()> {
+        // Don't process CSP for sites that have dynamic module requirements
+        if should_skip_csp_processing(flow) {
+            return Ok(());
+        }
+
         let nonce = match flow.metadata.csp_nonce.clone() {
             Some(nonce) => nonce,
             None => return Ok(()),
@@ -104,6 +124,16 @@ fn generate_nonce() -> String {
     let mut buf = [0u8; 16];
     OsRng.fill_bytes(&mut buf);
     STANDARD_NO_PAD.encode(buf)
+}
+
+fn should_skip_csp_processing(flow: &Flow) -> bool {
+    let Some(host) = flow.request.uri.host() else {
+        return false;
+    };
+
+    CSP_PASSTHROUGH_HOSTS.iter().any(|suffix| {
+        host == *suffix || host.ends_with(&format!(".{suffix}"))
+    })
 }
 
 fn extract_existing_nonce(csp: &str) -> Option<String> {
@@ -374,5 +404,35 @@ mod tests {
             &HeaderValue::from_static("script-src 'self'; connect-src 'none'")
         );
         assert!(flow.metadata.csp_nonce.is_none());
+    }
+
+    #[test]
+    fn skips_csp_processing_for_tutanota_hosts() {
+        let flow = Flow::new(RequestParts {
+            uri: http::Uri::from_static("https://mail.tutanota.com/"),
+            ..RequestParts::default()
+        });
+        assert!(should_skip_csp_processing(&flow));
+
+        let flow = Flow::new(RequestParts {
+            uri: http::Uri::from_static("https://app.tuta.com/"),
+            ..RequestParts::default()
+        });
+        assert!(should_skip_csp_processing(&flow));
+    }
+
+    #[test]
+    fn skips_csp_processing_for_duckduckgo_hosts() {
+        let flow = Flow::new(RequestParts {
+            uri: http::Uri::from_static("https://duckduckgo.com/"),
+            ..RequestParts::default()
+        });
+        assert!(should_skip_csp_processing(&flow));
+    }
+
+    #[test]
+    fn does_not_skip_csp_processing_for_other_hosts() {
+        let flow = Flow::new(RequestParts::default());
+        assert!(!should_skip_csp_processing(&flow));
     }
 }
