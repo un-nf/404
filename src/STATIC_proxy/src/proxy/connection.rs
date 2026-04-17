@@ -25,12 +25,12 @@ use anyhow::{anyhow, Context, Result};
 use bytes::Bytes;
 use h2::{server::SendResponse, Reason, SendStream};
 use http::header::{HeaderName, HeaderValue};
-use rustls::{server::ClientHello, server::ResolvesServerCert, ServerConfig};
-use rustls::{sign::CertifiedKey, ServerConnection};
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use rustls::{server::ClientHello, server::ResolvesServerCert, ClientConfig, RootCertStore, ServerConfig};
+use rustls::{pki_types::ServerName, sign::CertifiedKey, ServerConnection};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::time::{timeout, Duration};
 use tokio::net::TcpStream;
-use tokio_rustls::{server as rustls_server, TlsAcceptor};
+use tokio_rustls::{server as rustls_server, TlsAcceptor, TlsConnector};
 
 use crate::{
     config::BodyLimitsConfig,
@@ -51,6 +51,7 @@ type ClientTlsStream = rustls_server::TlsStream<TcpStream>;
 
 const FALLBACK_SNI: &str = "static.local";
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+const MAX_HTTP_HEAD_BYTES: usize = 64 * 1024;
 
 /// Detects whether the connection is HTTP or HTTPS by peeking at the first byte.
 async fn detect_protocol(socket: &TcpStream) -> Result<Protocol> {
@@ -223,10 +224,10 @@ async fn handle_http1_session(
 
 ) -> Result<()> {
 
-    let request = parse_http_request(&mut client_stream, body_limits.max_request_body_bytes).await?;
-    tracing::debug!(%peer, method = %request.method, uri = %request.uri, "parsed HTTP/1.1 request");
+    let parsed = parse_http_request(&mut client_stream, body_limits.max_request_body_bytes).await?;
+    tracing::debug!(%peer, method = %parsed.request.method, uri = %parsed.request.uri, "parsed HTTP/1.1 request");
 
-    let mut flow = Flow::new(request);
+    let mut flow = Flow::new(parsed.request);
     flow.metadata.tls_sni = sni.clone();
     flow.metadata.connect_target = target_host;
     flow.metadata.client_protocol = Some("http/1.1".to_string());
@@ -240,6 +241,19 @@ async fn handle_http1_session(
     if let Some(plan) = &tls_plan {
         flow.metadata.tls_variant_id = Some(plan.variant_id().to_string());
         tracing::debug!(%peer, variant = plan.variant_id(), "selected TLS hello variant");
+    }
+
+    if is_websocket_upgrade_request(&flow.request) {
+        tracing::debug!(%peer, uri = %flow.request.uri, "forwarding websocket upgrade over raw upstream TLS");
+        return tunnel_websocket_upgrade(
+            &mut client_stream,
+            parsed.buffered_tail,
+            &mut flow,
+            peer,
+            &telemetry,
+            &sni,
+        )
+        .await;
     }
 
     let (host, port) = resolve_upstream_target(&flow);
@@ -272,6 +286,76 @@ async fn handle_http1_session(
         .context("response missing after pipeline execution")?;
     send_response_to_client(&mut client_stream, response).await?;
     tracing::debug!(%peer, "response delivered to client");
+    Ok(())
+}
+
+async fn tunnel_websocket_upgrade(
+    client_stream: &mut ClientTlsStream,
+    client_buffered_tail: Vec<u8>,
+    flow: &mut Flow,
+    peer: SocketAddr,
+    telemetry: &TelemetrySink,
+    sni: &Option<String>,
+) -> Result<()> {
+    let (host, port) = resolve_upstream_target(flow);
+    let tcp_stream = TcpStream::connect((host.as_str(), port))
+        .await
+        .with_context(|| format!("failed to connect websocket upstream {host}:{port}"))?;
+    let connector = build_upstream_tls_connector()?;
+    let server_name = ServerName::try_from(host.clone())
+        .with_context(|| format!("invalid upstream TLS server name: {host}"))?;
+    let mut upstream_stream = connector
+        .connect(server_name, tcp_stream)
+        .await
+        .with_context(|| format!("failed to establish upstream TLS for websocket {host}:{port}"))?;
+
+    send_upstream_http1_request(&mut upstream_stream, &flow.request, &host, port).await?;
+
+    let (response_head, upstream_buffered_tail) = read_http_head(&mut upstream_stream, MAX_HTTP_HEAD_BYTES)
+        .await
+        .context("failed to read websocket upgrade response head")?;
+    let response = parse_http_response_head(&response_head)?;
+
+    flow.metadata.upstream_protocol = Some("http/1.1".to_string());
+    flow.response = Some(response);
+
+    client_stream
+        .write_all(&response_head)
+        .await
+        .context("failed to forward websocket response head to client")?;
+    if !upstream_buffered_tail.is_empty() {
+        client_stream
+            .write_all(&upstream_buffered_tail)
+            .await
+            .context("failed to forward buffered websocket response bytes to client")?;
+    }
+    client_stream.flush().await?;
+
+    let status = flow
+        .response
+        .as_ref()
+        .map(|response| response.status)
+        .context("websocket upgrade response missing after parse")?;
+
+    if status == http::StatusCode::SWITCHING_PROTOCOLS {
+        if !client_buffered_tail.is_empty() {
+            upstream_stream
+                .write_all(&client_buffered_tail)
+                .await
+                .context("failed to forward buffered websocket client bytes upstream")?;
+            upstream_stream.flush().await?;
+        }
+
+        emit_flow_telemetry(telemetry, flow, sni, peer);
+        super::pipeline::proxy_data(client_stream, &mut upstream_stream).await?;
+        return Ok(());
+    }
+
+    emit_flow_telemetry(telemetry, flow, sni, peer);
+    tokio::io::copy(&mut upstream_stream, client_stream)
+        .await
+        .context("failed to stream non-upgrade websocket response body to client")?;
+    client_stream.flush().await?;
     Ok(())
 }
 
@@ -494,56 +578,14 @@ fn enforce_content_length(response: &mut ResponseParts) -> Result<()> {
     normalize_content_length(&mut response.headers, response.body.len())
 }
 
-async fn parse_http_request(stream: &mut ClientTlsStream, max_request_body_bytes: usize) -> Result<RequestParts> {
-    let mut reader = BufReader::new(stream);
+struct ParsedHttpRequest {
+    request: RequestParts,
+    buffered_tail: Vec<u8>,
+}
 
-    let mut request_line = String::new();
-    let read = reader
-        .read_line(&mut request_line)
-        .await
-        .context("failed to read request line")?;
-    if read == 0 {
-        anyhow::bail!("client closed connection before sending request line");
-    }
-
-    let request_line = request_line.trim_end_matches(|c| c == '\r' || c == '\n');
-    let mut parts = request_line.split_whitespace();
-    let method = parts.next().context("request line missing method")?;
-    let target = parts.next().context("request line missing target")?;
-    let version = match parts.next().unwrap_or("HTTP/1.1") {
-        "HTTP/1.0" => http::Version::HTTP_10,
-        "HTTP/1.1" => http::Version::HTTP_11,
-        "HTTP/2.0" => http::Version::HTTP_2,
-        _ => http::Version::HTTP_11,
-    };
-
-    let method = http::Method::from_bytes(method.as_bytes())
-        .with_context(|| format!("invalid request method: {method}"))?;
-
-    let mut headers = http::HeaderMap::new();
-    loop {
-        let mut line = String::new();
-        let read = reader
-            .read_line(&mut line)
-            .await
-            .context("failed to read request header line")?;
-        if read == 0 {
-            anyhow::bail!("unexpected EOF while reading request headers");
-        }
-        let trimmed = line.trim_end_matches(|c| c == '\r' || c == '\n');
-        if trimmed.is_empty() {
-            break;
-        }
-        if let Some(colon_pos) = trimmed.find(':') {
-            let (name, value) = trimmed.split_at(colon_pos);
-            let header_name = HeaderName::from_bytes(name.trim().as_bytes())
-                .with_context(|| format!("invalid request header name: {}", name.trim()))?;
-            let header_value = HeaderValue::from_str(value[1..].trim()).with_context(|| {
-                format!("invalid request header value for {}", name.trim())
-            })?;
-            headers.append(header_name, header_value);
-        }
-    }
+async fn parse_http_request(stream: &mut ClientTlsStream, max_request_body_bytes: usize) -> Result<ParsedHttpRequest> {
+    let (head, mut buffered_tail) = read_http_head(stream, MAX_HTTP_HEAD_BYTES).await?;
+    let (method, target, version, headers) = parse_http_request_head(&head)?;
 
     let host = headers
         .get(http::header::HOST)
@@ -572,23 +614,227 @@ async fn parse_http_request(stream: &mut ClientTlsStream, max_request_body_bytes
         );
     }
 
-    let mut body = BodyBuffer::default();
-    if body_len > 0 {
-        let mut bytes = vec![0u8; body_len];
-        reader
-            .read_exact(&mut bytes)
+    while buffered_tail.len() < body_len {
+        let remaining = body_len - buffered_tail.len();
+        let mut chunk = vec![0u8; remaining.min(16 * 1024)];
+        let read = stream
+            .read(&mut chunk)
             .await
-            .with_context(|| format!("expected {body_len} request body bytes, hit EOF"))?;
-        body.push_bytes_limited(&bytes, max_request_body_bytes, "request body")?;
+            .with_context(|| format!("expected {body_len} request body bytes, hit read error"))?;
+        if read == 0 {
+            anyhow::bail!("expected {body_len} request body bytes, hit EOF");
+        }
+        buffered_tail.extend_from_slice(&chunk[..read]);
     }
 
-    Ok(RequestParts {
-        method,
-        uri,
+    let mut body = BodyBuffer::default();
+    if body_len > 0 {
+        body.push_bytes_limited(&buffered_tail[..body_len], max_request_body_bytes, "request body")?;
+    }
+    let remaining_tail = buffered_tail.split_off(body_len);
+
+    Ok(ParsedHttpRequest {
+        request: RequestParts {
+            method,
+            uri,
+            version,
+            headers,
+            body,
+        },
+        buffered_tail: remaining_tail,
+    })
+}
+
+async fn read_http_head<S>(stream: &mut S, max_head_bytes: usize) -> Result<(Vec<u8>, Vec<u8>)>
+where
+    S: AsyncRead + Unpin,
+{
+    let mut buffer = Vec::new();
+
+    loop {
+        if let Some(end) = find_http_head_end(&buffer) {
+            let tail = buffer.split_off(end);
+            return Ok((buffer, tail));
+        }
+
+        if buffer.len() >= max_head_bytes {
+            anyhow::bail!("HTTP head exceeds configured limit of {max_head_bytes} bytes");
+        }
+
+        let mut chunk = [0u8; 4096];
+        let read = stream.read(&mut chunk).await.context("failed to read HTTP head")?;
+        if read == 0 {
+            if buffer.is_empty() {
+                anyhow::bail!("client closed connection before sending HTTP head");
+            }
+            anyhow::bail!("unexpected EOF while reading HTTP head");
+        }
+        buffer.extend_from_slice(&chunk[..read]);
+    }
+}
+
+fn find_http_head_end(buffer: &[u8]) -> Option<usize> {
+    buffer
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .map(|idx| idx + 4)
+}
+
+fn parse_http_request_head(head: &[u8]) -> Result<(http::Method, String, http::Version, http::HeaderMap)> {
+    let head_str = std::str::from_utf8(head).context("request head is not valid UTF-8")?;
+    let mut lines = head_str.split("\r\n");
+    let request_line = lines.next().context("request head missing request line")?;
+    let mut parts = request_line.split_whitespace();
+    let method_str = parts.next().context("request line missing method")?;
+    let target = parts.next().context("request line missing target")?.to_string();
+    let version = parse_http_version(parts.next().unwrap_or("HTTP/1.1"));
+    let method = http::Method::from_bytes(method_str.as_bytes())
+        .with_context(|| format!("invalid request method: {method_str}"))?;
+    let headers = parse_http_headers(lines)?;
+    Ok((method, target, version, headers))
+}
+
+fn parse_http_response_head(head: &[u8]) -> Result<ResponseParts> {
+    let head_str = std::str::from_utf8(head).context("response head is not valid UTF-8")?;
+    let mut lines = head_str.split("\r\n");
+    let status_line = lines.next().context("response head missing status line")?;
+    let mut parts = status_line.split_whitespace();
+    let version = parse_http_version(parts.next().unwrap_or("HTTP/1.1"));
+    let status_str = parts.next().context("response status line missing status code")?;
+    let status = http::StatusCode::from_u16(
+        status_str
+            .parse()
+            .with_context(|| format!("invalid response status code: {status_str}"))?,
+    )
+    .context("invalid response status code")?;
+    let headers = parse_http_headers(lines)?;
+
+    Ok(ResponseParts {
+        status,
         version,
         headers,
-        body,
+        body: BodyBuffer::default(),
     })
+}
+
+fn parse_http_headers<'a, I>(lines: I) -> Result<http::HeaderMap>
+where
+    I: IntoIterator<Item = &'a str>,
+{
+    let mut headers = http::HeaderMap::new();
+    for line in lines {
+        if line.is_empty() {
+            break;
+        }
+        let Some(colon_pos) = line.find(':') else {
+            continue;
+        };
+        let (name, value) = line.split_at(colon_pos);
+        let header_name = HeaderName::from_bytes(name.trim().as_bytes())
+            .with_context(|| format!("invalid HTTP header name: {}", name.trim()))?;
+        let header_value = HeaderValue::from_str(value[1..].trim())
+            .with_context(|| format!("invalid HTTP header value for {}", name.trim()))?;
+        headers.append(header_name, header_value);
+    }
+    Ok(headers)
+}
+
+fn parse_http_version(raw: &str) -> http::Version {
+    match raw {
+        "HTTP/1.0" => http::Version::HTTP_10,
+        "HTTP/1.1" => http::Version::HTTP_11,
+        "HTTP/2.0" | "HTTP/2" => http::Version::HTTP_2,
+        _ => http::Version::HTTP_11,
+    }
+}
+
+fn is_websocket_upgrade_request(request: &RequestParts) -> bool {
+    request.method == http::Method::GET
+        && request
+            .headers
+            .get("upgrade")
+            .and_then(|value| value.to_str().ok())
+            .map(|value| value.eq_ignore_ascii_case("websocket"))
+            .unwrap_or(false)
+        && request
+            .headers
+            .get("connection")
+            .and_then(|value| value.to_str().ok())
+            .map(|value| header_contains_token(value, "upgrade"))
+            .unwrap_or(false)
+}
+
+fn header_contains_token(value: &str, expected: &str) -> bool {
+    value
+        .split(',')
+        .any(|token| token.trim().eq_ignore_ascii_case(expected))
+}
+
+fn build_upstream_tls_connector() -> Result<TlsConnector> {
+    let native_certs = rustls_native_certs::load_native_certs();
+    let mut roots = RootCertStore::empty();
+    roots.extend(native_certs.certs);
+
+    if !native_certs.errors.is_empty() {
+        tracing::warn!(count = native_certs.errors.len(), "some native root certificates could not be loaded for websocket upstream TLS");
+    }
+
+    let mut config = ClientConfig::builder()
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    config.alpn_protocols = vec![b"http/1.1".to_vec()];
+
+    Ok(TlsConnector::from(Arc::new(config)))
+}
+
+async fn send_upstream_http1_request<S>(
+    stream: &mut S,
+    request: &RequestParts,
+    host: &str,
+    port: u16,
+) -> Result<()>
+where
+    S: AsyncWrite + Unpin,
+{
+    let path = request
+        .uri
+        .path_and_query()
+        .map(|value| value.as_str())
+        .unwrap_or("/");
+    let request_line = format!("{} {} HTTP/1.1\r\n", request.method, path);
+    stream
+        .write_all(request_line.as_bytes())
+        .await
+        .context("failed to write upstream request line")?;
+
+    let mut saw_host = false;
+    for (name, value) in request.headers.iter() {
+        let lower = name.as_str().to_ascii_lowercase();
+        if lower == "proxy-connection" || lower == "proxy-authenticate" || lower == "proxy-authorization" {
+            continue;
+        }
+        if name == http::header::HOST {
+            saw_host = true;
+        }
+        stream.write_all(name.as_str().as_bytes()).await?;
+        stream.write_all(b": ").await?;
+        stream.write_all(value.as_bytes()).await?;
+        stream.write_all(b"\r\n").await?;
+    }
+
+    if !saw_host {
+        let authority = if port == 443 { host.to_string() } else { format!("{}:{}", host, port) };
+        stream.write_all(b"host: ").await?;
+        stream.write_all(authority.as_bytes()).await?;
+        stream.write_all(b"\r\n").await?;
+    }
+
+    stream.write_all(b"\r\n").await?;
+    if !request.body.is_empty() {
+        stream.write_all(request.body.as_bytes()).await?;
+    }
+    stream.flush().await?;
+    Ok(())
 }
 
 const HOP_BY_HOP_HEADERS: &[&str] = &[

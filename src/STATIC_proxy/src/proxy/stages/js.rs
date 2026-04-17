@@ -37,12 +37,6 @@ use crate::{assets::ScriptBundle, proxy::flow::{Flow, ResponseParts}};
 use super::FlowStage;
 
 const INJECTION_MARKER_HEADER: &str = "x-static-injected";
-const JS_COMPAT_BYPASS_HOSTS: &[&str] = &[
-    "duckduckgo.com",
-    "duck.ai",
-    "tuta.com",
-    "tutanota.com",
-];
 
 #[derive(Clone)]
 pub struct JsInjectionStage {
@@ -68,10 +62,6 @@ impl JsInjectionStage {
     }
 
     fn should_inject(&self, flow: &mut Flow) -> Result<bool> {
-        if should_bypass_js_injection(flow) {
-            return Ok(false);
-        }
-
         let response = match flow.response.as_mut() {
             Some(resp) => resp,
             None => return Ok(false),
@@ -321,16 +311,6 @@ impl JsInjectionStage {
     }
 }
 
-fn should_bypass_js_injection(flow: &Flow) -> bool {
-    let Some(host) = flow.request.uri.host() else {
-        return false;
-    };
-
-    JS_COMPAT_BYPASS_HOSTS.iter().any(|suffix| {
-        host == *suffix || host.ends_with(&format!(".{suffix}"))
-    })
-}
-
 enum InsertionStrategy {
     InsideHead(usize),
     CreateHeadAt(usize),
@@ -466,33 +446,6 @@ mod tests {
             .expect_err("oversized decompressed HTML should fail");
 
         assert!(err.to_string().contains("decompressed HTML response body exceeds configured limit"));
-    }
-
-    #[test]
-    fn bypasses_duckduckgo_hosts() {
-        let flow = Flow::new(RequestParts {
-            uri: http::Uri::from_static("https://duckduckgo.com/?q=tie"),
-            ..RequestParts::default()
-        });
-
-        assert!(should_bypass_js_injection(&flow));
-    }
-
-    #[test]
-    fn bypasses_tuta_hosts() {
-        let flow = Flow::new(RequestParts {
-            uri: http::Uri::from_static("https://mail.tutanota.com/"),
-            ..RequestParts::default()
-        });
-
-        assert!(should_bypass_js_injection(&flow));
-    }
-
-    #[test]
-    fn does_not_bypass_other_hosts() {
-        let flow = Flow::new(RequestParts::default());
-
-        assert!(!should_bypass_js_injection(&flow));
     }
 }
 
