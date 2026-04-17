@@ -1,4 +1,4 @@
-# 404 v2.1.6
+# 404 v2.2.1
 *404 acts as the middleman between you and those collecting your data.* [more...](https://404privacy.com)
 Rust privacy proxy & Linux kernel module. Full client-fingerprint control. 
 
