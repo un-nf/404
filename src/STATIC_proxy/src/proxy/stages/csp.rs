@@ -67,7 +67,7 @@ impl FlowStage for CspStage {
             None => return Ok(()),
         };
 
-        if flow.metadata.script_hashes.is_empty() {
+        if !flow.metadata.script_injected {
             return Ok(());
         }
 
@@ -305,7 +305,7 @@ mod tests {
     async fn on_response_finalized_rewrites_csp_only_after_injection() {
         let mut flow = Flow::new(RequestParts::default());
         flow.metadata.csp_nonce = Some("fresh123".to_string());
-        flow.metadata.script_hashes = vec!["loader-hash".to_string()];
+        flow.metadata.script_injected = true;
 
         let mut response = ResponseParts::default();
         response.headers.insert(
@@ -375,6 +375,4 @@ mod tests {
         );
         assert!(flow.metadata.csp_nonce.is_none());
     }
-
-    #[test]
 }

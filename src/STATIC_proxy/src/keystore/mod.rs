@@ -66,12 +66,12 @@ pub trait KeyStore: Send + Sync {
 }
 
 /// Factory to build a keystore from config.
-pub fn build_keystore(cfg: &KeystoreConfig, protected_storage_path: PathBuf) -> Box<dyn KeyStore> {
+pub fn build_keystore(cfg: &KeystoreConfig, _protected_storage_path: PathBuf) -> Box<dyn KeyStore> {
     match cfg.mode {
         KeystoreMode::Keychain => {
             #[cfg(target_os = "windows")]
             {
-                Box::new(WindowsDpapiKeyStore::new(protected_storage_path))
+                Box::new(WindowsDpapiKeyStore::new(_protected_storage_path))
             }
 
             #[cfg(not(target_os = "windows"))]

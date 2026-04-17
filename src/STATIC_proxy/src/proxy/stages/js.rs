@@ -19,8 +19,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use base64::engine::general_purpose::STANDARD;
-use base64::Engine;
 use brotli::Decompressor;
 use flate2::read::{GzDecoder, ZlibDecoder};
 use http::header::{
@@ -28,7 +26,6 @@ use http::header::{
     PRAGMA, TRANSFER_ENCODING,
 };
 use http::{HeaderName, HeaderValue};
-use sha2::{Digest, Sha256};
 use std::io::{Cursor, Read};
 use zstd::stream::decode_all as zstd_decode_all;
 
@@ -52,13 +49,6 @@ impl JsInjectionStage {
             debug,
             max_decompressed_html_bytes,
         }
-    }
-
-    fn compute_hash(&self, script: &str) -> String {
-        let mut hasher = Sha256::new();
-        hasher.update(script.as_bytes());
-        let digest = hasher.finalize();
-        STANDARD.encode(digest)
     }
 
     fn should_inject(&self, flow: &mut Flow) -> Result<bool> {
@@ -99,12 +89,6 @@ impl JsInjectionStage {
             .replace("</script>", "<\\/script>")
     }
 
-    fn script_literal(script: &str) -> String {
-        serde_json::to_string(script)
-            .unwrap_or_else(|_| "\"\"".to_string())
-            .replace("</script>", "<\\/script>")
-    }
-
     fn build_loader_script(&self, _flow: &Flow) -> String {
         self.bundle
             .runtime
@@ -112,10 +96,9 @@ impl JsInjectionStage {
             .replace("</script>", "<\\/script>")
     }
 
-    fn build_injection_block(&self, flow: &Flow) -> (String, Vec<String>) {
+    fn build_injection_block(&self, flow: &Flow) -> String {
         let config_json = self.render_runtime_config(flow);
         let loader_script = self.build_loader_script(flow);
-        let hashes = vec![self.compute_hash(loader_script.as_ref())];
 
         let nonce_attr = flow
             .metadata
@@ -134,7 +117,7 @@ impl JsInjectionStage {
         block.push_str(&loader_script);
         block.push_str("</script>\n");
 
-        (block, hashes)
+        block
     }
 
     fn prepare_html_body(&self, response: &mut ResponseParts) -> Result<bool> {
@@ -340,7 +323,7 @@ mod tests {
     }
 
     #[test]
-    fn build_injection_block_emits_config_and_runtime_with_single_hash() {
+    fn build_injection_block_emits_config_and_runtime() {
         let stage = JsInjectionStage::new(false, 16 * 1024 * 1024);
         let mut flow = Flow::new(RequestParts::default());
         flow.metadata.csp_nonce = Some("nonce-123".to_string());
@@ -350,17 +333,16 @@ mod tests {
             },
         });
 
-        let (block, hashes) = stage.build_injection_block(&flow);
+        let block = stage.build_injection_block(&flow);
         let loader_script = stage.build_loader_script(&flow);
 
         assert!(block.contains("<script type=\"application/json\" id=\"__static_profile\">"));
         assert!(block.contains("<script nonce=\"nonce-123\">"));
         assert!(block.contains(&loader_script));
-        assert_eq!(hashes, vec![stage.compute_hash(loader_script.as_ref())]);
     }
 
     #[tokio::test]
-    async fn on_response_body_injects_runtime_block_and_records_hash() {
+    async fn on_response_body_injects_runtime_block_and_marks_injection() {
         let stage = JsInjectionStage::new(false, 16 * 1024 * 1024);
         let mut flow = Flow::new(RequestParts::default());
         flow.metadata.csp_nonce = Some("nonce-abc".to_string());
@@ -380,7 +362,7 @@ mod tests {
         assert!(body.contains("<script nonce=\"nonce-abc\">"));
         assert!(body.contains("<\\/script>"));
         assert!(body.find("<script type=\"application/json\" id=\"__static_profile\">\n").is_none());
-        assert_eq!(flow.metadata.script_hashes, vec![stage.compute_hash(stage.build_loader_script(&flow).as_ref())]);
+        assert!(flow.metadata.script_injected);
         let response = flow.response.as_ref().unwrap();
         assert_eq!(response.headers.get(CACHE_CONTROL).and_then(|value| value.to_str().ok()), Some("no-store, no-cache, must-revalidate"));
         assert_eq!(response.headers.get(PRAGMA).and_then(|value| value.to_str().ok()), Some("no-cache"));
@@ -465,7 +447,7 @@ impl FlowStage for JsInjectionStage {
             std::str::from_utf8(response_ref.body.as_bytes())?.to_owned()
         };
 
-        let (injection_block, hashes) = self.build_injection_block(flow);
+        let injection_block = self.build_injection_block(flow);
 
         let response = flow
             .response
@@ -518,7 +500,7 @@ impl FlowStage for JsInjectionStage {
         response.body.replace(mutated.as_bytes());
         Self::disable_client_cache(response)?;
         Self::mark_injected_response(response);
-        flow.metadata.script_hashes = hashes;
+        flow.metadata.script_injected = true;
 
         if self.debug {
             tracing::debug!(%flow.id, "js_injection_applied" = true, bytes_added = injection_block.len());

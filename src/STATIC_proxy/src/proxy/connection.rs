@@ -773,10 +773,16 @@ fn header_contains_token(value: &str, expected: &str) -> bool {
 fn build_upstream_tls_connector() -> Result<TlsConnector> {
     let native_certs = rustls_native_certs::load_native_certs();
     let mut roots = RootCertStore::empty();
-    roots.extend(native_certs.certs);
+    let (added, ignored) = roots.add_parsable_certificates(native_certs.certs);
 
     if !native_certs.errors.is_empty() {
         tracing::warn!(count = native_certs.errors.len(), "some native root certificates could not be loaded for websocket upstream TLS");
+    }
+    if added == 0 {
+        anyhow::bail!("no native root certificates were loaded for websocket upstream TLS");
+    }
+    if ignored > 0 {
+        tracing::debug!(ignored, "ignored unparsable native root certificates while building websocket upstream TLS connector");
     }
 
     let mut config = ClientConfig::builder()

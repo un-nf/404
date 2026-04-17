@@ -203,7 +203,7 @@ pub struct FlowMetadata {
 
     pub csp_nonce: Option<String>,
 
-    pub script_hashes: Vec<String>,
+    pub script_injected: bool,
 
     pub alt_svc_mutations: Vec<String>,
 
