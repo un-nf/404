@@ -928,14 +928,7 @@ fn is_h2_websocket_connect_request<B>(request: &http::Request<B>) -> bool {
 }
 
 fn is_h2_websocket_upgrade_request<B>(request: &http::Request<B>) -> bool {
-    request.method() == http::Method::GET
-        && request
-            .headers()
-            .get("upgrade")
-            .and_then(|value| value.to_str().ok())
-            .map(|value| value.eq_ignore_ascii_case("websocket"))
-            .unwrap_or(false)
-        && request.headers().get("sec-websocket-key").is_some()
+    request.method() == http::Method::GET && headers_indicate_websocket(request.headers())
 }
 
 async fn handle_h2_websocket_tunnel(
@@ -1036,19 +1029,31 @@ async fn handle_h2_websocket_tunnel(
 }
 
 fn is_websocket_upgrade_request(request: &RequestParts) -> bool {
-    request.method == http::Method::GET
-        && request
-            .headers
-            .get("upgrade")
-            .and_then(|value| value.to_str().ok())
-            .map(|value| value.eq_ignore_ascii_case("websocket"))
-            .unwrap_or(false)
-        && request
-            .headers
-            .get("connection")
-            .and_then(|value| value.to_str().ok())
-            .map(|value| header_contains_token(value, "upgrade"))
-            .unwrap_or(false)
+    request.method == http::Method::GET && headers_indicate_websocket(&request.headers)
+}
+
+fn headers_indicate_websocket(headers: &http::HeaderMap) -> bool {
+    if headers
+        .get("sec-fetch-mode")
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.eq_ignore_ascii_case("websocket"))
+        .unwrap_or(false)
+    {
+        return true;
+    }
+
+    let upgrade_is_websocket = headers
+        .get("upgrade")
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.eq_ignore_ascii_case("websocket"))
+        .unwrap_or(false);
+    let connection_mentions_upgrade = headers
+        .get("connection")
+        .and_then(|value| value.to_str().ok())
+        .map(|value| header_contains_token(value, "upgrade"))
+        .unwrap_or(false);
+
+    headers.get("sec-websocket-key").is_some() || (upgrade_is_websocket && connection_mentions_upgrade)
 }
 
 fn header_contains_token(value: &str, expected: &str) -> bool {

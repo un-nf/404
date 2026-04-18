@@ -21,9 +21,7 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use brotli::Decompressor;
 use flate2::read::{GzDecoder, ZlibDecoder};
-use http::header::{
-    CACHE_CONTROL, CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, PRAGMA, TRANSFER_ENCODING,
-};
+use http::header::{CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, TRANSFER_ENCODING};
 use http::{HeaderName, HeaderValue};
 use std::io::{Cursor, Read};
 use zstd::stream::decode_all as zstd_decode_all;
@@ -222,20 +220,6 @@ impl JsInjectionStage {
         Ok(())
     }
 
-    fn disable_client_cache(response: &mut ResponseParts) -> Result<()> {
-        response.headers.insert(
-            CACHE_CONTROL,
-            HeaderValue::from_static("no-cache, must-revalidate"),
-        );
-        response
-            .headers
-            .insert(PRAGMA, HeaderValue::from_static("no-cache"));
-        let len_value = HeaderValue::from_str(&response.body.len().to_string())
-            .context("invalid content-length after cache header rewrite")?;
-        response.headers.insert(CONTENT_LENGTH, len_value);
-        Ok(())
-    }
-
     fn mark_injected_response(response: &mut ResponseParts) {
         response.headers.insert(
             HeaderName::from_static(INJECTION_MARKER_HEADER),
@@ -360,8 +344,7 @@ mod tests {
         assert!(body.find("<script type=\"application/json\" id=\"__static_profile\">\n").is_none());
         assert!(flow.metadata.script_injected);
         let response = flow.response.as_ref().unwrap();
-        assert_eq!(response.headers.get(CACHE_CONTROL).and_then(|value| value.to_str().ok()), Some("no-cache, must-revalidate"));
-        assert_eq!(response.headers.get(PRAGMA).and_then(|value| value.to_str().ok()), Some("no-cache"));
+        assert_eq!(response.headers.get(HeaderName::from_static(INJECTION_MARKER_HEADER)).and_then(|value| value.to_str().ok()), Some("1"));
     }
 
     #[tokio::test]
@@ -494,7 +477,6 @@ impl FlowStage for JsInjectionStage {
         }
 
         response.body.replace(mutated.as_bytes());
-        Self::disable_client_cache(response)?;
         Self::mark_injected_response(response);
         flow.metadata.script_injected = true;
 
