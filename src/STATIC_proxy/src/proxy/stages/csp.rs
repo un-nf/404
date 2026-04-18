@@ -17,12 +17,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 */
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use async_trait::async_trait;
-use base64::engine::general_purpose::STANDARD_NO_PAD;
-use base64::Engine;
-use http::header::{HeaderValue, CONTENT_SECURITY_POLICY};
-use rand::{rngs::OsRng, RngCore};
+use http::header::CONTENT_SECURITY_POLICY;
 
 use crate::proxy::flow::Flow;
 
@@ -57,53 +54,12 @@ impl FlowStage for CspStage {
             }
         }
 
-        flow.metadata.csp_nonce = Some(generate_nonce());
         Ok(())
     }
 
-    async fn on_response_finalized(&self, flow: &mut Flow) -> Result<()> {
-        let nonce = match flow.metadata.csp_nonce.clone() {
-            Some(nonce) => nonce,
-            None => return Ok(()),
-        };
-
-        if !flow.metadata.script_injected {
-            return Ok(());
-        }
-
-        let response = match flow.response.as_mut() {
-            Some(response) => response,
-            None => return Ok(()),
-        };
-
-        let csp_values: Vec<String> = response
-            .headers
-            .get_all(CONTENT_SECURITY_POLICY)
-            .iter()
-            .filter_map(|value| value.to_str().ok().map(|raw| raw.to_string()))
-            .collect();
-
-        if csp_values.is_empty() {
-            return Ok(());
-        }
-
-        response.headers.remove(CONTENT_SECURITY_POLICY);
-
-        for value in csp_values {
-            let rewritten = append_nonce_to_csp(&value, &nonce);
-            let header_value = HeaderValue::from_str(&rewritten)
-                .with_context(|| format!("invalid CSP after nonce append: {rewritten}"))?;
-            response.headers.append(CONTENT_SECURITY_POLICY, header_value);
-        }
-
+    async fn on_response_finalized(&self, _flow: &mut Flow) -> Result<()> {
         Ok(())
     }
-}
-
-fn generate_nonce() -> String {
-    let mut buf = [0u8; 16];
-    OsRng.fill_bytes(&mut buf);
-    STANDARD_NO_PAD.encode(buf)
 }
 
 fn extract_existing_nonce(csp: &str) -> Option<String> {
@@ -133,114 +89,12 @@ fn extract_existing_nonce(csp: &str) -> Option<String> {
     None
 }
 
-fn append_nonce_to_csp(csp: &str, nonce: &str) -> String {
-    let nonce_token = format!("'nonce-{}'", nonce);
-    let directives: Vec<&str> = csp.split(';').collect();
-    let mut found = false;
-    let mut fallback_default_src = None;
-
-    let rewritten: Vec<String> = directives
-        .iter()
-        .enumerate()
-        .map(|(index, directive)| {
-            let trimmed = directive.trim();
-            if trimmed.is_empty() {
-                return String::new();
-            }
-
-            let name = trimmed
-                .split_whitespace()
-                .next()
-                .unwrap_or_default()
-                .to_ascii_lowercase();
-
-            if name == "default-src" && fallback_default_src.is_none() {
-                fallback_default_src = Some(index);
-            }
-
-            if (name == "script-src-elem" || name == "script-src") && !found {
-                found = true;
-                if trimmed.contains(&nonce_token) {
-                    return trimmed.to_string();
-                }
-                return format!("{} {}", trimmed, nonce_token);
-            }
-
-            trimmed.to_string()
-        })
-        .collect();
-
-    if found {
-        return rewritten
-            .into_iter()
-            .filter(|directive| !directive.is_empty())
-            .collect::<Vec<_>>()
-            .join("; ");
-    }
-
-    rewritten
-        .into_iter()
-        .enumerate()
-        .filter_map(|(index, directive)| {
-            if directive.is_empty() {
-                return None;
-            }
-
-            if Some(index) == fallback_default_src {
-                if directive.contains(&nonce_token) {
-                    return Some(directive);
-                }
-                return Some(format!("{} {}", directive, nonce_token));
-            }
-
-            Some(directive)
-        })
-        .collect::<Vec<_>>()
-        .join("; ")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::proxy::flow::{Flow, RequestParts, ResponseParts};
+    use http::HeaderValue;
     use http::header::CONTENT_SECURITY_POLICY_REPORT_ONLY;
-
-    #[test]
-    fn append_nonce_prefers_script_src_elem() {
-        let rewritten = append_nonce_to_csp(
-            "default-src 'self'; script-src-elem 'self' https://cdn.example; object-src 'none'",
-            "abc123",
-        );
-
-        assert!(rewritten.contains("default-src 'self'"));
-        assert!(rewritten.contains("script-src-elem 'self' https://cdn.example 'nonce-abc123'"));
-        assert!(rewritten.contains("object-src 'none'"));
-    }
-
-    #[test]
-    fn append_nonce_falls_back_to_script_src() {
-        let rewritten = append_nonce_to_csp("script-src 'self' https://cdn.example", "abc123");
-
-        assert_eq!(rewritten, "script-src 'self' https://cdn.example 'nonce-abc123'");
-    }
-
-    #[test]
-    fn append_nonce_falls_back_to_default_src_when_needed() {
-        let rewritten = append_nonce_to_csp("default-src 'self' https://cdn.example; object-src 'none'", "abc123");
-
-        assert!(rewritten.contains("default-src 'self' https://cdn.example 'nonce-abc123'"));
-        assert!(rewritten.contains("object-src 'none'"));
-    }
-
-    #[test]
-    fn append_nonce_keeps_existing_nonce() {
-        let rewritten = append_nonce_to_csp(
-            "script-src-elem 'self' 'nonce-origin123' https://cdn.example",
-            "origin123",
-        );
-
-        assert_eq!(rewritten, "script-src-elem 'self' 'nonce-origin123' https://cdn.example");
-    }
 
     #[test]
     fn extract_existing_nonce_reads_script_directives_only() {
@@ -252,7 +106,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn on_response_headers_captures_nonce_without_rewriting_policy() {
+    async fn on_response_headers_keeps_policy_unchanged_without_origin_nonce() {
         let mut flow = Flow::new(RequestParts::default());
         let mut response = ResponseParts::default();
         response.headers.insert(
@@ -273,7 +127,7 @@ mod tests {
                 .unwrap(),
             &HeaderValue::from_static("script-src 'self' 'unsafe-inline' https://cdn.example")
         );
-        assert!(flow.metadata.csp_nonce.is_some());
+        assert!(flow.metadata.csp_nonce.is_none());
     }
 
     #[tokio::test]
@@ -302,9 +156,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn on_response_finalized_rewrites_csp_only_after_injection() {
+    async fn on_response_finalized_leaves_csp_unchanged_after_injection() {
         let mut flow = Flow::new(RequestParts::default());
-        flow.metadata.csp_nonce = Some("fresh123".to_string());
         flow.metadata.script_injected = true;
 
         let mut response = ResponseParts::default();
@@ -324,7 +177,7 @@ mod tests {
                 .headers
                 .get(CONTENT_SECURITY_POLICY)
                 .unwrap(),
-            &HeaderValue::from_static("script-src 'self' 'unsafe-inline' https://cdn.example 'nonce-fresh123'")
+            &HeaderValue::from_static("script-src 'self' 'unsafe-inline' https://cdn.example")
         );
     }
 

@@ -36,6 +36,7 @@ use tokio::net::TcpStream;
 use tokio_rustls::{server as rustls_server, TlsAcceptor, TlsConnector};
 
 use crate::{
+    assets::ScriptBundle,
     config::BodyLimitsConfig,
     proxy::{
         fetcher::{OriginFetcher, OriginTarget, UpstreamMode},
@@ -59,6 +60,7 @@ const CLIENT_H2_MAX_CONCURRENT_STREAMS: u32 = 256;
 const CLIENT_H2_INITIAL_WINDOW_SIZE: u32 = 1_048_576;
 const CLIENT_H2_INITIAL_CONNECTION_WINDOW_SIZE: u32 = 4_194_304;
 const H2_SEND_CHUNK_SIZE: usize = 16 * 1024;
+const RUNTIME_ASSET_PATH: &str = "/__static/runtime.js";
 
 /// Detects whether the connection is HTTP or HTTPS by peeking at the first byte.
 async fn detect_protocol(socket: &TcpStream) -> Result<Protocol> {
@@ -239,6 +241,17 @@ async fn handle_http1_session(
     flow.metadata.connect_target = target_host;
     flow.metadata.client_protocol = Some("http/1.1".to_string());
     flow.metadata.buffering_mode = Some("buffered-http1".to_string());
+
+    if is_proxy_runtime_asset_request(&flow.request) {
+        flow.metadata.request_protocol = Some("proxy-runtime-asset".to_string());
+        flow.metadata.upstream_protocol = Some("local".to_string());
+        flow.metadata.buffering_mode = Some("local-asset".to_string());
+        flow.response = Some(build_proxy_runtime_asset_response(flow.request.version, &flow.request.method)?);
+        emit_flow_telemetry(&telemetry, &flow, &sni, peer);
+        let response = flow.response.as_ref().context("runtime asset response missing")?;
+        send_response_to_client(&mut client_stream, response).await?;
+        return Ok(());
+    }
 
     stages.process_request(&mut flow).await?;
 
@@ -476,7 +489,7 @@ fn is_benign_client_h2_stream_error(err: &anyhow::Error) -> bool {
 /// Executes the full HTTP/2 request lifecycle for a single client stream.
 async fn process_http2_stream(
     request: http::Request<h2::RecvStream>,
-    respond: SendResponse<Bytes>,
+    mut respond: SendResponse<Bytes>,
     body_limits: BodyLimitsConfig,
     fetcher: Arc<dyn OriginFetcher>,
     stages: StagePipeline,
@@ -487,6 +500,30 @@ async fn process_http2_stream(
 ) -> Result<()> {
     if is_h2_websocket_connect_request(&request) || is_h2_websocket_upgrade_request(&request) {
         return handle_h2_websocket_tunnel(request, respond, telemetry, peer, sni, target_host).await;
+    }
+
+    if is_proxy_runtime_asset_method_path(request.method(), request.uri().path()) {
+        let mut flow = Flow::new(RequestParts {
+            method: request.method().clone(),
+            uri: request.uri().clone(),
+            version: http::Version::HTTP_2,
+            headers: request.headers().clone(),
+            body: BodyBuffer::default(),
+        });
+        flow.metadata.tls_sni = sni.clone();
+        flow.metadata.connect_target = target_host;
+        flow.metadata.client_protocol = Some("h2".to_string());
+        flow.metadata.request_protocol = Some("proxy-runtime-asset".to_string());
+        flow.metadata.upstream_protocol = Some("local".to_string());
+        flow.metadata.buffering_mode = Some("local-asset".to_string());
+        flow.response = Some(build_proxy_runtime_asset_response(http::Version::HTTP_2, &flow.request.method)?);
+
+        let response = flow.response.as_mut().context("runtime asset response missing")?;
+        sanitize_response_headers_for_h2(response)?;
+        let response = flow.response.as_ref().context("runtime asset response missing")?;
+        send_http2_response(&mut respond, response)?;
+        emit_flow_telemetry(&telemetry, &flow, &sni, peer);
+        return Ok(());
     }
 
     let request_parts = request_parts_from_h2(request, body_limits.max_request_body_bytes).await?;
@@ -1462,6 +1499,44 @@ fn connect_target_host(target: &str) -> String {
 
 fn connect_target_port(target: &str) -> Option<u16> {
     target.split(':').nth(1)?.parse().ok()
+}
+
+fn is_proxy_runtime_asset_request(request: &RequestParts) -> bool {
+    is_proxy_runtime_asset_method_path(&request.method, request.uri.path())
+}
+
+fn is_proxy_runtime_asset_method_path(method: &http::Method, path: &str) -> bool {
+    (*method == http::Method::GET || *method == http::Method::HEAD) && path == RUNTIME_ASSET_PATH
+}
+
+fn build_proxy_runtime_asset_response(
+    version: http::Version,
+    method: &http::Method,
+) -> Result<ResponseParts> {
+    let bundle = ScriptBundle::load();
+    let mut headers = http::HeaderMap::new();
+    headers.insert(
+        http::header::CONTENT_TYPE,
+        HeaderValue::from_static("application/javascript; charset=utf-8"),
+    );
+    headers.insert(
+        http::header::CACHE_CONTROL,
+        HeaderValue::from_static("no-cache, must-revalidate"),
+    );
+
+    let mut body = BodyBuffer::default();
+    if *method != http::Method::HEAD {
+        body.replace(bundle.runtime.as_bytes());
+    }
+
+    let mut response = ResponseParts {
+        status: http::StatusCode::OK,
+        version,
+        headers,
+        body,
+    };
+    enforce_content_length(&mut response)?;
+    Ok(response)
 }
 
 fn emit_flow_telemetry(

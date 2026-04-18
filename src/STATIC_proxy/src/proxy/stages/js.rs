@@ -19,6 +19,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::Engine;
 use brotli::Decompressor;
 use flate2::read::{GzDecoder, ZlibDecoder};
 use http::header::{CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, TRANSFER_ENCODING};
@@ -26,15 +28,15 @@ use http::{HeaderName, HeaderValue};
 use std::io::{Cursor, Read};
 use zstd::stream::decode_all as zstd_decode_all;
 
-use crate::{assets::ScriptBundle, proxy::flow::{Flow, ResponseParts}};
+use crate::proxy::flow::{Flow, ResponseParts};
 
 use super::FlowStage;
 
 const INJECTION_MARKER_HEADER: &str = "x-static-injected";
+const RUNTIME_ASSET_PATH: &str = "/__static/runtime.js";
 
 #[derive(Clone)]
 pub struct JsInjectionStage {
-    bundle: ScriptBundle,
     debug: bool,
     max_decompressed_html_bytes: usize,
 }
@@ -42,7 +44,6 @@ pub struct JsInjectionStage {
 impl JsInjectionStage {
     pub fn new(debug: bool, max_decompressed_html_bytes: usize) -> Self {
         Self {
-            bundle: ScriptBundle::load(),
             debug,
             max_decompressed_html_bytes,
         }
@@ -86,16 +87,12 @@ impl JsInjectionStage {
             .replace("</script>", "<\\/script>")
     }
 
-    fn build_loader_script(&self, _flow: &Flow) -> String {
-        self.bundle
-            .runtime
-            .as_ref()
-            .replace("</script>", "<\\/script>")
+    fn encode_runtime_config(&self, flow: &Flow) -> String {
+        BASE64_STANDARD.encode(self.render_runtime_config(flow))
     }
 
     fn build_injection_block(&self, flow: &Flow) -> String {
-        let config_json = self.render_runtime_config(flow);
-        let loader_script = self.build_loader_script(flow);
+        let config_b64 = self.encode_runtime_config(flow);
 
         let nonce_attr = flow
             .metadata
@@ -104,15 +101,14 @@ impl JsInjectionStage {
             .map(|nonce| format!(" nonce=\"{}\"", nonce))
             .unwrap_or_default();
 
-        let mut block = String::with_capacity(config_json.len() + loader_script.len() + 160);
-        block.push_str("<script type=\"application/json\" id=\"__static_profile\">");
-        block.push_str(&config_json);
-        block.push_str("</script>\n");
-        block.push_str("<script");
+        let mut block = String::with_capacity(config_b64.len() + 160);
+        block.push_str("<script src=\"");
+        block.push_str(RUNTIME_ASSET_PATH);
+        block.push_str("\" data-static-config-b64=\"");
+        block.push_str(&config_b64);
+        block.push_str("\"");
         block.push_str(&nonce_attr);
-        block.push('>');
-        block.push_str(&loader_script);
-        block.push_str("</script>\n");
+        block.push_str("></script>\n");
 
         block
     }
@@ -314,11 +310,10 @@ mod tests {
         });
 
         let block = stage.build_injection_block(&flow);
-        let loader_script = stage.build_loader_script(&flow);
 
-        assert!(block.contains("<script type=\"application/json\" id=\"__static_profile\">"));
-        assert!(block.contains("<script nonce=\"nonce-123\">"));
-        assert!(block.contains(&loader_script));
+        assert!(block.contains("<script src=\"/__static/runtime.js\""));
+        assert!(block.contains("data-static-config-b64=\""));
+        assert!(block.contains(" nonce=\"nonce-123\""));
     }
 
     #[tokio::test]
@@ -338,10 +333,9 @@ mod tests {
         stage.on_response_body(&mut flow).await.unwrap();
 
         let body = std::str::from_utf8(flow.response.as_ref().unwrap().body.as_bytes()).unwrap();
-        assert!(body.contains("<script type=\"application/json\" id=\"__static_profile\">"));
-        assert!(body.contains("<script nonce=\"nonce-abc\">"));
-        assert!(body.contains("<\\/script>"));
-        assert!(body.find("<script type=\"application/json\" id=\"__static_profile\">\n").is_none());
+        assert!(body.contains("<script src=\"/__static/runtime.js\""));
+        assert!(body.contains(" nonce=\"nonce-abc\""));
+        assert!(body.contains("data-static-config-b64=\""));
         assert!(flow.metadata.script_injected);
         let response = flow.response.as_ref().unwrap();
         assert_eq!(response.headers.get(HeaderName::from_static(INJECTION_MARKER_HEADER)).and_then(|value| value.to_str().ok()), Some("1"));
@@ -360,7 +354,7 @@ mod tests {
         stage.on_response_body(&mut flow).await.unwrap();
 
         let body = std::str::from_utf8(flow.response.as_ref().unwrap().body.as_bytes()).unwrap();
-        let injected_idx = body.find("<script type=\"application/json\" id=\"__static_profile\">").unwrap();
+        let injected_idx = body.find("<script src=\"/__static/runtime.js\"").unwrap();
         let page_script_idx = body.find("<script>window.pageFirst = true;</script>").unwrap();
         assert!(injected_idx < page_script_idx);
     }
@@ -383,7 +377,7 @@ mod tests {
 
         let response = flow.response.as_ref().unwrap();
         let body = std::str::from_utf8(response.body.as_bytes()).unwrap();
-        assert!(body.contains("<script type=\"application/json\" id=\"__static_profile\">"));
+        assert!(body.contains("<script src=\"/__static/runtime.js\""));
         assert!(response.headers.get(CONTENT_ENCODING).is_none());
     }
 

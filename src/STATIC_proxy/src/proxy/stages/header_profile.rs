@@ -193,7 +193,7 @@ fn unescape_value(input: &str) -> String {
 }
 
 fn apply_profile_rules(flow: &mut Flow, rules: &HeaderProfileRules) -> Result<()> {
-    strip_html_navigation_cache_validators(flow);
+    strip_proxy_sensitive_cache_validators(flow);
     normalize_html_navigation_accept_encoding(flow)?;
 
     let headers = &mut flow.request.headers;
@@ -245,8 +245,8 @@ fn apply_profile_rules(flow: &mut Flow, rules: &HeaderProfileRules) -> Result<()
     Ok(())
 }
 
-fn strip_html_navigation_cache_validators(flow: &mut Flow) {
-    if !is_html_navigation_request(flow) {
+fn strip_proxy_sensitive_cache_validators(flow: &mut Flow) {
+    if !is_html_navigation_request(flow) && !is_bootstrap_asset_request(flow) {
         return;
     }
 
@@ -347,6 +347,31 @@ fn is_html_navigation_request(flow: &Flow) -> bool {
         (None, None) => true,
         _ => false,
     }
+}
+
+fn is_bootstrap_asset_request(flow: &Flow) -> bool {
+    if flow.request.method != http::Method::GET && flow.request.method != http::Method::HEAD {
+        return false;
+    }
+
+    if flow
+        .request
+        .headers
+        .get("sec-fetch-dest")
+        .and_then(|value| value.to_str().ok())
+        .map(|value| {
+            value.eq_ignore_ascii_case("script")
+                || value.eq_ignore_ascii_case("worker")
+                || value.eq_ignore_ascii_case("sharedworker")
+                || value.eq_ignore_ascii_case("serviceworker")
+        })
+        .unwrap_or(false)
+    {
+        return true;
+    }
+
+    let path = flow.request.uri.path().to_ascii_lowercase();
+    path.ends_with(".js") || path.ends_with(".mjs") || path.ends_with(".map")
 }
 
 fn header_value(name: &HeaderName, value: &str) -> Result<HeaderValue> {
@@ -707,6 +732,60 @@ mod tests {
         flow.request
             .headers
             .insert(ACCEPT, HeaderValue::from_static("application/json"));
+        flow.request
+            .headers
+            .insert(IF_NONE_MATCH, HeaderValue::from_static("\"etag\""));
+        flow.request
+            .headers
+            .insert(IF_MODIFIED_SINCE, HeaderValue::from_static("Wed, 21 Oct 2015 07:28:00 GMT"));
+        flow.request
+            .headers
+            .insert(IF_RANGE, HeaderValue::from_static("\"etag\""));
+
+        apply_profile_rules(&mut flow, &rules).expect("apply rules");
+
+        assert!(flow.request.headers.get(IF_NONE_MATCH).is_some());
+        assert!(flow.request.headers.get(IF_MODIFIED_SINCE).is_some());
+        assert!(flow.request.headers.get(IF_RANGE).is_some());
+    }
+
+    #[test]
+    fn strips_cache_validators_for_script_bootstrap_requests() {
+        let rules = HeaderProfileRules::default();
+        let mut flow = build_flow("https://example.com/main-PNxJtFaN.js");
+        flow.request
+            .headers
+            .insert(ACCEPT, HeaderValue::from_static("*/*"));
+        flow.request
+            .headers
+            .insert("sec-fetch-dest", HeaderValue::from_static("script"));
+        flow.request
+            .headers
+            .insert(IF_NONE_MATCH, HeaderValue::from_static("\"etag\""));
+        flow.request
+            .headers
+            .insert(IF_MODIFIED_SINCE, HeaderValue::from_static("Wed, 21 Oct 2015 07:28:00 GMT"));
+        flow.request
+            .headers
+            .insert(IF_RANGE, HeaderValue::from_static("\"etag\""));
+
+        apply_profile_rules(&mut flow, &rules).expect("apply rules");
+
+        assert!(flow.request.headers.get(IF_NONE_MATCH).is_none());
+        assert!(flow.request.headers.get(IF_MODIFIED_SINCE).is_none());
+        assert!(flow.request.headers.get(IF_RANGE).is_none());
+    }
+
+    #[test]
+    fn preserves_cache_validators_for_non_bootstrap_xhr_requests() {
+        let rules = HeaderProfileRules::default();
+        let mut flow = build_flow("https://example.com/rest/model");
+        flow.request
+            .headers
+            .insert(ACCEPT, HeaderValue::from_static("application/json"));
+        flow.request
+            .headers
+            .insert("sec-fetch-dest", HeaderValue::from_static("empty"));
         flow.request
             .headers
             .insert(IF_NONE_MATCH, HeaderValue::from_static("\"etag\""));

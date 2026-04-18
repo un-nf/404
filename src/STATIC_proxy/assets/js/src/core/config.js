@@ -45,6 +45,17 @@ export function loadConfig() {
 }
 
 function parseRawConfig() {
+  const currentScript = document.currentScript
+  const encoded = currentScript?.getAttribute('data-static-config-b64')
+
+  if (encoded) {
+    try {
+      return JSON.parse(window.atob(encoded))
+    } catch (error) {
+      console.error('[STATIC] failed to parse encoded profile JSON:', error)
+    }
+  }
+
   const node = document.getElementById('__static_profile')
   if (!node) {
     console.error('[STATIC] profile script tag missing')
