@@ -22,8 +22,7 @@ use async_trait::async_trait;
 use brotli::Decompressor;
 use flate2::read::{GzDecoder, ZlibDecoder};
 use http::header::{
-    CACHE_CONTROL, CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, ETAG, EXPIRES, LAST_MODIFIED,
-    PRAGMA, TRANSFER_ENCODING,
+    CACHE_CONTROL, CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, PRAGMA, TRANSFER_ENCODING,
 };
 use http::{HeaderName, HeaderValue};
 use std::io::{Cursor, Read};
@@ -224,12 +223,9 @@ impl JsInjectionStage {
     }
 
     fn disable_client_cache(response: &mut ResponseParts) -> Result<()> {
-        response.headers.remove(ETAG);
-        response.headers.remove(LAST_MODIFIED);
-        response.headers.remove(EXPIRES);
         response.headers.insert(
             CACHE_CONTROL,
-            HeaderValue::from_static("no-store, no-cache, must-revalidate"),
+            HeaderValue::from_static("no-cache, must-revalidate"),
         );
         response
             .headers
@@ -364,7 +360,7 @@ mod tests {
         assert!(body.find("<script type=\"application/json\" id=\"__static_profile\">\n").is_none());
         assert!(flow.metadata.script_injected);
         let response = flow.response.as_ref().unwrap();
-        assert_eq!(response.headers.get(CACHE_CONTROL).and_then(|value| value.to_str().ok()), Some("no-store, no-cache, must-revalidate"));
+        assert_eq!(response.headers.get(CACHE_CONTROL).and_then(|value| value.to_str().ok()), Some("no-cache, must-revalidate"));
         assert_eq!(response.headers.get(PRAGMA).and_then(|value| value.to_str().ok()), Some("no-cache"));
     }
 

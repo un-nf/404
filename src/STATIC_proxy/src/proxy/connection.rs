@@ -485,7 +485,7 @@ async fn process_http2_stream(
     sni: Option<String>,
     target_host: Option<String>,
 ) -> Result<()> {
-    if is_h2_websocket_connect_request(&request) {
+    if is_h2_websocket_connect_request(&request) || is_h2_websocket_upgrade_request(&request) {
         return handle_h2_websocket_tunnel(request, respond, telemetry, peer, sni, target_host).await;
     }
 
@@ -918,13 +918,24 @@ fn parse_http_version(raw: &str) -> http::Version {
     }
 }
 
-fn is_h2_websocket_connect_request(request: &http::Request<h2::RecvStream>) -> bool {
+fn is_h2_websocket_connect_request<B>(request: &http::Request<B>) -> bool {
     request.method() == http::Method::CONNECT
         && request
             .extensions()
             .get::<H2Protocol>()
             .map(|protocol| protocol.as_str().eq_ignore_ascii_case("websocket"))
             .unwrap_or(false)
+}
+
+fn is_h2_websocket_upgrade_request<B>(request: &http::Request<B>) -> bool {
+    request.method() == http::Method::GET
+        && request
+            .headers()
+            .get("upgrade")
+            .and_then(|value| value.to_str().ok())
+            .map(|value| value.eq_ignore_ascii_case("websocket"))
+            .unwrap_or(false)
+        && request.headers().get("sec-websocket-key").is_some()
 }
 
 async fn handle_h2_websocket_tunnel(
@@ -936,6 +947,7 @@ async fn handle_h2_websocket_tunnel(
     target_host: Option<String>,
 ) -> Result<()> {
     let (parts, recv_stream) = request.into_parts();
+    let request_method = parts.method.clone();
     let request_protocol = parts
         .extensions
         .get::<H2Protocol>()
@@ -973,7 +985,7 @@ async fn handle_h2_websocket_tunnel(
     sanitize_websocket_connect_response_for_h2(&mut response, upstream_status)?;
 
     let mut flow = Flow::new(RequestParts {
-        method: http::Method::CONNECT,
+        method: request_method.clone(),
         uri: parts.uri.clone(),
         version: http::Version::HTTP_2,
         headers: parts.headers.clone(),
@@ -986,7 +998,11 @@ async fn handle_h2_websocket_tunnel(
     flow.metadata.upstream_protocol = Some("http/1.1".to_string());
     flow.metadata.buffering_mode = Some("raw-h2-websocket-tunnel".to_string());
     flow.metadata.websocket_tunnel = true;
-    flow.metadata.transport_notes.push(format!("extended-connect:{request_protocol}"));
+    if request_method == http::Method::CONNECT {
+        flow.metadata.transport_notes.push(format!("extended-connect:{request_protocol}"));
+    } else {
+        flow.metadata.transport_notes.push(format!("h2-upgrade-compat:{request_protocol}"));
+    }
     flow.response = Some(ResponseParts {
         status: response.status,
         version: http::Version::HTTP_2,
@@ -1513,6 +1529,7 @@ impl ResolvesServerCert for OnDemandCertResolver {
 mod tests {
     use super::{
         is_benign_client_h2_shutdown, is_benign_client_h2_stream_error,
+        is_h2_websocket_upgrade_request,
         response_requires_body_buffering,
     };
     use crate::proxy::ResponseParts;
@@ -1565,5 +1582,18 @@ mod tests {
         );
 
         assert!(!response_requires_body_buffering(&response));
+    }
+
+    #[test]
+    fn h2_websocket_upgrade_detector_accepts_firefox_style_get_upgrade() {
+        let request = http::Request::builder()
+            .method(http::Method::GET)
+            .uri("https://app.tuta.com/event")
+            .header("upgrade", "websocket")
+            .header("sec-websocket-key", "Rk0NBrpRwcptpSehYOYMBA==")
+            .body(())
+            .expect("request should build");
+
+        assert!(is_h2_websocket_upgrade_request(&request));
     }
 }
