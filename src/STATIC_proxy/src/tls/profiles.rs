@@ -252,6 +252,14 @@ pub struct Http2StreamDependencyPlan {
 
 /// Builds a TLS client plan from the `fingerprint_config` stored on a Flow.
 pub fn plan_from_profile(profile: &Value, flow_id: Uuid) -> Result<Option<TlsClientPlan>> {
+    plan_from_profile_with_alpn(profile, flow_id, None)
+}
+
+pub fn plan_from_profile_with_alpn(
+    profile: &Value,
+    flow_id: Uuid,
+    required_alpn: Option<&str>,
+) -> Result<Option<TlsClientPlan>> {
     let tls_value = match profile.get("tls") {
         Some(v) => v.clone(),
         None => return Ok(None),
@@ -272,7 +280,7 @@ pub fn plan_from_profile(profile: &Value, flow_id: Uuid) -> Result<Option<TlsCli
         return Ok(None);
     }
 
-    let variant = schema.select_variant(flow_id);
+    let variant = schema.select_variant(flow_id, required_alpn);
     let cipher_suites = variant.resolve_cipher_sequence(&schema.cipher_catalog, flow_id);
     if cipher_suites.is_empty() {
         warn!(variant = %variant.id, "TLS profile produced zero supported cipher suites");
@@ -607,26 +615,49 @@ struct TlsSchema {
 }
 
 impl TlsSchema {
-    fn select_variant(&self, flow_id: Uuid) -> &HelloVariant {
-        if self.hello_variants.len() == 1 {
-            return &self.hello_variants[0];
+    fn select_variant(&self, flow_id: Uuid, required_alpn: Option<&str>) -> &HelloVariant {
+        let eligible = self.eligible_variants(required_alpn);
+
+        if eligible.len() == 1 {
+            return eligible[0];
         }
-        let total_weight: f64 = self.hello_variants.iter().map(|v| v.weight.max(0.0)).sum();
+
+        let total_weight: f64 = eligible.iter().map(|v| v.weight.max(0.0)).sum();
         if total_weight <= f64::EPSILON {
-            return &self.hello_variants[0];
+            return eligible[0];
         }
+
         let mut rng = seeded_rng(flow_id, 0);
         let mut cursor = rng.gen::<f64>() * total_weight;
-        for variant in &self.hello_variants {
+        for &variant in &eligible {
             let weight = variant.weight.max(0.0);
             if cursor <= weight {
                 return variant;
             }
             cursor -= weight;
         }
-        self.hello_variants
+        eligible
             .last()
-            .expect("hello_variants cannot be empty here")
+            .copied()
+            .expect("eligible hello_variants cannot be empty here")
+    }
+
+    fn eligible_variants(&self, required_alpn: Option<&str>) -> Vec<&HelloVariant> {
+        let mut eligible = self.hello_variants.iter().collect::<Vec<_>>();
+
+        if let Some(required_alpn) = required_alpn {
+            let required_alpn = required_alpn.trim().to_ascii_lowercase();
+            let filtered = eligible
+                .iter()
+                .copied()
+                .filter(|variant| variant.supports_alpn(&required_alpn))
+                .collect::<Vec<_>>();
+            if !filtered.is_empty() {
+                eligible = filtered;
+            }
+        }
+
+        eligible
     }
 
     fn resolve_versions(&self) -> (Option<ProfileTlsVersion>, Option<ProfileTlsVersion>) {
@@ -737,6 +768,12 @@ struct HelloVariant {
 }
 
 impl HelloVariant {
+    fn supports_alpn(&self, required_alpn: &str) -> bool {
+        normalize_alpn(&self.alpn)
+            .iter()
+            .any(|value| value.eq_ignore_ascii_case(required_alpn))
+    }
+
     fn resolve_cipher_sequence(&self, catalog: &CipherCatalog, flow_id: Uuid) -> Vec<String> {
         match self.cipher_order.mode {
             CipherOrderMode::Explicit => self.cipher_order.sequence.clone(),
@@ -1070,8 +1107,9 @@ fn seeded_rng(flow_id: Uuid, salt: u64) -> StdRng {
 
 #[cfg(test)]
 mod tests {
-    use super::validate_profile_coherence;
+    use super::{plan_from_profile_with_alpn, validate_profile_coherence};
     use serde_json::Value;
+    use uuid::Uuid;
 
     #[test]
     fn validate_profile_coherence_accepts_matching_browser_family() {
@@ -1194,5 +1232,42 @@ mod tests {
         let warnings = validate_profile_coherence(&profile);
 
         assert!(warnings.is_empty(), "unexpected Chrome profile warnings: {warnings:?}");
+    }
+
+    #[test]
+    fn alpn_aware_selection_skips_http1_fallback_variants_for_h2() {
+        let profile = serde_json::json!({
+            "tls": {
+                "schema_version": 2,
+                "versions": {
+                    "min": "TLSv1.2",
+                    "max": "TLSv1.3",
+                    "allow_tls12_fallback": true
+                },
+                "cipher_catalog": {
+                    "tls13": [],
+                    "tls12": []
+                },
+                "hello_variants": [
+                    {
+                        "id": "ff_h1_fallback",
+                        "weight": 100.0,
+                        "alpn": ["http/1.1"]
+                    },
+                    {
+                        "id": "ff_h2_release_a",
+                        "weight": 1.0,
+                        "alpn": ["h2", "http/1.1"]
+                    }
+                ]
+            }
+        });
+
+        let plan = plan_from_profile_with_alpn(&profile, Uuid::nil(), Some("h2"))
+            .expect("profile should parse")
+            .expect("plan should be selected");
+
+        assert_eq!(plan.variant_id(), "ff_h2_release_a");
+        assert!(plan.alpn_protocols().iter().any(|value| value == "h2"));
     }
 }

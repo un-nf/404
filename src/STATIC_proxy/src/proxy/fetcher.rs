@@ -119,7 +119,7 @@ impl OriginFetcher for WreqOriginFetcher {
         .await
         {
             Ok(origin) => Ok(origin),
-            Err(err) if mode == UpstreamMode::PreferHttp2 => {
+            Err(err) if should_retry_http1_only(tls_plan.as_ref(), mode) => {
                 tracing::warn!(
                     target = %format!("{}:{}", target.host, target.port),
                     error = %format_args!("{err:#}"),
@@ -147,7 +147,7 @@ impl OriginFetcher for WreqOriginFetcher {
     ) -> Result<StreamingOriginResponse> {
         match attempt_fetch_streaming(flow, target, tls_plan.as_ref(), mode).await {
             Ok(origin) => Ok(origin),
-            Err(err) if mode == UpstreamMode::PreferHttp2 => {
+            Err(err) if should_retry_http1_only(tls_plan.as_ref(), mode) => {
                 tracing::warn!(
                     target = %format!("{}:{}", target.host, target.port),
                     error = %format_args!("{err:#}"),
@@ -164,6 +164,14 @@ impl OriginFetcher for WreqOriginFetcher {
             Err(err) => Err(err),
         }
     }
+}
+
+fn should_retry_http1_only(tls_plan: Option<&TlsClientPlan>, mode: UpstreamMode) -> bool {
+    if mode != UpstreamMode::PreferHttp2 {
+        return false;
+    }
+
+    tls_plan.is_none()
 }
 
 async fn attempt_fetch(
@@ -412,7 +420,7 @@ fn build_emulation_provider(
     mode: UpstreamMode,
 ) -> Emulation {
     let tls_config = tls_plan.map(|plan| build_tls_config(plan, mode));
-    let http2_config = if mode != UpstreamMode::Http1Only {
+    let http2_config = if mode != UpstreamMode::Http1Only && tls_plan.map(plan_supports_h2_upstream).unwrap_or(true) {
         tls_plan.and_then(|plan| plan.http2()).map(build_http2_config)
     } else {
         None
@@ -809,8 +817,8 @@ fn to_wreq_settings_order(order: &[String]) -> Option<SettingsOrder> {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_http2_config, select_alpn, select_alps, to_wreq_extension_permutation,
-        to_wreq_pseudo_id, to_wreq_setting_id, upstream_headers, UpstreamMode,
+        build_http2_config, plan_supports_h2_upstream, select_alpn, select_alps, should_retry_http1_only,
+        to_wreq_extension_permutation, to_wreq_pseudo_id, to_wreq_setting_id, upstream_headers, UpstreamMode,
     };
     use crate::proxy::{BodyBuffer, RequestParts};
     use crate::tls::profiles::{Http2Plan, TlsClientPlan, TlsExtensionPlan};
@@ -831,6 +839,24 @@ mod tests {
 
         assert_eq!(select_alpn(&plan, UpstreamMode::PreferHttp2), vec![AlpnProtocol::HTTP2, AlpnProtocol::HTTP1]);
         assert_eq!(select_alpn(&plan, UpstreamMode::Http1Only), vec![AlpnProtocol::HTTP1]);
+    }
+
+    #[test]
+    fn plan_supports_h2_upstream_only_when_h2_is_advertised() {
+        let h2_plan = TlsClientPlan::test_fixture(vec!["h2".into(), "http/1.1".into()]);
+        let h1_plan = TlsClientPlan::test_fixture(vec!["http/1.1".into()]);
+
+        assert!(plan_supports_h2_upstream(&h2_plan));
+        assert!(!plan_supports_h2_upstream(&h1_plan));
+    }
+
+    #[test]
+    fn http2_retry_only_applies_without_a_tls_plan() {
+        let h2_plan = TlsClientPlan::test_fixture(vec!["h2".into(), "http/1.1".into()]);
+
+        assert!(should_retry_http1_only(None, UpstreamMode::PreferHttp2));
+        assert!(!should_retry_http1_only(Some(&h2_plan), UpstreamMode::PreferHttp2));
+        assert!(!should_retry_http1_only(Some(&h2_plan), UpstreamMode::Http1Only));
     }
 
     #[test]
@@ -997,4 +1023,11 @@ mod tests {
         assert!(normalized.get(CONTENT_LENGTH).is_none());
     }
 
+}
+
+pub fn plan_supports_h2_upstream(plan: &TlsClientPlan) -> bool {
+    plan
+        .alpn_protocols()
+        .iter()
+        .any(|value| value.eq_ignore_ascii_case("h2"))
 }

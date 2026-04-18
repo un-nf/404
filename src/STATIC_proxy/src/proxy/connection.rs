@@ -26,7 +26,9 @@ use std::future::poll_fn;
 use anyhow::{anyhow, Context, Result};
 use bytes::Bytes;
 use h2::{ext::Protocol as H2Protocol, server::{Builder as H2ServerBuilder, SendResponse}, Reason, SendStream};
-use http::header::{HeaderName, HeaderValue, CONTENT_TYPE};
+use http::header::{
+    HeaderName, HeaderValue, CACHE_CONTROL, CONTENT_TYPE, ETAG, EXPIRES, LAST_MODIFIED, PRAGMA,
+};
 use http_body::Body as _;
 use rustls::{server::ClientHello, server::ResolvesServerCert, ClientConfig, RootCertStore, ServerConfig};
 use rustls::{pki_types::ServerName, sign::CertifiedKey, ServerConnection};
@@ -39,14 +41,14 @@ use crate::{
     assets::ScriptBundle,
     config::BodyLimitsConfig,
     proxy::{
-        fetcher::{OriginFetcher, OriginTarget, UpstreamMode},
+        fetcher::{plan_supports_h2_upstream, OriginFetcher, OriginTarget, UpstreamMode},
         flow::BodyBuffer, flow::Flow, flow::RequestParts, flow::ResponseParts,
         stages::StagePipeline,
     },
     telemetry::TelemetrySink,
     tls::{
         cert::TlsProvider,
-        profiles::plan_from_profile
+        profiles::{plan_from_profile, plan_from_profile_with_alpn}
     },
 };
 
@@ -300,7 +302,9 @@ async fn handle_http1_session(
     stages.finalize_response(&mut flow).await?;
 
     if let Some(response) = flow.response.as_mut() {
+        normalize_bootstrap_asset_response(&flow.request, response);
         enforce_content_length(response)?;
+        response.version = flow.request.version;
     }
 
     emit_flow_telemetry(&telemetry, &flow, &sni, peer);
@@ -521,7 +525,7 @@ async fn process_http2_stream(
         let response = flow.response.as_mut().context("runtime asset response missing")?;
         sanitize_response_headers_for_h2(response)?;
         let response = flow.response.as_ref().context("runtime asset response missing")?;
-        send_http2_response(&mut respond, response)?;
+        send_http2_response(&mut respond, response).await?;
         emit_flow_telemetry(&telemetry, &flow, &sni, peer);
         return Ok(());
     }
@@ -534,10 +538,18 @@ async fn process_http2_stream(
 
     stages.process_request(&mut flow).await?;
 
-    let tls_plan = plan_from_profile(&flow.metadata.fingerprint_config, flow.id)?;
+    let tls_plan = plan_from_profile_with_alpn(&flow.metadata.fingerprint_config, flow.id, Some("h2"))?;
     if let Some(plan) = &tls_plan {
         flow.metadata.tls_variant_id = Some(plan.variant_id().to_string());
         tracing::debug!(%peer, variant = plan.variant_id(), "selected TLS hello variant");
+    }
+    let upstream_mode = tls_plan
+        .as_ref()
+        .filter(|plan| plan_supports_h2_upstream(plan))
+        .map(|_| UpstreamMode::PreferHttp2)
+        .unwrap_or(UpstreamMode::Http1Only);
+    if upstream_mode == UpstreamMode::Http1Only {
+        flow.metadata.transport_notes.push("upstream-http1-only-plan".to_string());
     }
 
     let (host, port) = resolve_upstream_target(&flow);
@@ -549,7 +561,7 @@ async fn process_http2_stream(
             &flow,
             &OriginTarget::new(host.clone(), port),
             tls_plan,
-            UpstreamMode::PreferHttp2,
+            upstream_mode,
         )
         .await
     {
@@ -566,7 +578,7 @@ async fn process_http2_stream(
             let requires_buffering = flow
                 .response
                 .as_ref()
-                .map(response_requires_body_buffering)
+                .map(|response| response_requires_body_buffering(&flow.request, response))
                 .unwrap_or(false);
             flow.metadata.buffering_mode = Some(if requires_buffering {
                 "buffered-h2-document".to_string()
@@ -596,13 +608,14 @@ async fn process_http2_stream(
                     .response
                     .as_mut()
                     .context("response missing after outbound fetch")?;
+                normalize_bootstrap_asset_response(&flow.request, response);
                 enforce_content_length(response)?;
                 sanitize_response_headers_for_h2(response)?;
                 let response = flow
                     .response
                     .as_ref()
                     .context("response missing after response stages")?;
-                if let Err(err) = send_http2_response(&mut respond, response) {
+                if let Err(err) = send_http2_response(&mut respond, response).await {
                     if is_benign_client_h2_stream_error(&err) {
                         tracing::debug!(
                             %peer,
@@ -620,6 +633,7 @@ async fn process_http2_stream(
                     .response
                     .as_mut()
                     .context("response missing after response stages")?;
+                normalize_bootstrap_asset_response(&flow.request, response);
                 sanitize_response_headers_for_h2(response)?;
                 if let Err(err) = send_streaming_http2_response(
                     &mut respond,
@@ -665,7 +679,7 @@ fn streaming_response_head(response: &wreq::Response) -> ResponseParts {
     }
 }
 
-fn response_requires_body_buffering(response: &ResponseParts) -> bool {
+fn response_requires_body_buffering(_request: &RequestParts, response: &ResponseParts) -> bool {
     response
         .headers
         .get(CONTENT_TYPE)
@@ -675,6 +689,49 @@ fn response_requires_body_buffering(response: &ResponseParts) -> bool {
             value.contains("text/html") || value.contains("application/xhtml+xml")
         })
         .unwrap_or(false)
+}
+
+fn is_bootstrap_asset_request(request: &RequestParts) -> bool {
+    if request.method != http::Method::GET && request.method != http::Method::HEAD {
+        return false;
+    }
+
+    if request
+        .headers
+        .get("sec-fetch-dest")
+        .and_then(|value| value.to_str().ok())
+        .map(|value| {
+            value.eq_ignore_ascii_case("script")
+                || value.eq_ignore_ascii_case("worker")
+                || value.eq_ignore_ascii_case("sharedworker")
+                || value.eq_ignore_ascii_case("serviceworker")
+        })
+        .unwrap_or(false)
+    {
+        return true;
+    }
+
+    let path = request.uri.path().to_ascii_lowercase();
+    path.ends_with(".js") || path.ends_with(".mjs") || path.ends_with("/sw.js")
+}
+
+fn normalize_bootstrap_asset_response(
+    request: &RequestParts,
+    response: &mut ResponseParts,
+) {
+    if !is_bootstrap_asset_request(request) {
+        return;
+    }
+
+    response.headers.remove(ETAG);
+    response.headers.remove(LAST_MODIFIED);
+    response.headers.remove(EXPIRES);
+    response
+        .headers
+        .insert(CACHE_CONTROL, HeaderValue::from_static("no-store, no-cache, must-revalidate"));
+    response
+        .headers
+        .insert(PRAGMA, HeaderValue::from_static("no-cache"));
 }
 
 async fn buffer_streaming_response_body(
@@ -1286,26 +1343,6 @@ fn build_http2_response_head(response: &ResponseParts) -> Result<http::Response<
         .map_err(|err| anyhow!("failed to build HTTP/2 response head: {err}"))
 }
 
-fn stream_http2_body(stream: &mut SendStream<Bytes>, body: &[u8]) -> Result<()> {
-    if body.is_empty() {
-        return Ok(());
-    }
-
-    const CHUNK_SIZE: usize = 16 * 1024;
-    let mut offset = 0;
-    while offset < body.len() {
-        let end = (offset + CHUNK_SIZE).min(body.len());
-        let chunk = Bytes::copy_from_slice(&body[offset..end]);
-        let end_stream = end == body.len();
-        stream
-            .send_data(chunk, end_stream)
-            .context("failed to write HTTP/2 response chunk")?;
-        offset = end;
-    }
-
-    Ok(())
-}
-
 async fn send_h2_data(stream: &mut SendStream<Bytes>, data: &[u8], end_stream: bool) -> Result<()> {
     let mut offset = 0;
     while offset < data.len() {
@@ -1381,14 +1418,14 @@ where
     Ok(())
 }
 
-fn send_http2_response(respond: &mut SendResponse<Bytes>, response: &ResponseParts) -> Result<()> {
+async fn send_http2_response(respond: &mut SendResponse<Bytes>, response: &ResponseParts) -> Result<()> {
     let head = build_http2_response_head(response)?;
     let end_stream = response.body.is_empty();
     let mut send_stream = respond
         .send_response(head, end_stream)
         .context("failed to send HTTP/2 response head")?;
     if !end_stream {
-        stream_http2_body(&mut send_stream, response.body.as_bytes())?;
+        send_h2_data(&mut send_stream, response.body.as_bytes(), true).await?;
     }
     Ok(())
 }
@@ -1609,11 +1646,13 @@ impl ResolvesServerCert for OnDemandCertResolver {
 mod tests {
     use super::{
         is_benign_client_h2_shutdown, is_benign_client_h2_stream_error,
+        is_bootstrap_asset_request, normalize_bootstrap_asset_response,
         is_h2_websocket_upgrade_request,
         response_requires_body_buffering,
     };
-    use crate::proxy::ResponseParts;
-    use http::header::{HeaderValue, CONTENT_TYPE};
+    use crate::proxy::{RequestParts, ResponseParts};
+    use http::header::{HeaderValue, CACHE_CONTROL, CONTENT_TYPE, ETAG, PRAGMA};
+    use http::{Method, Uri, Version};
 
     #[test]
     fn benign_h2_stream_error_accepts_reset_like_io_kinds() {
@@ -1644,24 +1683,72 @@ mod tests {
 
     #[test]
     fn response_requires_buffering_for_html_documents() {
+        let request = RequestParts::default();
         let mut response = ResponseParts::default();
         response.headers.insert(
             CONTENT_TYPE,
             HeaderValue::from_static("text/html; charset=utf-8"),
         );
 
-        assert!(response_requires_body_buffering(&response));
+        assert!(response_requires_body_buffering(&request, &response));
     }
 
     #[test]
     fn response_skips_buffering_for_non_document_content() {
+        let request = RequestParts::default();
         let mut response = ResponseParts::default();
         response.headers.insert(
             CONTENT_TYPE,
             HeaderValue::from_static("application/javascript"),
         );
 
-        assert!(!response_requires_body_buffering(&response));
+        assert!(!response_requires_body_buffering(&request, &response));
+    }
+
+    #[test]
+    fn bootstrap_asset_requests_do_not_require_buffering() {
+        let mut request = RequestParts {
+            method: Method::GET,
+            uri: Uri::from_static("https://app.tuta.com/common-min-vt_wlNjZ.js"),
+            version: Version::HTTP_11,
+            headers: http::HeaderMap::new(),
+            body: crate::proxy::BodyBuffer::default(),
+        };
+        request
+            .headers
+            .insert("sec-fetch-dest", HeaderValue::from_static("script"));
+
+        assert!(is_bootstrap_asset_request(&request));
+        assert!(!response_requires_body_buffering(&request, &ResponseParts::default()));
+    }
+
+    #[test]
+    fn bootstrap_asset_response_is_marked_no_store() {
+        let mut request = RequestParts {
+            method: Method::GET,
+            uri: Uri::from_static("https://app.tuta.com/sw.js"),
+            version: Version::HTTP_11,
+            headers: http::HeaderMap::new(),
+            body: crate::proxy::BodyBuffer::default(),
+        };
+        request
+            .headers
+            .insert("sec-fetch-dest", HeaderValue::from_static("serviceworker"));
+
+        let mut response = ResponseParts::default();
+        response.headers.insert(ETAG, HeaderValue::from_static("\"etag\""));
+
+        normalize_bootstrap_asset_response(&request, &mut response);
+
+        assert_eq!(
+            response.headers.get(CACHE_CONTROL).and_then(|value| value.to_str().ok()),
+            Some("no-store, no-cache, must-revalidate")
+        );
+        assert_eq!(
+            response.headers.get(PRAGMA).and_then(|value| value.to_str().ok()),
+            Some("no-cache")
+        );
+        assert!(response.headers.get(ETAG).is_none());
     }
 
     #[test]
