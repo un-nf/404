@@ -209,6 +209,14 @@ pub struct FlowMetadata {
 
     pub client_protocol: Option<String>,
 
+    pub request_protocol: Option<String>,
+
+    pub buffering_mode: Option<String>,
+
+    pub websocket_tunnel: bool,
+
+    pub transport_notes: Vec<String>,
+
     
     pub upstream_protocol: Option<String>,
 

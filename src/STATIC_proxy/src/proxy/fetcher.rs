@@ -62,6 +62,12 @@ pub struct OriginResponse {
     pub upstream_protocol: String,
 }
 
+#[derive(Debug)]
+pub struct StreamingOriginResponse {
+    pub response: wreq::Response,
+    pub upstream_protocol: String,
+}
+
 #[async_trait]
 pub trait OriginFetcher: Send + Sync {
     async fn fetch(
@@ -71,6 +77,14 @@ pub trait OriginFetcher: Send + Sync {
         tls_plan: Option<TlsClientPlan>,
         mode: UpstreamMode,
     ) -> Result<OriginResponse>;
+
+    async fn fetch_streaming(
+        &self,
+        flow: &Flow,
+        target: &OriginTarget,
+        tls_plan: Option<TlsClientPlan>,
+        mode: UpstreamMode,
+    ) -> Result<StreamingOriginResponse>;
 }
 
 #[derive(Debug)]
@@ -123,6 +137,33 @@ impl OriginFetcher for WreqOriginFetcher {
             Err(err) => Err(err),
         }
     }
+
+    async fn fetch_streaming(
+        &self,
+        flow: &Flow,
+        target: &OriginTarget,
+        tls_plan: Option<TlsClientPlan>,
+        mode: UpstreamMode,
+    ) -> Result<StreamingOriginResponse> {
+        match attempt_fetch_streaming(flow, target, tls_plan.as_ref(), mode).await {
+            Ok(origin) => Ok(origin),
+            Err(err) if mode == UpstreamMode::PreferHttp2 => {
+                tracing::warn!(
+                    target = %format!("{}:{}", target.host, target.port),
+                    error = %format_args!("{err:#}"),
+                    "preferred HTTP/2 upstream fetch failed, retrying over HTTP/1.1"
+                );
+                attempt_fetch_streaming(
+                    flow,
+                    target,
+                    tls_plan.as_ref(),
+                    UpstreamMode::Http1Only,
+                )
+                .await
+            }
+            Err(err) => Err(err),
+        }
+    }
 }
 
 async fn attempt_fetch(
@@ -132,6 +173,38 @@ async fn attempt_fetch(
     mode: UpstreamMode,
     max_response_body_bytes: usize,
 ) -> Result<OriginResponse> {
+    let response = send_request(flow, target, tls_plan, mode).await?;
+
+    let upstream_protocol = negotiated_protocol_label(response.version());
+    let response = response_into_parts(response, max_response_body_bytes).await?;
+
+    Ok(OriginResponse {
+        response,
+        upstream_protocol,
+    })
+}
+
+async fn attempt_fetch_streaming(
+    flow: &Flow,
+    target: &OriginTarget,
+    tls_plan: Option<&TlsClientPlan>,
+    mode: UpstreamMode,
+) -> Result<StreamingOriginResponse> {
+    let response = send_request(flow, target, tls_plan, mode).await?;
+    let upstream_protocol = negotiated_protocol_label(response.version());
+
+    Ok(StreamingOriginResponse {
+        response,
+        upstream_protocol,
+    })
+}
+
+async fn send_request(
+    flow: &Flow,
+    target: &OriginTarget,
+    tls_plan: Option<&TlsClientPlan>,
+    mode: UpstreamMode,
+) -> Result<wreq::Response> {
     let client = build_client(&flow.request, target, tls_plan, mode)?;
     let request = build_request(&client, flow, target, mode)?;
     let mode_label = match mode {
@@ -152,13 +225,7 @@ async fn attempt_fetch(
             )
         })?;
 
-    let upstream_protocol = negotiated_protocol_label(response.version());
-    let response = response_into_parts(response, max_response_body_bytes).await?;
-
-    Ok(OriginResponse {
-        response,
-        upstream_protocol,
-    })
+    Ok(response)
 }
 
 fn build_client(
@@ -398,6 +465,8 @@ fn upstream_headers(
         headers.remove(*header);
     }
 
+    reconcile_request_body_headers(&mut headers, request);
+
     if mode != UpstreamMode::Http1Only {
         headers.remove(HOST);
         return headers;
@@ -423,6 +492,23 @@ fn upstream_headers(
     }
 
     headers
+}
+
+fn reconcile_request_body_headers(headers: &mut http::HeaderMap, request: &RequestParts) {
+    if request.body.is_empty() {
+        headers.remove(CONTENT_LENGTH);
+        return;
+    }
+
+    match HeaderValue::from_str(&request.body.len().to_string()) {
+        Ok(value) => {
+            headers.insert(CONTENT_LENGTH, value);
+        }
+        Err(err) => {
+            tracing::warn!(len = request.body.len(), ?err, "failed to normalize request Content-Length after body mutation");
+            headers.remove(CONTENT_LENGTH);
+        }
+    }
 }
 
 fn header_order(headers: &http::HeaderMap) -> OrigHeaderMap {
@@ -724,9 +810,12 @@ fn to_wreq_settings_order(order: &[String]) -> Option<SettingsOrder> {
 mod tests {
     use super::{
         build_http2_config, select_alpn, select_alps, to_wreq_extension_permutation,
-        to_wreq_pseudo_id, to_wreq_setting_id, UpstreamMode,
+        to_wreq_pseudo_id, to_wreq_setting_id, upstream_headers, UpstreamMode,
     };
+    use crate::proxy::{BodyBuffer, RequestParts};
     use crate::tls::profiles::{Http2Plan, TlsClientPlan, TlsExtensionPlan};
+    use http::header::{CONTENT_LENGTH, HOST};
+    use http::{HeaderMap, HeaderValue, Method, Uri, Version};
     use wreq::{
         http2::{PseudoId, SettingId},
         tls::{AlpnProtocol, AlpsProtocol, ExtensionType},
@@ -861,6 +950,51 @@ mod tests {
 
         assert_eq!(alps.0, vec![AlpsProtocol::HTTP2, AlpsProtocol::HTTP1]);
         assert!(!alps.1);
+    }
+
+    #[test]
+    fn upstream_headers_recompute_content_length_after_body_mutation() {
+        let mut headers = HeaderMap::new();
+        headers.insert(CONTENT_LENGTH, HeaderValue::from_static("3"));
+        headers.insert(HOST, HeaderValue::from_static("example.com"));
+
+        let mut body = BodyBuffer::default();
+        body.replace(b"hello world");
+
+        let request = RequestParts {
+            method: Method::POST,
+            uri: Uri::from_static("https://example.com/session"),
+            version: Version::HTTP_11,
+            headers,
+            body,
+        };
+
+        let normalized = upstream_headers(&request, "example.com", 443, UpstreamMode::Http1Only);
+
+        assert_eq!(
+            normalized
+                .get(CONTENT_LENGTH)
+                .and_then(|value| value.to_str().ok()),
+            Some("11")
+        );
+    }
+
+    #[test]
+    fn upstream_headers_drop_stale_content_length_for_empty_body() {
+        let mut headers = HeaderMap::new();
+        headers.insert(CONTENT_LENGTH, HeaderValue::from_static("99"));
+
+        let request = RequestParts {
+            method: Method::GET,
+            uri: Uri::from_static("https://example.com/"),
+            version: Version::HTTP_11,
+            headers,
+            body: BodyBuffer::default(),
+        };
+
+        let normalized = upstream_headers(&request, "example.com", 443, UpstreamMode::PreferHttp2);
+
+        assert!(normalized.get(CONTENT_LENGTH).is_none());
     }
 
 }

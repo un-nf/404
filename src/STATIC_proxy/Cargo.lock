@@ -2014,6 +2014,7 @@ dependencies = [
  "flate2",
  "h2",
  "http",
+ "http-body",
  "keyring",
  "lru",
  "md-5",

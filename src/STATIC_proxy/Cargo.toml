@@ -16,6 +16,7 @@ clap = { version = "4", features = ["derive"] }
 dashmap = "6"
 directories = "5"
 http = "*"
+http-body = "1"
 h2 = "0.4"
 md-5 = "0.10"
 parking_lot = "0.12"
