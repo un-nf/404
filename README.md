@@ -49,6 +49,16 @@ https://github.com/user-attachments/assets/fb403522-ac09-4c49-a599-5edd53f33994
 
 The STATIC proxy is built from the ground up and wired specifically to give the user granular control over their online fingerprint. Not just their browser fingerprint, but any device or app they choose to route through the proxy.
 
+That runtime contract now reaches:
+- request headers and client hints
+- upstream TLS hello variants and HTTP/2 behavior
+- iframe propagation and worker bootstrap state
+- canvas, WebGL, audio, media device, and related browser surfaces
+
+Profile data does still drive the upstream TLS plan. STATIC passes profile-defined cipher suites, signature algorithms, curves, ALPN, and extension ordering into the `wreq` adapter, but exact wire-level parity is still bounded by what `wreq` and its TLS backend can actually emit. Unsupported claims stay in the validator as warnings, not promises of packet-perfect parity.
+
+Best practice is to stay within your native browser family. Chromium users should choose Chromium-family profiles such as Chrome or Edge. Firefox users should choose Firefox-family profiles such as Firefox. STATIC does not hard-enforce that policy for manual operators; higher-level wrappers can be stricter if they want to be.
+
 Don't believe me? Check my work... 
 1. https://demo.fingerprint.com/playground
 2. https://browserleaks.com/
@@ -81,7 +91,53 @@ Currently, the following is implemented:
 
 ## How do I install and run 404 on my machine?
 
-### 1. Install dependencies & configure PATH
+### 1. Run the downloaded binary
+
+If you downloaded a release build, keep the `profiles/` directory beside the binary.
+
+The proxy now requires an explicit profile selection. If no profile is set, it will refuse to start instead of silently picking one for you.
+
+Pick the profile that matches your native browser family. For example, use `edge-windows` or `chrome-windows` on Chromium-family browsers, and `firefox-windows` on Firefox-family browsers.
+
+**Windows**
+
+```powershell
+cd $HOME\Downloads\404_REL # wherever your ./static binary lives.
+.\static.exe --list-profiles
+.\static.exe --profile edge-windows
+```
+
+**Linux / macOS**
+
+```bash
+cd ~/Downloads/404_REL # wherever your ./static binary lives.
+chmod +x ./static
+./static --list-profiles
+./static --profile edge-windows
+```
+
+Useful flags:
+
+- `--profile <name>` selects the active runtime profile.
+- `--profiles-path <path>` points STATIC at a different profile directory.
+- `--bind-address <addr>` changes the listener address. *default 127.0.0.1*
+- `--bind-port <port>` changes the listener port.
+- `--list-profiles` prints the discovered profiles and exits.
+
+Important listener note:
+- If you run with the repo sample config, the listener is `127.0.0.1:4040`.
+- If you run the standalone binary without a config file, STATIC falls back to built-in CLI defaults and listens on `127.0.0.1:8443`.
+- The localhost control plane binds on `listener_port + 2`.
+
+Example with an explicit listener override:
+
+```powershell
+.\static.exe --profile edge-windows --bind-address 127.0.0.1 --bind-port 4040
+```
+
+### 2. Build from source
+
+#### Install dependencies & configure PATH
 
 > **Developer Tip:** All commands can be copy pasted into your terminal for easy usage!
 
@@ -172,7 +228,7 @@ $ source $HOME/.cargo/env
 
 </details>
 
-### 2. Run the proxy
+#### Run the proxy
 
 > **Info:** All steps assume that there is a folder named `404/` located at `~/git/`
 
@@ -180,7 +236,8 @@ $ source $HOME/.cargo/env
 
 ```bash
 cd ~/git/404/src/STATIC_proxy # CHANGE to wherever you unzipped the 404 folder.
-cargo run  # This will take a while on the first run (~5-minutes)
+cargo run -- --list-profiles
+cargo run -- --profile edge-windows  # This will take a while on the first run (~5-minutes)
 
 ```
 
@@ -188,18 +245,25 @@ cargo run  # This will take a while on the first run (~5-minutes)
 
 ```bash
 cd %USERPROFILE%\git\404\src\STATIC_proxy # CHANGE to wherever you unzipped the 404 folder.
-cargo run  # This will take a while on the first run (~5-minutes)
+cargo run -- --list-profiles
+cargo run -- --profile edge-windows  # This will take a while on the first run (~5-minutes)
 
 ```
 
+If you omit `--profile` and there is no profile selected in config, STATIC will stop at startup and tell you to choose one.
+
 ### 3. Trust proxy-generated CA
+
+STATIC now manages its CA material in the platform app-data directory instead of treating `src/STATIC_proxy/certs/` as the canonical runtime location.
+
+If you need the exact CA path on disk, use the value reported by STATIC's localhost control plane at `GET /ca/status`, or locate `static-ca.crt` in STATIC's managed app-data directory.
 
 <details>
 <summary><b>Firefox</b></summary>
 
 **Firefox uses its own trust store, you must trust the CA in the application:**
 
-Firefox -> Settings -> Privacy & Security -> Certificates -> View Certificates -> Authorities tab -> Import -> select static-ca.crt -> Check "Trust this CA to identify websites" -> OK
+Firefox -> Settings -> Privacy & Security -> Certificates -> View Certificates -> Authorities tab -> Import -> select `static-ca.crt` from STATIC's managed CA path -> Check "Trust this CA to identify websites" -> OK
 
 </details>
 
@@ -209,13 +273,13 @@ Firefox -> Settings -> Privacy & Security -> Certificates -> View Certificates -
 **Trust the CA using `certutil`:**
 
 ```bash
-certutil.exe -addstore root C:\\path\\to\\myCA.pem
+certutil.exe -addstore root C:\\path\\to\\static-ca.crt
 
 ```
 
 **...or manually:**
 
-1. Navigate to the `404/` directory and locate the `src/STATIC_proxy/certs/` directory.
+1. Locate the `static-ca.crt` path reported by STATIC.
 
 2. Double-click the file labeled `static-ca.crt` (may appear without .crt extension)
 
@@ -235,14 +299,14 @@ certutil.exe -addstore root C:\\path\\to\\myCA.pem
 <summary><b>macOS</b></summary>
 
 ```zsh
-sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain certs/static-ca.crt
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain /path/to/static-ca.crt
 
 ```
 
 **Or use the GUI:**
 
 1. Open Keychain Access
-2. File -> Import Items -> select static-ca.crt
+2. File -> Import Items -> select `static-ca.crt` from STATIC's managed CA path
 3. Find the certificate, double-click it
 4. Expand "Trust" and set "When using this certificate" to "Always Trust"
 
@@ -253,7 +317,7 @@ sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keyc
 
 ```bash
 # Copy CA to system trust store
-sudo cp certs/static-ca.crt /usr/local/share/ca-certificates/static-ca.crt
+sudo cp /path/to/static-ca.crt /usr/local/share/ca-certificates/static-ca.crt
 sudo update-ca-certificates
 
 ```
@@ -262,14 +326,18 @@ sudo update-ca-certificates
 
 ### 4. Configure your Browser
 
-Set your browser (or system) to use `localhost:8080` (or `127.0.0.1:8080`) as an HTTP/HTTPS proxy.
+Set your browser (or system) to use the STATIC listener address and port that you actually launched.
+
+Common cases:
+- repo sample config: `127.0.0.1:4040`
+- standalone binary with no config file: `127.0.0.1:8443`
 
 - **Chrome/Edge:** Settings -> System -> Open your computer's proxy settings
-- **Firefox:** Settings -> Network Settings -> Manual proxy configuration -> HTTP Proxy: `127.0.0.1`, Port: `8080`, check "Also use this proxy for HTTPS"
+- **Firefox:** Settings -> Network Settings -> Manual proxy configuration -> HTTP Proxy: `127.0.0.1`, Port: `4040` or `8443` depending on how you launched STATIC, then check "Also use this proxy for HTTPS"
 
 **Important:** **This tool is a TLS-terminating proxy (man-in-the-middle) and has access to your plaintext HTTPS data (usernames, passwords, certain message protocols, etc.). Do NOT share your CA cert with *anyone* for *anything, ever*.**
 
-*UX on Firefox is slightly more stable for reasons that are not clear to me. Would love some insight. Login flows have been tested and are working in both browsers.*
+*The current runtime is designed around staying inside the native rendering-engine family rather than pretending Chromium is Firefox or vice versa. That makes the remaining complexity more load-bearing and easier to reason about.*
 
 ### 5. *Optional* - Configure a Linux VM (if not using Linux)
 

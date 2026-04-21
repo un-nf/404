@@ -1,4 +1,11 @@
 {
+  "profile_identity": {
+    "family": "firefox-like",
+    "variant": "firefox",
+    "platform": "windows",
+    "channel": "stable",
+    "selection_weight": 1.0
+  },
   "set": [],
   "replace": [
     [
@@ -78,9 +85,11 @@
     "access-control-request-method"
   ],
   "fingerprint": {
-    "name": "Firefox 149 - Windows 10",
+    "name": "Firefox 149.0.2 - Windows 10",
+    "browser_family": "firefox-like",
+    "browser_variant": "firefox",
     "browser_type": "firefox",
-    "browser_version": "149.0",
+    "browser_version": "149.0.2",
     "os": "Windows",
     "os_version": "10",
     "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:149.0) Gecko/20100101 Firefox/149.0",

@@ -41,10 +41,10 @@ lru = "0.16.3"
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 brotli = "3"
 zstd = "0.13"
-wreq = "6.0.0-rc.28"
+wreq = { git = "https://github.com/0x676e67/wreq", rev = "d87e9565527e54ceaa748ce541407aef61a35a05" }
 
 keyring = { version = "3.6.3", features = ["apple-native"] }
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security_Cryptography", "Win32_System_Memory"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security_Cryptography", "Win32_System_Console", "Win32_System_Memory"] }
 
 [dev-dependencies]
 tempfile = "3"

@@ -29,11 +29,11 @@ function secureRandomUint32() {
 export function initEntropy() {
   const runtime = getRuntime()
   const fingerprint = runtime.config?.fingerprint || {}
+  const startupSalt = String(runtime.config?.raw?.startup_salt || '')
   const driftEnabled = fingerprint.enable_fingerprint_drift !== false
   const sessionId = driftEnabled
-    ? (Date.now() ^ secureRandomUint32()).toString(36)
+    ? (startupSalt || (Date.now() ^ secureRandomUint32()).toString(36))
     : 'static'
-  const sessionSeed = hashString(`${sessionId}:${fingerprint.canvas_hash || ''}`)
   const origin = (() => {
     try {
       return location.origin
@@ -41,10 +41,15 @@ export function initEntropy() {
       return 'opaque'
     }
   })()
+  const sessionSeed = hashString(`${sessionId}:${origin}:${fingerprint.canvas_hash || ''}`)
   const originSeed = hashString(`${sessionId}:${origin}`)
 
   runtime.entropy = {
     sessionId,
+    origin,
+    startupSalt,
+    sessionSeed,
+    originSeed,
     sessionRng: xorshift32(sessionSeed),
     originRng: xorshift32(originSeed),
     hash: hashString,

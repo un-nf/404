@@ -1,9 +1,9 @@
 /*
  * STATIC Runtime v5.0.0 — Known Limitations
  *
- * 1. Worker scope: navigator.hardwareConcurrency and navigator.platform
- *    read in Worker or SharedWorker contexts will return real host values.
- *    JS-layer Worker interception is intentionally not attempted here.
+ * 1. Worker and SharedWorker construction is intercepted through constructor
+ *    wrapping, but service workers and pre-existing workers remain outside
+ *    this bundle's reach and can still expose host-native values.
  *
  * 2. The high-entropy spoofing modules are being ported separately from
  *    the identity and capability baseline. This bundle currently focuses

@@ -21,7 +21,7 @@ use std::{
     collections::{hash_map::DefaultHasher, HashMap},
     fs,
     hash::{Hash, Hasher},
-    path::PathBuf,
+    path::{Path, PathBuf},
     str::FromStr,
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
@@ -31,6 +31,8 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use http::header::{HeaderName, HeaderValue, ACCEPT, ACCEPT_ENCODING, IF_MODIFIED_SINCE, IF_NONE_MATCH, IF_RANGE, USER_AGENT};
 use parking_lot::RwLock;
+use rand::{rngs::OsRng, RngCore};
+use serde::Serialize;
 use serde_json::{Map, Value};
 
 use crate::proxy::flow::Flow;
@@ -43,16 +45,426 @@ use super::FlowStage;
 /// fingerprint data for each request.
 #[derive(Clone)]
 pub struct HeaderProfileStage {
+    store: ProfileStore,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct ProfileCatalogEntry {
+    pub key: String,
+    pub display_name: String,
+    pub family: String,
+    pub variant: String,
+    pub platform: String,
+}
+
+#[derive(Clone)]
+pub struct ProfileStore {
+    inner: Arc<ProfileStoreInner>,
+}
+
+struct ProfileStoreInner {
     path: PathBuf,
-    profiles: Arc<RwLock<HashMap<String, Arc<ProfileRecord>>>>,
-    default_profile: String,
+    profiles: RwLock<HashMap<String, Arc<ProfileRecord>>>,
+    default_profile: Option<String>,
+    selected_profile: RwLock<Option<String>>,
     startup_seed: u64,
+}
+
+#[derive(Debug, Clone)]
+struct ProfileIdentity {
+    family: String,
+    variant: String,
+    platform: String,
+    selection_weight: f64,
 }
 
 struct ProfileRecord {
     display_name: String,
+    identity: ProfileIdentity,
     config: serde_json::Value,
     rules: HeaderProfileRules,
+}
+
+impl ProfileStore {
+    pub fn load(path: PathBuf, default_profile: Option<String>) -> Result<Self> {
+        let store = Self {
+            inner: Arc::new(ProfileStoreInner {
+                path,
+                profiles: RwLock::new(HashMap::new()),
+                default_profile: normalize_profile_name(default_profile),
+                selected_profile: RwLock::new(None),
+                startup_seed: generate_startup_seed(),
+            }),
+        };
+        store.reload()?;
+        Ok(store)
+    }
+
+    pub fn catalog(&self) -> Vec<ProfileCatalogEntry> {
+        let mut entries = self
+            .inner
+            .profiles
+            .read()
+            .iter()
+            .map(|(key, record)| ProfileCatalogEntry {
+                key: key.clone(),
+                display_name: record.display_name.clone(),
+                family: record.identity.family.clone(),
+                variant: record.identity.variant.clone(),
+                platform: record.identity.platform.clone(),
+            })
+            .collect::<Vec<_>>();
+        entries.sort_by(|left, right| {
+            left.family
+                .cmp(&right.family)
+                .then(left.variant.cmp(&right.variant))
+                .then(left.key.cmp(&right.key))
+        });
+        entries
+    }
+
+    pub fn active_profile(&self) -> Option<ProfileCatalogEntry> {
+        let selected = self.inner.selected_profile.read().clone();
+        selected
+            .as_deref()
+            .and_then(|value| self.resolve_catalog_entry(value))
+            .or_else(|| {
+                self.inner
+                    .default_profile
+                    .as_deref()
+                    .and_then(|value| self.resolve_catalog_entry(value))
+            })
+    }
+
+    pub fn select_profile(&self, requested: &str) -> Result<ProfileCatalogEntry> {
+        let entry = self
+            .resolve_catalog_entry(requested)
+            .with_context(|| format!("unknown profile '{requested}'"))?;
+        *self.inner.selected_profile.write() = Some(entry.key.clone());
+        Ok(entry)
+    }
+
+    fn reload(&self) -> Result<()> {
+        if self.inner.path.is_dir() {
+            let mut discovered: HashMap<String, Arc<ProfileRecord>> = HashMap::new();
+            for path in collect_profile_json_files(&self.inner.path)? {
+                let raw = fs::read_to_string(&path)?;
+                let value: serde_json::Value = serde_json::from_str(&raw)
+                    .with_context(|| format!("invalid profile JSON: {}", path.display()))?;
+                let key = path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("profile")
+                    .to_string();
+                let materialized = materialize_profile_config(&value, &key, self.inner.startup_seed);
+                let display = profile_display_name(&materialized, &key);
+                let identity = profile_identity(&materialized, &key);
+                let rules = HeaderProfileRules::from_value(&materialized);
+                log_profile_coherence_warnings(&key, &display, &materialized);
+                discovered.insert(
+                    key,
+                    Arc::new(ProfileRecord {
+                        display_name: display,
+                        identity,
+                        config: materialized,
+                        rules,
+                    }),
+                );
+            }
+            *self.inner.profiles.write() = discovered;
+            return Ok(());
+        }
+
+        let raw = fs::read_to_string(&self.inner.path)
+            .with_context(|| format!("failed to read profiles: {}", self.inner.path.display()))?;
+
+        let value: serde_json::Value = serde_json::from_str(&raw)
+            .with_context(|| format!("invalid profiles JSON: {}", self.inner.path.display()))?;
+
+        let key = self
+            .inner
+            .path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("profile")
+            .to_string();
+        let materialized = materialize_profile_config(&value, &key, self.inner.startup_seed);
+        let display = profile_display_name(&materialized, &key);
+        let identity = profile_identity(&materialized, &key);
+        let mut parsed = HashMap::new();
+        let rules = HeaderProfileRules::from_value(&materialized);
+        log_profile_coherence_warnings(&key, &display, &materialized);
+        parsed.insert(
+            key,
+            Arc::new(ProfileRecord {
+                display_name: display,
+                identity,
+                config: materialized,
+                rules,
+            }),
+        );
+        *self.inner.profiles.write() = parsed;
+        Ok(())
+    }
+
+    fn select_record_for_flow(&self, flow: &Flow) -> Option<(String, Arc<ProfileRecord>)> {
+        let selected = self.inner.selected_profile.read().clone();
+        selected
+            .as_deref()
+            .and_then(|value| self.resolve_record(value))
+            .or_else(|| {
+                self.inner
+                    .default_profile
+                    .as_deref()
+                    .and_then(|value| self.resolve_record(value))
+            })
+            .or_else(|| {
+                detect_request_browser_family(flow)
+                    .and_then(|family| self.select_family_record(family))
+            })
+    }
+
+    fn resolve_catalog_entry(&self, requested: &str) -> Option<ProfileCatalogEntry> {
+        self.resolve_record(requested)
+            .map(|(key, record)| ProfileCatalogEntry {
+                key,
+                display_name: record.display_name.clone(),
+                family: record.identity.family.clone(),
+                variant: record.identity.variant.clone(),
+                platform: record.identity.platform.clone(),
+            })
+    }
+
+    fn resolve_record(&self, requested: &str) -> Option<(String, Arc<ProfileRecord>)> {
+        let profiles = self.inner.profiles.read();
+        if profiles.is_empty() {
+            return None;
+        }
+        if let Some(record) = profiles.get(requested) {
+            return Some((requested.to_string(), Arc::clone(record)));
+        }
+
+        profiles
+            .iter()
+            .find(|(_, record)| {
+                record.display_name.eq_ignore_ascii_case(requested)
+                    || record.identity.variant.eq_ignore_ascii_case(requested)
+            })
+            .map(|(key, record)| (key.clone(), Arc::clone(record)))
+    }
+
+    fn select_family_record(&self, family: &str) -> Option<(String, Arc<ProfileRecord>)> {
+        let profiles = self.inner.profiles.read();
+        let candidates = profiles
+            .iter()
+            .filter(|(_, record)| record.identity.family.eq_ignore_ascii_case(family))
+            .collect::<Vec<_>>();
+
+        if candidates.is_empty() {
+            return None;
+        }
+
+        let total_weight: f64 = candidates
+            .iter()
+            .map(|(_, record)| record.identity.selection_weight.max(0.0))
+            .sum();
+
+        if total_weight <= f64::EPSILON {
+            let (key, record) = candidates[0];
+            return Some((key.clone(), Arc::clone(record)));
+        }
+
+        let target = deterministic_choice_fraction(self.inner.startup_seed, family, "profile-family") * total_weight;
+        let mut cursor = 0.0;
+        let mut fallback = None;
+
+        for (key, record) in candidates {
+            let weight = record.identity.selection_weight.max(0.0);
+            if weight <= 0.0 {
+                continue;
+            }
+
+            cursor += weight;
+            fallback = Some((key.clone(), Arc::clone(record)));
+            if target < cursor {
+                return Some((key.clone(), Arc::clone(record)));
+            }
+        }
+
+        fallback
+    }
+
+    fn startup_seed(&self) -> u64 {
+        self.inner.startup_seed
+    }
+}
+
+fn normalize_profile_name(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn collect_profile_json_files(dir: &Path) -> Result<Vec<PathBuf>> {
+    let mut out = Vec::new();
+    collect_profile_json_files_recursive(dir, &mut out)?;
+    out.sort();
+    Ok(out)
+}
+
+fn collect_profile_json_files_recursive(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
+    for entry in fs::read_dir(dir)
+        .with_context(|| format!("failed to read profiles dir: {}", dir.display()))?
+    {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_profile_json_files_recursive(&path, out)?;
+            continue;
+        }
+        if is_runtime_profile_path(&path) {
+            out.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn is_runtime_profile_path(path: &Path) -> bool {
+    if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+        return false;
+    }
+
+    !path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.eq_ignore_ascii_case("manifest.json"))
+}
+
+fn profile_identity(value: &Value, fallback_key: &str) -> ProfileIdentity {
+    let identity = value.get("profile_identity").and_then(Value::as_object);
+    let fingerprint = value.get("fingerprint").and_then(Value::as_object);
+    let browser_type = fingerprint
+        .and_then(|entry| entry.get("browser_type"))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+
+    let family = identity
+        .and_then(|entry| entry.get("family"))
+        .and_then(Value::as_str)
+        .map(|entry| entry.to_ascii_lowercase())
+        .or_else(|| {
+            fingerprint
+                .and_then(|entry| entry.get("browser_family"))
+                .and_then(Value::as_str)
+                .map(|entry| entry.to_ascii_lowercase())
+        })
+        .unwrap_or_else(|| derive_browser_family(browser_type));
+
+    let variant = identity
+        .and_then(|entry| entry.get("variant"))
+        .and_then(Value::as_str)
+        .map(|entry| entry.to_ascii_lowercase())
+        .or_else(|| {
+            fingerprint
+                .and_then(|entry| entry.get("browser_variant"))
+                .and_then(Value::as_str)
+                .map(|entry| entry.to_ascii_lowercase())
+        })
+        .filter(|entry| !entry.is_empty())
+        .unwrap_or_else(|| derive_profile_variant(browser_type, fallback_key));
+
+    let platform = identity
+        .and_then(|entry| entry.get("platform"))
+        .and_then(Value::as_str)
+        .map(|entry| entry.to_ascii_lowercase())
+        .or_else(|| {
+            fingerprint
+                .and_then(|entry| entry.get("os"))
+                .and_then(Value::as_str)
+                .map(normalize_profile_platform)
+        })
+        .unwrap_or_else(|| "windows".to_string());
+
+    let selection_weight = identity
+        .and_then(|entry| entry.get("selection_weight"))
+        .and_then(Value::as_f64)
+        .filter(|entry| *entry > 0.0)
+        .unwrap_or(1.0);
+
+    ProfileIdentity {
+        family,
+        variant,
+        platform,
+        selection_weight,
+    }
+}
+
+fn derive_browser_family(browser_type: &str) -> String {
+    match browser_type.to_ascii_lowercase().as_str() {
+        "firefox" | "gecko" | "tor" | "mullvad" => "firefox-like".to_string(),
+        "chrome" | "chromium" | "edge" | "brave" | "vivaldi" | "opera" => "chromium-like".to_string(),
+        _ => "chromium-like".to_string(),
+    }
+}
+
+fn derive_profile_variant(browser_type: &str, fallback_key: &str) -> String {
+    let browser_type = browser_type.trim().to_ascii_lowercase();
+    if !browser_type.is_empty() {
+        return browser_type;
+    }
+
+    fallback_key
+        .split('-')
+        .next()
+        .unwrap_or("chrome")
+        .to_ascii_lowercase()
+}
+
+fn normalize_profile_platform(raw: &str) -> String {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "windows" | "win32" | "win64" => "windows".to_string(),
+        "macos" | "mac os" | "mac" | "macintel" => "macos".to_string(),
+        "linux" | "x11" => "linux".to_string(),
+        "android" => "android".to_string(),
+        "ios" | "iphone" | "ipad" => "ios".to_string(),
+        other => other.to_string(),
+    }
+}
+
+fn detect_request_browser_family(flow: &Flow) -> Option<&'static str> {
+    let sec_ch_ua = flow
+        .request
+        .headers
+        .get("sec-ch-ua")
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.to_ascii_lowercase())
+        .unwrap_or_default();
+
+    if sec_ch_ua.contains("firefox") {
+        return Some("firefox-like");
+    }
+
+    if sec_ch_ua.contains("chromium") || sec_ch_ua.contains("google chrome") || sec_ch_ua.contains("microsoft edge") {
+        return Some("chromium-like");
+    }
+
+    let user_agent = flow
+        .request
+        .headers
+        .get(USER_AGENT)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.to_ascii_lowercase())
+        .unwrap_or_default();
+
+    if user_agent.contains("firefox/") {
+        return Some("firefox-like");
+    }
+
+    if user_agent.contains("edg/") || user_agent.contains("chrome/") || user_agent.contains("chromium") {
+        return Some("chromium-like");
+    }
+
+    None
 }
 
 #[derive(Clone, Default)]
@@ -605,6 +1017,14 @@ fn deep_merge_value(target: &mut Value, patch: &Value) {
 }
 
 fn generate_startup_seed() -> u64 {
+    let mut random_seed = [0u8; 8];
+    OsRng.fill_bytes(&mut random_seed);
+    let os_seed = u64::from_le_bytes(random_seed);
+
+    if os_seed != 0 {
+        return os_seed;
+    }
+
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| (duration.as_nanos() as u64) ^ (std::process::id() as u64))
@@ -616,6 +1036,7 @@ mod tests {
     use super::*;
     use crate::proxy::flow::{BodyBuffer, RequestParts};
     use http::{HeaderMap, Method, Uri, Version};
+    use tempfile::tempdir;
 
     fn build_flow(path: &str) -> Flow {
         let request = RequestParts {
@@ -626,6 +1047,172 @@ mod tests {
             body: BodyBuffer::default(),
         };
         Flow::new(request)
+    }
+
+    fn write_profile_fixture(
+        dir: &std::path::Path,
+        file_name: &str,
+        display_name: &str,
+        family: &str,
+        variant: &str,
+        browser_type: &str,
+    ) {
+        let profile = serde_json::json!({
+            "profile_identity": {
+                "family": family,
+                "variant": variant,
+                "platform": "windows",
+                "selection_weight": 1.0
+            },
+            "fingerprint": {
+                "name": display_name,
+                "browser_type": browser_type,
+                "browser_family": family,
+                "browser_variant": variant,
+                "user_agent": "Mozilla/5.0"
+            }
+        });
+
+        fs::write(
+            dir.join(file_name),
+            serde_json::to_vec(&profile).expect("serialize profile"),
+        )
+        .expect("write profile fixture");
+    }
+
+    #[test]
+    fn profile_store_catalog_uses_default_profile_as_active() {
+        let dir = tempdir().expect("tempdir");
+        write_profile_fixture(dir.path(), "firefox-windows.json", "Firefox Windows", "firefox-like", "firefox", "firefox");
+        write_profile_fixture(dir.path(), "chrome-windows.json", "Chrome Windows", "chromium-like", "chrome", "chrome");
+
+        let store = ProfileStore::load(dir.path().to_path_buf(), Some("firefox-windows".to_string()))
+            .expect("load profile store");
+
+        let catalog = store.catalog();
+        assert_eq!(
+            catalog.iter().map(|entry| entry.key.as_str()).collect::<Vec<_>>(),
+            vec!["chrome-windows", "firefox-windows"]
+        );
+        assert_eq!(
+            store.active_profile(),
+            Some(ProfileCatalogEntry {
+                key: "firefox-windows".to_string(),
+                display_name: "Firefox Windows".to_string(),
+                family: "firefox-like".to_string(),
+                variant: "firefox".to_string(),
+                platform: "windows".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn profile_store_ignores_manifest_metadata_file() {
+        let dir = tempdir().expect("tempdir");
+        write_profile_fixture(dir.path(), "firefox-windows.json", "Firefox Windows", "firefox-like", "firefox", "firefox");
+        fs::write(
+            dir.path().join("manifest.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "profiles": [
+                    {
+                        "file_name": "firefox-windows.json",
+                        "path": "/src/STATIC_proxy/profiles/firefox-windows.json",
+                        "sha256": "deadbeef"
+                    }
+                ]
+            }))
+            .expect("serialize manifest fixture"),
+        )
+        .expect("write manifest fixture");
+
+        let store = ProfileStore::load(dir.path().to_path_buf(), None)
+            .expect("load profile store");
+
+        assert_eq!(
+            store.catalog(),
+            vec![ProfileCatalogEntry {
+                key: "firefox-windows".to_string(),
+                display_name: "Firefox Windows".to_string(),
+                family: "firefox-like".to_string(),
+                variant: "firefox".to_string(),
+                platform: "windows".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn profile_store_selects_profile_by_display_name() {
+        let dir = tempdir().expect("tempdir");
+        write_profile_fixture(dir.path(), "firefox-windows.json", "Firefox Windows", "firefox-like", "firefox", "firefox");
+        write_profile_fixture(dir.path(), "chrome-windows.json", "Chrome Windows", "chromium-like", "chrome", "chrome");
+
+        let store = ProfileStore::load(dir.path().to_path_buf(), None)
+            .expect("load profile store");
+
+        let selected = store
+            .select_profile("Chrome Windows")
+            .expect("select by display name");
+
+        assert_eq!(
+            selected,
+            ProfileCatalogEntry {
+                key: "chrome-windows".to_string(),
+                display_name: "Chrome Windows".to_string(),
+                family: "chromium-like".to_string(),
+                variant: "chrome".to_string(),
+                platform: "windows".to_string(),
+            }
+        );
+        assert_eq!(store.active_profile(), Some(selected));
+    }
+
+    #[test]
+    fn profile_store_auto_selects_from_host_family() {
+        let dir = tempdir().expect("tempdir");
+        write_profile_fixture(dir.path(), "firefox-windows.json", "Firefox Windows", "firefox-like", "firefox", "firefox");
+        write_profile_fixture(dir.path(), "chrome-windows.json", "Chrome Windows", "chromium-like", "chrome", "chrome");
+        write_profile_fixture(dir.path(), "edge-windows.json", "Edge Windows", "chromium-like", "edge", "edge");
+
+        let store = ProfileStore::load(dir.path().to_path_buf(), None)
+            .expect("load profile store");
+        let mut flow = build_flow("https://example.com/");
+        flow.request.headers.insert(
+            USER_AGENT,
+            HeaderValue::from_static("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"),
+        );
+        flow.request.headers.insert(
+            "sec-ch-ua",
+            HeaderValue::from_static("\"Not_A Brand\";v=\"8\", \"Chromium\";v=\"147\", \"Google Chrome\";v=\"147\""),
+        );
+
+        let (_, record) = store
+            .select_record_for_flow(&flow)
+            .expect("family-selected profile");
+
+        assert_eq!(record.identity.family, "chromium-like");
+        assert!(record.identity.variant == "chrome" || record.identity.variant == "edge");
+    }
+
+    #[test]
+    fn profile_store_prefers_explicit_profile_over_detected_family() {
+        let dir = tempdir().expect("tempdir");
+        write_profile_fixture(dir.path(), "firefox-windows.json", "Firefox Windows", "firefox-like", "firefox", "firefox");
+        write_profile_fixture(dir.path(), "chrome-windows.json", "Chrome Windows", "chromium-like", "chrome", "chrome");
+
+        let store = ProfileStore::load(dir.path().to_path_buf(), Some("firefox-windows".to_string()))
+            .expect("load profile store");
+        let mut flow = build_flow("https://example.com/");
+        flow.request.headers.insert(
+            USER_AGENT,
+            HeaderValue::from_static("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"),
+        );
+
+        let (_, record) = store
+            .select_record_for_flow(&flow)
+            .expect("explicitly selected profile");
+
+        assert_eq!(record.identity.family, "firefox-like");
+        assert_eq!(record.identity.variant, "firefox");
     }
 
     #[test]
@@ -961,7 +1548,7 @@ mod tests {
         });
 
         let materialized = materialize_profile_config(&config, "example", 12);
-        let runtime = build_js_runtime_config(&materialized);
+        let runtime = build_js_runtime_config(&materialized, 12);
 
         assert!(materialized.get("seeded_overlays").is_none());
         assert_eq!(
@@ -1018,106 +1605,13 @@ mod tests {
 
 impl HeaderProfileStage {
     pub fn new(path: PathBuf, default_profile: String) -> Result<Self> {
-        let stage = Self {
-            path,
-            profiles: Arc::new(RwLock::new(HashMap::new())),
-            default_profile,
-            startup_seed: generate_startup_seed(),
-        };
-        stage.reload()?;
-        Ok(stage)
+        Ok(Self {
+            store: ProfileStore::load(path, Some(default_profile))?,
+        })
     }
 
-    /// Reloads the profiles JSON from disk. This is called during initialization.
-    fn reload(&self) -> Result<()> {
-        if self.path.is_dir() {
-            let mut discovered: HashMap<String, Arc<ProfileRecord>> = HashMap::new();
-            for entry in fs::read_dir(&self.path)
-                .with_context(|| format!("failed to read profiles dir: {}", self.path.display()))?
-            {
-                let entry = entry?;
-                if !entry.path().is_file() {
-                    continue;
-                }
-                if entry.path().extension().and_then(|ext| ext.to_str()) != Some("json") {
-                    continue;
-                }
-                let raw = fs::read_to_string(entry.path())?;
-                let value: serde_json::Value = serde_json::from_str(&raw)
-                    .with_context(|| format!("invalid profile JSON: {}", entry.path().display()))?;
-                let key = entry
-                    .path()
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("profile")
-                    .to_string();
-                let materialized = materialize_profile_config(&value, &key, self.startup_seed);
-                let display = profile_display_name(&materialized, &key);
-                let rules = HeaderProfileRules::from_value(&materialized);
-                log_profile_coherence_warnings(&key, &display, &materialized);
-                discovered.insert(
-                    key,
-                    Arc::new(ProfileRecord {
-                        display_name: display,
-                        config: materialized,
-                        rules,
-                    }),
-                );
-            }
-            *self.profiles.write() = discovered;
-            return Ok(());
-        }
-
-        let raw = fs::read_to_string(&self.path)
-            .with_context(|| format!("failed to read profiles: {}", self.path.display()))?;
-
-        let value: serde_json::Value = serde_json::from_str(&raw)
-            .with_context(|| format!("invalid profiles JSON: {}", self.path.display()))?;
-
-        let key = self
-            .path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("profile")
-            .to_string();
-        let materialized = materialize_profile_config(&value, &key, self.startup_seed);
-        let display = profile_display_name(&materialized, &key);
-        let mut parsed = HashMap::new();
-        let rules = HeaderProfileRules::from_value(&materialized);
-        log_profile_coherence_warnings(&key, &display, &materialized);
-        parsed.insert(
-            key,
-            Arc::new(ProfileRecord {
-                display_name: display,
-                config: materialized,
-                rules,
-            }),
-        );
-        *self.profiles.write() = parsed;
-        Ok(())
-    }
-
-    /// Picks the right profile to apply for the current flow (placeholder: first entry).
-    fn select_profile(&self) -> Option<(String, Arc<ProfileRecord>)> {
-        let profiles = self.profiles.read();
-        if profiles.is_empty() {
-            return None;
-        }
-        if let Some(record) = profiles.get(&self.default_profile) {
-            return Some((self.default_profile.clone(), Arc::clone(record)));
-        }
-
-        if let Some((k, r)) = profiles
-            .iter()
-            .find(|(_, rec)| rec.display_name.eq_ignore_ascii_case(&self.default_profile))
-        {
-            return Some((k.clone(), Arc::clone(r)));
-        }
-
-        profiles
-            .iter()
-            .next()
-            .map(|(k, r)| (k.clone(), Arc::clone(r)))
+    pub fn from_store(store: ProfileStore) -> Self {
+        Self { store }
     }
 }
 
@@ -1125,12 +1619,12 @@ impl HeaderProfileStage {
 impl FlowStage for HeaderProfileStage {
     /// Annotates the flow with the selected fingerprint profile metadata.
     async fn on_request(&self, flow: &mut Flow) -> Result<()> {
-        if let Some((key, record)) = self.select_profile() {
+        if let Some((key, record)) = self.store.select_record_for_flow(flow) {
             let profile = record.as_ref();
             flow.metadata.profile_name = Some(profile.display_name.clone());
             flow.metadata.browser_profile = Some(key);
             flow.metadata.fingerprint_config = profile.config.clone();
-            flow.metadata.js_runtime_config = build_js_runtime_config(&profile.config);
+            flow.metadata.js_runtime_config = build_js_runtime_config(&profile.config, self.store.startup_seed());
 
             apply_profile_rules(flow, &profile.rules)?;
             flow.metadata.user_agent = flow
@@ -1154,13 +1648,42 @@ fn profile_display_name(value: &serde_json::Value, fallback: &str) -> String {
         .unwrap_or_else(|| fallback.to_string())
 }
 
-fn build_js_runtime_config(config: &Value) -> Value {
+fn build_js_runtime_config(config: &Value, startup_seed: u64) -> Value {
     let Some(fingerprint) = config.get("fingerprint") else {
         return config.clone();
     };
 
     let mut runtime = Map::new();
-    runtime.insert("fingerprint".to_string(), fingerprint.clone());
+    let mut runtime_fingerprint = fingerprint.clone();
+    if let (Some(profile_identity), Some(fingerprint_object)) = (
+        config.get("profile_identity").and_then(Value::as_object),
+        runtime_fingerprint.as_object_mut(),
+    ) {
+        if let Some(family) = profile_identity.get("family").and_then(Value::as_str) {
+            fingerprint_object
+                .entry("browser_family".to_string())
+                .or_insert_with(|| Value::String(family.to_string()));
+        }
+        if let Some(variant) = profile_identity.get("variant").and_then(Value::as_str) {
+            fingerprint_object
+                .entry("browser_variant".to_string())
+                .or_insert_with(|| Value::String(variant.to_string()));
+        }
+        if let Some(platform) = profile_identity.get("platform").and_then(Value::as_str) {
+            fingerprint_object
+                .entry("profile_platform".to_string())
+                .or_insert_with(|| Value::String(platform.to_string()));
+        }
+    }
+    runtime.insert("fingerprint".to_string(), runtime_fingerprint);
+    runtime.insert(
+        "startup_salt".to_string(),
+        Value::String(format!("{startup_seed:016x}")),
+    );
+
+    if let Some(profile_identity) = config.get("profile_identity") {
+        runtime.insert("profile_identity".to_string(), profile_identity.clone());
+    }
 
     for key in ["privacy", "privacy_rules", "behavior", "behavioral_noise"] {
         if let Some(value) = config.get(key) {

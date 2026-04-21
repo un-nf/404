@@ -27,7 +27,7 @@ use tracing::{debug, warn};
 use uuid::Uuid;
 
 /// Materialized TLS client plan derived from a profile's tls section.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TlsClientPlan {
     pub(super) variant_id: String,
     pub(super) alpn: Vec<String>,
@@ -213,6 +213,12 @@ impl TlsClientPlan {
             http2: None,
         }
     }
+
+    #[cfg(test)]
+    pub(crate) fn with_key_share_order(mut self, key_share_order: Vec<String>) -> Self {
+        self.key_share_order = key_share_order;
+        self
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -260,9 +266,20 @@ pub fn plan_from_profile_with_alpn(
     flow_id: Uuid,
     required_alpn: Option<&str>,
 ) -> Result<Option<TlsClientPlan>> {
+    Ok(plan_attempts_from_profile_with_alpn(profile, flow_id, required_alpn, 1)?
+        .into_iter()
+        .next())
+}
+
+pub fn plan_attempts_from_profile_with_alpn(
+    profile: &Value,
+    flow_id: Uuid,
+    required_alpn: Option<&str>,
+    max_attempts: usize,
+) -> Result<Vec<TlsClientPlan>> {
     let tls_value = match profile.get("tls") {
         Some(v) => v.clone(),
-        None => return Ok(None),
+        None => return Ok(Vec::new()),
     };
 
     if !tls_value
@@ -271,16 +288,32 @@ pub fn plan_from_profile_with_alpn(
         .is_some()
     {
         debug!("profile missing tls schema_version; skipping TLS client plan");
-        return Ok(None);
+        return Ok(Vec::new());
     }
 
     let schema: TlsSchema = serde_json::from_value(tls_value)
         .context("failed to parse tls schema block from profile")?;
     if schema.hello_variants.is_empty() {
-        return Ok(None);
+        return Ok(Vec::new());
     }
 
-    let variant = schema.select_variant(flow_id, required_alpn);
+    let mut plans = Vec::new();
+    for variant in schema
+        .ordered_variants(flow_id, required_alpn)
+        .into_iter()
+        .take(max_attempts.max(1))
+    {
+        plans.push(materialize_tls_plan(&schema, variant, flow_id));
+    }
+
+    Ok(plans)
+}
+
+fn materialize_tls_plan(
+    schema: &TlsSchema,
+    variant: &HelloVariant,
+    flow_id: Uuid,
+) -> TlsClientPlan {
     let cipher_suites = variant.resolve_cipher_sequence(&schema.cipher_catalog, flow_id);
     if cipher_suites.is_empty() {
         warn!(variant = %variant.id, "TLS profile produced zero supported cipher suites");
@@ -327,7 +360,7 @@ pub fn plan_from_profile_with_alpn(
         None
     };
 
-    Ok(Some(TlsClientPlan {
+    TlsClientPlan {
         variant_id: variant.id.clone(),
         alpn,
         cipher_suites,
@@ -349,7 +382,7 @@ pub fn plan_from_profile_with_alpn(
         delegated_credentials: None,
         preserve_tls13_cipher_list: true,
         http2: schema.http2.as_ref().map(Http2Profile::to_plan),
-    }))
+    }
 }
 
 pub fn validate_profile_coherence(profile: &Value) -> Vec<String> {
@@ -377,18 +410,13 @@ pub fn validate_profile_coherence(profile: &Value) -> Vec<String> {
         );
     }
 
-    let Some(browser) = profile
-        .get("fingerprint")
-        .and_then(|fingerprint| {
-            fingerprint
-                .get("browser_type")
-                .or_else(|| fingerprint.get("browser"))
-        })
-        .and_then(|value| value.as_str())
-        .map(|value| value.to_ascii_lowercase())
-    else {
+    let Some(browser_identity) = resolve_profile_browser_identity(profile) else {
         return warnings;
     };
+
+    if browser_identity.family.as_deref() == Some("chromium-like") {
+        validate_chromium_http2_baseline(&schema, &mut warnings);
+    }
 
     let expected_os = profile
         .get("fingerprint")
@@ -481,9 +509,14 @@ pub fn validate_profile_coherence(profile: &Value) -> Vec<String> {
             continue;
         };
 
-        if !variant_matches_browser(id, &browser) {
+        if !variant_matches_identity(
+            id,
+            browser_identity.family.as_deref(),
+            browser_identity.variant.as_deref(),
+        ) {
             warnings.push(format!(
-                "TLS variant '{id}' does not match advertised browser family '{browser}'"
+                "TLS variant '{id}' does not match advertised browser identity {}",
+                describe_browser_identity(&browser_identity)
             ));
         }
 
@@ -510,6 +543,108 @@ pub fn validate_profile_coherence(profile: &Value) -> Vec<String> {
     }
 
     warnings
+}
+
+fn validate_chromium_http2_baseline(schema: &TlsSchema, warnings: &mut Vec<String>) {
+    let Some(http2) = schema.http2.as_ref() else {
+        return;
+    };
+
+    if http2.initial_stream_id != Some(1) {
+        warnings.push(
+            "chromium-like HTTP/2 should start request streams at 1; the current profile does not".to_string(),
+        );
+    }
+    if http2.header_table_size != Some(64 * 1024) {
+        warnings.push(
+            "chromium-like HTTP/2 should advertise header_table_size=65536".to_string(),
+        );
+    }
+    if http2.enable_push != Some(false) {
+        warnings.push(
+            "chromium-like HTTP/2 should advertise enable_push=0".to_string(),
+        );
+    }
+    if http2.initial_window_size != Some(6 * 1024 * 1024) {
+        warnings.push(
+            "chromium-like HTTP/2 should advertise initial_window_size=6291456".to_string(),
+        );
+    }
+    if http2.initial_connection_window_size != Some(15 * 1024 * 1024) {
+        warnings.push(
+            "chromium-like HTTP/2 should advertise initial_connection_window_size=15728640".to_string(),
+        );
+    }
+    if http2.max_header_list_size != Some(256 * 1024) {
+        warnings.push(
+            "chromium-like HTTP/2 should advertise max_header_list_size=262144".to_string(),
+        );
+    }
+    if http2.max_frame_size.is_some() {
+        warnings.push(
+            "chromium-like HTTP/2 should omit max_frame_size when using the default 16384 value".to_string(),
+        );
+    }
+    if http2.enable_connect_protocol.is_some() {
+        warnings.push(
+            "chromium-like HTTP/2 should omit enable_connect_protocol from startup settings unless wire output is verified".to_string(),
+        );
+    }
+    if http2.no_rfc7540_priorities.is_some() {
+        warnings.push(
+            "chromium-like HTTP/2 should omit no_rfc7540_priorities from startup settings unless wire output is verified".to_string(),
+        );
+    }
+
+    let pseudo_order = http2
+        .pseudo_header_order
+        .iter()
+        .map(|value| value.to_ascii_lowercase())
+        .collect::<Vec<_>>();
+    if pseudo_order != ["method", "authority", "scheme", "path"] {
+        warnings.push(
+            "chromium-like HTTP/2 should use pseudo_header_order=[method, authority, scheme, path]".to_string(),
+        );
+    }
+
+    let settings_order = http2
+        .settings_order
+        .iter()
+        .map(|value| value.to_ascii_lowercase())
+        .collect::<Vec<_>>();
+    if settings_order
+        != [
+            "header_table_size",
+            "enable_push",
+            "initial_window_size",
+            "max_header_list_size",
+        ]
+    {
+        warnings.push(
+            "chromium-like HTTP/2 should use settings_order=[header_table_size, enable_push, initial_window_size, max_header_list_size]".to_string(),
+        );
+    }
+
+    match http2.headers_stream_dependency.as_ref() {
+        Some(dependency)
+            if dependency.stream_id == 0
+                && dependency.weight == 220
+                && dependency.exclusive => {}
+        _ => warnings.push(
+            "chromium-like HTTP/2 should use headers_stream_dependency=(stream_id=0, weight=220, exclusive=true)".to_string(),
+        ),
+    }
+
+    if schema.hello_variants.iter().any(|variant| variant.supports_alpn("h2"))
+        && !schema
+            .hello_variants
+            .iter()
+            .any(|variant| !variant.supports_alpn("h2"))
+    {
+        warnings.push(
+            "chromium-like TLS profiles should include at least one explicit HTTP/1.1-only fallback variant".to_string(),
+        );
+    }
 }
 
 fn normalize_alpn(entries: &[String]) -> Vec<String> {
@@ -570,14 +705,105 @@ fn is_supported_wreq_extension_name(name: &str) -> bool {
     )
 }
 
-fn variant_matches_browser(variant_id: &str, browser: &str) -> bool {
+#[derive(Debug, Clone, Default)]
+struct BrowserIdentity {
+    family: Option<String>,
+    variant: Option<String>,
+}
+
+fn resolve_profile_browser_identity(profile: &Value) -> Option<BrowserIdentity> {
+    let fingerprint = profile.get("fingerprint")?;
+    let family = fingerprint
+        .get("browser_family")
+        .or_else(|| fingerprint.get("profile_family"))
+        .and_then(|value| value.as_str())
+        .map(normalize_browser_label)
+        .filter(|value| !value.is_empty());
+    let variant = fingerprint
+        .get("browser_variant")
+        .or_else(|| fingerprint.get("profile_variant"))
+        .or_else(|| fingerprint.get("browser_type"))
+        .or_else(|| fingerprint.get("browser"))
+        .and_then(|value| value.as_str())
+        .map(normalize_browser_label)
+        .filter(|value| !value.is_empty());
+
+    if family.is_none() && variant.is_none() {
+        return None;
+    }
+
+    Some(BrowserIdentity {
+        family: family.or_else(|| variant.as_deref().and_then(derive_browser_family).map(str::to_string)),
+        variant,
+    })
+}
+
+fn normalize_browser_label(value: &str) -> String {
+    value.trim().to_ascii_lowercase()
+}
+
+fn derive_browser_family(browser: &str) -> Option<&'static str> {
+    match browser.trim().to_ascii_lowercase().as_str() {
+        "firefox" | "gecko" | "tor" | "mullvad" => Some("firefox-like"),
+        "chrome" | "chromium" | "edge" | "brave" | "vivaldi" | "opera" => {
+            Some("chromium-like")
+        }
+        "safari" | "webkit" => Some("webkit-like"),
+        _ => None,
+    }
+}
+
+fn describe_browser_identity(identity: &BrowserIdentity) -> String {
+    match (identity.family.as_deref(), identity.variant.as_deref()) {
+        (Some(family), Some(variant)) => {
+            format!("family='{family}', variant='{variant}'")
+        }
+        (Some(family), None) => format!("family='{family}'"),
+        (None, Some(variant)) => format!("variant='{variant}'"),
+        (None, None) => "<unspecified>".to_string(),
+    }
+}
+
+fn variant_matches_identity(
+    variant_id: &str,
+    browser_family: Option<&str>,
+    browser_variant: Option<&str>,
+) -> bool {
+    if let Some(browser_family) = browser_family {
+        return variant_matches_family(variant_id, browser_family);
+    }
+
+    if let Some(browser_variant) = browser_variant {
+        return variant_matches_family(variant_id, browser_variant);
+    }
+
+    true
+}
+
+fn variant_matches_family(variant_id: &str, browser: &str) -> bool {
     let lower = variant_id.to_ascii_lowercase();
     match browser {
-        "firefox" => lower.starts_with("ff_") || lower.contains("firefox"),
-        "chrome" | "chromium" => {
-            lower.starts_with("ch_") || lower.contains("chrome") || lower.contains("chromium")
+        "firefox-like" | "firefox" | "gecko" | "tor" | "mullvad" => {
+            lower.starts_with("ff_")
+                || lower.contains("firefox")
+                || lower.contains("gecko")
+                || lower.contains("tor")
+                || lower.contains("mullvad")
         }
-        "edge" => lower.starts_with("edge_") || lower.contains("edge"),
+        "chromium-like" | "chrome" | "chromium" | "edge" | "brave" | "vivaldi"
+        | "opera" => {
+            lower.starts_with("ch_")
+                || lower.starts_with("edge_")
+                || lower.contains("chrome")
+                || lower.contains("chromium")
+                || lower.contains("edge")
+                || lower.contains("brave")
+                || lower.contains("vivaldi")
+                || lower.contains("opera")
+        }
+        "webkit-like" | "safari" | "webkit" => {
+            lower.starts_with("sf_") || lower.contains("safari") || lower.contains("webkit")
+        }
         _ => true,
     }
 }
@@ -615,33 +841,6 @@ struct TlsSchema {
 }
 
 impl TlsSchema {
-    fn select_variant(&self, flow_id: Uuid, required_alpn: Option<&str>) -> &HelloVariant {
-        let eligible = self.eligible_variants(required_alpn);
-
-        if eligible.len() == 1 {
-            return eligible[0];
-        }
-
-        let total_weight: f64 = eligible.iter().map(|v| v.weight.max(0.0)).sum();
-        if total_weight <= f64::EPSILON {
-            return eligible[0];
-        }
-
-        let mut rng = seeded_rng(flow_id, 0);
-        let mut cursor = rng.gen::<f64>() * total_weight;
-        for &variant in &eligible {
-            let weight = variant.weight.max(0.0);
-            if cursor <= weight {
-                return variant;
-            }
-            cursor -= weight;
-        }
-        eligible
-            .last()
-            .copied()
-            .expect("eligible hello_variants cannot be empty here")
-    }
-
     fn eligible_variants(&self, required_alpn: Option<&str>) -> Vec<&HelloVariant> {
         let mut eligible = self.hello_variants.iter().collect::<Vec<_>>();
 
@@ -658,6 +857,19 @@ impl TlsSchema {
         }
 
         eligible
+    }
+
+    fn ordered_variants(&self, flow_id: Uuid, required_alpn: Option<&str>) -> Vec<&HelloVariant> {
+        let mut remaining = self.eligible_variants(required_alpn);
+        let mut ordered = Vec::with_capacity(remaining.len());
+        let mut rng = seeded_rng(flow_id, 0);
+
+        while !remaining.is_empty() {
+            let selected_index = select_weighted_variant_index(&remaining, &mut rng);
+            ordered.push(remaining.remove(selected_index));
+        }
+
+        ordered
     }
 
     fn resolve_versions(&self) -> (Option<ProfileTlsVersion>, Option<ProfileTlsVersion>) {
@@ -1021,7 +1233,9 @@ impl CipherList {
         match self {
             CipherList::Names(names) => names.clone(),
             CipherList::CatalogDefault(selector) => {
-                if !selector.eq_ignore_ascii_case("default") {
+                if !selector.eq_ignore_ascii_case("default")
+                    && !selector.eq_ignore_ascii_case("catalog_default")
+                {
                     debug!(selector, "unsupported cipher catalog selector in profile; using catalog order");
                 }
                 catalog.iter().map(|c| c.name.clone()).collect()
@@ -1105,25 +1319,62 @@ fn seeded_rng(flow_id: Uuid, salt: u64) -> StdRng {
     StdRng::seed_from_u64(base)
 }
 
+fn select_weighted_variant_index(variants: &[&HelloVariant], rng: &mut StdRng) -> usize {
+    if variants.len() <= 1 {
+        return 0;
+    }
+
+    let total_weight: f64 = variants.iter().map(|variant| variant.weight.max(0.0)).sum();
+    if total_weight <= f64::EPSILON {
+        return rng.gen_range(0..variants.len());
+    }
+
+    let mut cursor = rng.gen::<f64>() * total_weight;
+    for (index, variant) in variants.iter().enumerate() {
+        let weight = variant.weight.max(0.0);
+        if cursor <= weight {
+            return index;
+        }
+        cursor -= weight;
+    }
+
+    variants.len() - 1
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{plan_from_profile_with_alpn, validate_profile_coherence};
+    use super::{plan_attempts_from_profile_with_alpn, plan_from_profile_with_alpn, validate_profile_coherence};
     use serde_json::Value;
     use uuid::Uuid;
+
+    fn minimal_tls_schema(hello_variants: Value) -> Value {
+        serde_json::json!({
+            "schema_version": 2,
+            "versions": {
+                "min": "TLSv1.2",
+                "max": "TLSv1.3",
+                "allow_tls12_fallback": true
+            },
+            "cipher_catalog": {
+                "tls13": [],
+                "tls12": []
+            },
+            "hello_variants": hello_variants
+        })
+    }
 
     #[test]
     fn validate_profile_coherence_accepts_matching_browser_family() {
         let profile = serde_json::json!({
             "fingerprint": {
-                "browser_type": "chrome",
+                "browser_family": "chromium-like",
+                "browser_variant": "chrome",
                 "os": "Windows"
             },
-            "tls": {
-                "hello_variants": [
+            "tls": minimal_tls_schema(serde_json::json!([
                     { "id": "ch_h3_release_a" },
                     { "id": "ch_h3_release_b" }
-                ]
-            }
+            ]))
         });
 
         assert!(validate_profile_coherence(&profile).is_empty());
@@ -1133,27 +1384,43 @@ mod tests {
     fn validate_profile_coherence_flags_browser_and_os_mismatch() {
         let profile = serde_json::json!({
             "fingerprint": {
-                "browser_type": "chrome",
+                "browser_family": "chromium-like",
+                "browser_variant": "chrome",
                 "os": "Windows"
             },
-            "tls": {
-                "hello_variants": [
+            "tls": minimal_tls_schema(serde_json::json!([
                     { "id": "firefox_143_linux" }
-                ]
-            }
+            ]))
         });
 
         let warnings = validate_profile_coherence(&profile);
 
-        assert!(warnings.iter().any(|warning| warning.contains("browser family 'chrome'")));
+        assert!(warnings.iter().any(|warning| warning.contains("family='chromium-like'")));
         assert!(warnings.iter().any(|warning| warning.contains("advertises 'windows'")));
+    }
+
+    #[test]
+    fn validate_profile_coherence_accepts_edge_variant_with_chromium_family_tls() {
+        let profile = serde_json::json!({
+            "fingerprint": {
+                "browser_family": "chromium-like",
+                "browser_variant": "edge",
+                "os": "Windows"
+            },
+            "tls": minimal_tls_schema(serde_json::json!([
+                    { "id": "ch_h2_release_a" }
+            ]))
+        });
+
+        assert!(validate_profile_coherence(&profile).is_empty());
     }
 
     #[test]
     fn validate_profile_coherence_flags_descriptive_and_unsupported_tls_fields() {
         let profile = serde_json::json!({
             "fingerprint": {
-                "browser_type": "chrome",
+                "browser_family": "chromium-like",
+                "browser_variant": "chrome",
                 "os": "Windows"
             },
             "tls": {
@@ -1177,7 +1444,7 @@ mod tests {
                         "alpn": ["h3", "h2"],
                         "extension_sequence": [
                             { "name": "server_name" },
-                            { "name": "supported_versions" }
+                            { "name": "post_handshake_auth" }
                         ],
                         "session_resumption": {
                             "enable_tickets": true,
@@ -1191,6 +1458,7 @@ mod tests {
                     }
                 ],
                 "http2": {
+                    "initial_window_size": 65535,
                     "initial_max_send_streams": 32,
                     "max_concurrent_reset_streams": 8,
                     "max_pending_accept_reset_streams": 4,
@@ -1206,12 +1474,74 @@ mod tests {
         assert!(warnings.iter().any(|warning| warning.contains("declares JA3")));
         assert!(warnings.iter().any(|warning| warning.contains("declares JA4")));
         assert!(warnings.iter().any(|warning| warning.contains("advertises h3 in ALPN")));
-        assert!(warnings.iter().any(|warning| warning.contains("explicit extension sequence")));
+        assert!(warnings.iter().any(|warning| warning.contains("includes extension sequence entries")));
         assert!(warnings.iter().any(|warning| warning.contains("max_early_data")));
         assert!(warnings.iter().any(|warning| warning.contains("ticket_lifetime_seconds")));
         assert!(warnings.iter().any(|warning| warning.contains("padding_strategy='chrome'")));
-        assert!(warnings.iter().any(|warning| warning.contains("initial_max_send_streams")));
         assert!(warnings.iter().any(|warning| warning.contains("adaptive_window")));
+    }
+
+    #[test]
+    fn validate_profile_coherence_flags_chromium_http2_baseline_mismatches() {
+        let profile = serde_json::json!({
+            "fingerprint": {
+                "browser_family": "chromium-like",
+                "browser_variant": "chrome",
+                "os": "Windows"
+            },
+            "tls": {
+                "schema_version": 2,
+                "versions": {
+                    "min": "TLSv1.2",
+                    "max": "TLSv1.3",
+                    "allow_tls12_fallback": true
+                },
+                "cipher_catalog": {
+                    "tls13": [],
+                    "tls12": []
+                },
+                "hello_variants": [
+                    {
+                        "id": "ch_h2_release_a",
+                        "alpn": ["h2", "http/1.1"]
+                    }
+                ],
+                "http2": {
+                    "initial_stream_id": 3,
+                    "header_table_size": 4096,
+                    "enable_push": true,
+                    "initial_window_size": 65535,
+                    "initial_connection_window_size": 65535,
+                    "max_frame_size": 16384,
+                    "max_header_list_size": 65536,
+                    "enable_connect_protocol": false,
+                    "no_rfc7540_priorities": false,
+                    "pseudo_header_order": ["method", "path", "authority", "scheme"],
+                    "settings_order": ["header_table_size", "enable_push", "initial_window_size"],
+                    "headers_stream_dependency": {
+                        "stream_id": 0,
+                        "weight": 41,
+                        "exclusive": false
+                    }
+                }
+            }
+        });
+
+        let warnings = validate_profile_coherence(&profile);
+
+        assert!(warnings.iter().any(|warning| warning.contains("start request streams at 1")));
+        assert!(warnings.iter().any(|warning| warning.contains("header_table_size=65536")));
+        assert!(warnings.iter().any(|warning| warning.contains("enable_push=0")));
+        assert!(warnings.iter().any(|warning| warning.contains("initial_window_size=6291456")));
+        assert!(warnings.iter().any(|warning| warning.contains("initial_connection_window_size=15728640")));
+        assert!(warnings.iter().any(|warning| warning.contains("max_header_list_size=262144")));
+        assert!(warnings.iter().any(|warning| warning.contains("omit max_frame_size")));
+        assert!(warnings.iter().any(|warning| warning.contains("omit enable_connect_protocol")));
+        assert!(warnings.iter().any(|warning| warning.contains("omit no_rfc7540_priorities")));
+        assert!(warnings.iter().any(|warning| warning.contains("pseudo_header_order=[method, authority, scheme, path]")));
+        assert!(warnings.iter().any(|warning| warning.contains("settings_order=[header_table_size, enable_push, initial_window_size, max_header_list_size]")));
+        assert!(warnings.iter().any(|warning| warning.contains("headers_stream_dependency=(stream_id=0, weight=220, exclusive=true)")));
+        assert!(warnings.iter().any(|warning| warning.contains("explicit HTTP/1.1-only fallback variant")));
     }
 
     #[test]
@@ -1232,6 +1562,16 @@ mod tests {
         let warnings = validate_profile_coherence(&profile);
 
         assert!(warnings.is_empty(), "unexpected Chrome profile warnings: {warnings:?}");
+    }
+
+    #[test]
+    fn shipped_edge_profile_is_clean_for_live_wreq_adapter() {
+        let profile: Value = serde_json::from_str(include_str!("../../profiles/edge-windows.json"))
+            .expect("edge-windows.json should parse");
+
+        let warnings = validate_profile_coherence(&profile);
+
+        assert!(warnings.is_empty(), "unexpected Edge profile warnings: {warnings:?}");
     }
 
     #[test]
@@ -1269,5 +1609,47 @@ mod tests {
 
         assert_eq!(plan.variant_id(), "ff_h2_release_a");
         assert!(plan.alpn_protocols().iter().any(|value| value == "h2"));
+    }
+
+    #[test]
+    fn alpn_aware_attempts_return_distinct_h2_variants() {
+        let profile = serde_json::json!({
+            "tls": {
+                "schema_version": 2,
+                "versions": {
+                    "min": "TLSv1.2",
+                    "max": "TLSv1.3",
+                    "allow_tls12_fallback": true
+                },
+                "cipher_catalog": {
+                    "tls13": [],
+                    "tls12": []
+                },
+                "hello_variants": [
+                    {
+                        "id": "ff_h1_fallback",
+                        "weight": 50.0,
+                        "alpn": ["http/1.1"]
+                    },
+                    {
+                        "id": "ff_h2_release_a",
+                        "weight": 10.0,
+                        "alpn": ["h2", "http/1.1"]
+                    },
+                    {
+                        "id": "ff_h2_release_b",
+                        "weight": 5.0,
+                        "alpn": ["h2", "http/1.1"]
+                    }
+                ]
+            }
+        });
+
+        let plans = plan_attempts_from_profile_with_alpn(&profile, Uuid::nil(), Some("h2"), 2)
+            .expect("profile should parse");
+
+        assert_eq!(plans.len(), 2);
+        assert_ne!(plans[0].variant_id(), plans[1].variant_id());
+        assert!(plans.iter().all(|plan| plan.alpn_protocols().iter().any(|value| value == "h2")));
     }
 }

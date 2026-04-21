@@ -19,6 +19,7 @@ use tokio::{net::TcpListener, sync::watch};
 
 use crate::{
     config::{managed_ca_cert_path, StaticConfig},
+    proxy::stages::{ProfileCatalogEntry, ProfileStore},
     telemetry,
     tls::{cert::initialize_ca_material, profiles::validate_profile_coherence},
 };
@@ -34,6 +35,7 @@ pub enum ControlMode {
 pub struct ControlPlane {
     config: StaticConfig,
     mode: ControlMode,
+    profile_store: ProfileStore,
     ready: Arc<AtomicBool>,
     shutdown_tx: watch::Sender<bool>,
 }
@@ -42,6 +44,7 @@ pub struct ControlPlane {
 struct ControlState {
     config: StaticConfig,
     mode: ControlMode,
+    profile_store: ProfileStore,
     ready: Arc<AtomicBool>,
     shutdown_tx: watch::Sender<bool>,
 }
@@ -78,11 +81,39 @@ struct ProfileValidationResponse {
     warnings: Vec<String>,
 }
 
+#[derive(Serialize)]
+struct ProfileCatalogResponse {
+    active_profile: Option<ProfileCatalogEntry>,
+    profiles: Vec<ProfileCatalogEntry>,
+}
+
+#[derive(Serialize)]
+struct ActiveProfileResponse {
+    active_profile: Option<ProfileCatalogEntry>,
+}
+
+#[derive(Deserialize)]
+struct ProfileSelectionRequest {
+    profile: String,
+}
+
+#[derive(Serialize)]
+struct ProfileSelectionResponse {
+    active_profile: ProfileCatalogEntry,
+}
+
 impl ControlPlane {
-    pub fn new(config: StaticConfig, mode: ControlMode, ready: Arc<AtomicBool>, shutdown_tx: watch::Sender<bool>) -> Self {
+    pub fn new(
+        config: StaticConfig,
+        mode: ControlMode,
+        ready: Arc<AtomicBool>,
+        shutdown_tx: watch::Sender<bool>,
+        profile_store: ProfileStore,
+    ) -> Self {
         Self {
             config,
             mode,
+            profile_store,
             ready,
             shutdown_tx,
         }
@@ -105,6 +136,7 @@ impl ControlPlane {
         let state = ControlState {
             config: self.config,
             mode: self.mode,
+            profile_store: self.profile_store,
             ready,
             shutdown_tx: self.shutdown_tx,
         };
@@ -115,6 +147,9 @@ impl ControlPlane {
             .route("/ca/init", post(post_ca_init))
             .route("/stop", post(post_stop))
             .route("/telemetry/snapshot", get(get_telemetry_snapshot))
+            .route("/profiles/catalog", get(get_profile_catalog))
+            .route("/profiles/active", get(get_active_profile))
+            .route("/profiles/select", post(post_profile_select))
             .route("/profiles/validate", post(post_profile_validate))
             .with_state(state);
 
@@ -175,6 +210,31 @@ async fn get_telemetry_snapshot() -> Json<TelemetrySnapshotResponse> {
     Json(TelemetrySnapshotResponse {
         events: telemetry::snapshot(),
     })
+}
+
+async fn get_profile_catalog(State(state): State<ControlState>) -> Json<ProfileCatalogResponse> {
+    Json(ProfileCatalogResponse {
+        active_profile: state.profile_store.active_profile(),
+        profiles: state.profile_store.catalog(),
+    })
+}
+
+async fn get_active_profile(State(state): State<ControlState>) -> Json<ActiveProfileResponse> {
+    Json(ActiveProfileResponse {
+        active_profile: state.profile_store.active_profile(),
+    })
+}
+
+async fn post_profile_select(
+    State(state): State<ControlState>,
+    Json(request): Json<ProfileSelectionRequest>,
+) -> Result<Json<ProfileSelectionResponse>, (StatusCode, String)> {
+    let active_profile = state
+        .profile_store
+        .select_profile(&request.profile)
+        .map_err(|err| (StatusCode::BAD_REQUEST, err.to_string()))?;
+
+    Ok(Json(ProfileSelectionResponse { active_profile }))
 }
 
 async fn post_profile_validate(

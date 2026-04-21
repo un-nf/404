@@ -1,9 +1,16 @@
 {
+  "profile_identity": {
+    "family": "chromium-like",
+    "variant": "edge",
+    "platform": "windows",
+    "channel": "stable",
+    "selection_weight": 0.3
+  },
   "set": [],
   "replace": [
     [
       "User-Agent",
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0"
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0"
     ],
     [
       "Accept-Language",
@@ -11,7 +18,7 @@
     ],
     [
       "sec-ch-ua",
-      "\"Not A(Brand\";v=\"8\", \"Chromium\";v=\"141\", \"Microsoft Edge\";v=\"141\""
+      "\"Microsoft Edge\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\""
     ],
     [
       "sec-ch-ua-mobile",
@@ -23,7 +30,7 @@
     ],
     [
       "sec-ch-ua-full-version",
-      "\"141.0.0.0\""
+      "\"147.0.3912.72\""
     ],
     [
       "sec-ch-ua-platform-version",
@@ -77,18 +84,37 @@
     "access-control-request-method"
   ],
   "fingerprint": {
-    "name": "Edge 141 - Windows 10",
+    "name": "Edge 147 - Windows 10",
+    "browser_family": "chromium-like",
+    "browser_variant": "edge",
     "browser_type": "edge",
-    "browser_version": "141.0.0.0",
+    "browser_version": "147.0.3912.72",
     "os": "Windows",
     "os_version": "10.0",
-    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0",
     "platform": "Win32",
     "vendor": "Google Inc.",
     "vendor_flavors": [
       "Chromium",
       "Microsoft Edge"
     ],
+    "ua_data": {
+      "brands": [
+        {"brand": "Microsoft Edge", "version": "147"},
+        {"brand": "Not.A/Brand", "version": "8"},
+        {"brand": "Chromium", "version": "147"}
+      ],
+      "full_version_list": [
+        {"brand": "Microsoft Edge", "version": "147.0.3912.72"},
+        {"brand": "Not.A/Brand", "version": "8.0.0.0"},
+        {"brand": "Chromium", "version": "147.0.3912.72"}
+      ],
+      "platform": "Windows",
+      "platform_version": "15.0.0",
+      "architecture": "x86",
+      "bitness": "64",
+      "ua_full_version": "147.0.3912.72"
+    },
     "vendorSub": "",
     "productSub": "20030107",
     "hardware_concurrency": 8,
@@ -196,10 +222,10 @@
     "webrtc_local_ips": [
       "192.168.1.100"
     ],
-    "sec_ch_ua": "\"Not A(Brand\";v=\"8\", \"Chromium\";v=\"141\", \"Microsoft Edge\";v=\"141\"",
+    "sec_ch_ua": "\"Not_A Brand\";v=\"8\", \"Chromium\";v=\"147\", \"Microsoft Edge\";v=\"147\"",
     "sec_ch_ua_mobile": "?0",
     "sec_ch_ua_platform": "\"Windows\"",
-    "sec_ch_ua_full_version": "\"141.0.0.0\"",
+    "sec_ch_ua_full_version": "\"147.0.3912.72\"",
     "sec_ch_ua_arch": "\"x86\"",
     "sec_ch_ua_platform_version": "\"15.0.0\"",
     "sec_ch_ua_bitness": "\"64\"",
@@ -244,29 +270,27 @@
     },
     "cipher_catalog": {
       "tls13": [
-        {"name": "TLS_AES_128_GCM_SHA256", "iana_id": 4865},
-        {"name": "TLS_AES_256_GCM_SHA384", "iana_id": 4866},
-        {"name": "TLS_CHACHA20_POLY1305_SHA256", "iana_id": 4867}
+        {"name": "TLS_AES_128_GCM_SHA256"},
+        {"name": "TLS_AES_256_GCM_SHA384"},
+        {"name": "TLS_CHACHA20_POLY1305_SHA256"}
       ],
       "tls12": [
-        {"name": "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256", "iana_id": 49195},
-        {"name": "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256", "iana_id": 49199},
-        {"name": "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384", "iana_id": 49196},
-        {"name": "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384", "iana_id": 49200},
-        {"name": "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256", "iana_id": 52393},
-        {"name": "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256", "iana_id": 52392},
-        {"name": "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA", "iana_id": 49161},
-        {"name": "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA", "iana_id": 49171},
-        {"name": "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA", "iana_id": 49162},
-        {"name": "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA", "iana_id": 49172}
+        {"name": "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256"},
+        {"name": "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"},
+        {"name": "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"},
+        {"name": "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"},
+        {"name": "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256"},
+        {"name": "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256"},
+        {"name": "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA"},
+        {"name": "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA"},
+        {"name": "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA"},
+        {"name": "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA"}
       ]
     },
     "hello_variants": [
       {
-        "id": "edge_h3_release_a",
+        "id": "edge_h2_release_a",
         "weight": 0.5,
-        "ja3": "771,4865-4866-4867,65037-57-27-17613-43-0-13-51-45-10-16-42-41,4588-29-23-24,0",
-        "ja4": "q13d0313h3_1301,1302,1303_000a,000d,001b,0029,002a,002b,002d,0033,0039,44cd,fe0d_0403,0804,0401,0503,0805,0501,0806,0601,0201",
         "alpn": ["h2", "http/1.1"],
         "cipher_order": {
           "mode": "catalog",
@@ -314,7 +338,6 @@
           {"code": "0017", "name": "extended_master_secret"},
           {"code": "0012", "name": "signed_certificate_timestamp"},
           {"code": "0005", "name": "status_request"},
-          {"code": "0039", "name": "post_handshake_auth"},
           {"code": "fe0d", "name": "padding"}
         ],
         "supported_groups": ["x25519", "secp256r1", "secp384r1"],
@@ -331,20 +354,15 @@
         "key_share_order": ["x25519", "secp256r1"],
         "psk_key_exchange_modes": ["psk_dhe_ke"],
         "session_resumption": {
-          "enable_tickets": true,
-          "max_early_data": 0,
-          "ticket_lifetime_seconds": 43200
+          "enable_tickets": true
         },
         "record_layer": {
-          "padding_strategy": "edge",
           "max_fragment": 16384
         }
       },
       {
-        "id": "edge_h3_release_b",
+        "id": "edge_h2_release_b",
         "weight": 0.3,
-        "ja3": "771,4865-4866-4867,43-27-13-57-45-17613-16-42-65037-51-10-0-41,4588-29-23-24,0",
-        "ja4": "q13d0313h3_1301,1302,1303_000a,000d,001b,0029,002a,002b,002d,0033,0039,44cd,fe0d_0403,0804,0401,0503,0805,0501,0806,0601,0201",
         "alpn": ["h2", "http/1.1"],
         "cipher_order": {
           "mode": "catalog",
@@ -391,7 +409,6 @@
           {"code": "0033", "name": "key_share"},
           {"code": "0010", "name": "application_layer_protocol_negotiation"},
           {"code": "0000", "name": "server_name"},
-          {"code": "0039", "name": "post_handshake_auth"},
           {"code": "fe0d", "name": "padding"}
         ],
         "supported_groups": ["x25519", "secp256r1", "secp384r1"],
@@ -408,21 +425,16 @@
         "key_share_order": ["x25519"],
         "psk_key_exchange_modes": ["psk_dhe_ke"],
         "session_resumption": {
-          "enable_tickets": true,
-          "max_early_data": 0,
-          "ticket_lifetime_seconds": 43200
+          "enable_tickets": true
         },
         "record_layer": {
-          "padding_strategy": "edge",
           "max_fragment": 16384
         }
       },
       {
-        "id": "edge_h2_fallback",
+        "id": "edge_h1_fallback",
         "weight": 0.2,
-        "ja3": "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-21,29-23-24,0",
-        "ja4": "t13d1516h2_1301,1302,1303,c02b,c02f,c02c,c030,cca9,cca8,009c,009d,002f,0035_000a,000b,000d,0010,0012,0017,0023,002b,002d,0033,ff01_0403,0804,0401,0503,0805,0501,0806,0601",
-        "alpn": ["h2", "http/1.1"],
+        "alpn": ["http/1.1"],
         "cipher_order": {
           "mode": "explicit",
           "sequence": [
@@ -448,7 +460,6 @@
           {"code": "ff01", "name": "renegotiation_info"},
           {"code": "000b", "name": "ec_point_formats"},
           {"code": "0010", "name": "application_layer_protocol_negotiation"},
-          {"code": "445c", "name": "application_settings"},
           {"code": "0000", "name": "server_name"},
           {"code": "000d", "name": "signature_algorithms"},
           {"code": "002d", "name": "psk_key_exchange_modes"},
@@ -471,46 +482,36 @@
         "key_share_order": ["x25519"],
         "psk_key_exchange_modes": ["psk_dhe_ke"],
         "session_resumption": {
-          "enable_tickets": true,
-          "max_early_data": 0,
-          "ticket_lifetime_seconds": 21600
+          "enable_tickets": true
         },
         "record_layer": {
-          "padding_strategy": "none",
           "max_fragment": 16384
         }
       }
     ],
         "http2": {
-      "initial_stream_id": 3,
+      "initial_stream_id": 1,
       "header_table_size": 65536,
       "enable_push": false,
-      "initial_window_size": 131072,
-      "initial_connection_window_size": 12582912,
-      "max_frame_size": 16384,
-      "max_header_list_size": 65536,
-      "enable_connect_protocol": false,
-      "no_rfc7540_priorities": false,
+      "initial_window_size": 6291456,
+      "initial_connection_window_size": 15728640,
+      "max_header_list_size": 262144,
       "pseudo_header_order": [
         "method",
-        "path",
         "authority",
-        "scheme"
+        "scheme",
+        "path"
       ],
       "settings_order": [
         "header_table_size",
         "enable_push",
-        "max_concurrent_streams",
         "initial_window_size",
-        "max_frame_size",
-        "max_header_list_size",
-        "enable_connect_protocol",
-        "no_rfc7540_priorities"
+        "max_header_list_size"
       ],
       "headers_stream_dependency": {
         "stream_id": 0,
-        "weight": 41,
-        "exclusive": false
+        "weight": 220,
+        "exclusive": true
       }
     },
     "handshake_features": {

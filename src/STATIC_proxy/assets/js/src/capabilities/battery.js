@@ -1,3 +1,5 @@
+import { getFingerprint } from '../core/config.js'
+import { isFirefoxLike } from '../core/browser.js'
 import { markModule } from '../core/guard.js'
 import { markNativeCode } from '../core/toString.js'
 
@@ -18,6 +20,12 @@ function createBatteryManager() {
 }
 
 export function installBattery() {
+  const fingerprint = getFingerprint()
+  if (isFirefoxLike(fingerprint)) {
+    markModule('battery')
+    return
+  }
+
   const manager = createBatteryManager()
 
   Object.defineProperty(Navigator.prototype, 'getBattery', {

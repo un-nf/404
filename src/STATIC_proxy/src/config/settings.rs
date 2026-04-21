@@ -119,6 +119,23 @@ impl StaticConfig {
         Ok(cfg)
     }
 
+    /// Builds a minimal runtime config for standalone binary usage.
+    pub fn default_for_cli(profiles_path: PathBuf) -> Self {
+        Self {
+            listener: ListenerConfig::default(),
+            tls: TlsConfig::default(),
+            pipeline: PipelineConfig {
+                profiles_path,
+                default_profile: None,
+                js_debug: false,
+                alt_svc_strategy: AltSvcStrategy::Normalize,
+                body_limits: BodyLimitsConfig::default(),
+            },
+            http3: Http3Config::default(),
+            telemetry: TelemetryConfig::default(),
+        }
+    }
+
     /// Helper that resolves relative directories against the config file's location.
     fn absolutize_dir(base_dir: Option<&Path>, target: &mut PathBuf) {
         if target.is_relative() {
@@ -186,6 +203,16 @@ pub struct ListenerConfig {
     pub proxy_protocol: ProxyProtocol,
 }
 
+impl Default for ListenerConfig {
+    fn default() -> Self {
+        Self {
+            bind_address: default_bind_address(),
+            bind_port: default_bind_port(),
+            proxy_protocol: ProxyProtocol::default(),
+        }
+    }
+}
+
 /// Default listener bind address (loopback).
 fn default_bind_address() -> String {
     "127.0.0.1".into()
@@ -217,13 +244,21 @@ pub struct TlsConfig {
     pub keystore: KeystoreConfig,
 }
 
+impl Default for TlsConfig {
+    fn default() -> Self {
+        Self {
+            keystore: KeystoreConfig::default(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct PipelineConfig {
     /// Path to the fingerprint profile directory or JSON bundle (relative paths resolve beside the config file).
     pub profiles_path: PathBuf,
     /// Profile name applied when routing logic does not override the fingerprint plan.
-    #[serde(default = "default_profile_name")]
-    pub default_profile: String,
+    #[serde(default)]
+    pub default_profile: Option<String>,
     /// Turns on verbose JS injection logging so CSP/script issues are easier to spot.
     #[serde(default)]
     pub js_debug: bool,
@@ -233,6 +268,15 @@ pub struct PipelineConfig {
     /// Hard caps for buffered request, response, and decompressed HTML bodies.
     #[serde(default)]
     pub body_limits: BodyLimitsConfig,
+}
+
+impl PipelineConfig {
+    pub fn selected_profile(&self) -> Option<&str> {
+        self.default_profile
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -295,10 +339,6 @@ impl Default for AltSvcStrategy {
     }
 }
 
-fn default_profile_name() -> String {
-    "firefox-windows".to_string()
-}
-
 fn default_request_body_limit_bytes() -> usize {
     16 * 1024 * 1024
 }
@@ -324,6 +364,14 @@ pub struct TelemetryConfig {
     /// Telemetry output: human-friendly stdout or structured JSON.
     #[serde(default)]
     pub mode: TelemetryMode,
+}
+
+impl Default for TelemetryConfig {
+    fn default() -> Self {
+        Self {
+            mode: TelemetryMode::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]

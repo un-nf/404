@@ -17,20 +17,24 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 */
 
-use std::borrow::Cow;
+use std::{
+    borrow::Cow,
+    collections::HashMap,
+    sync::{Arc, RwLock},
+};
 
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use http::header::{HeaderValue, CONTENT_LENGTH, HOST};
 use wreq::{
-    Client, Emulation,
+    Client,
     header::OrigHeaderMap,
     http2::{
         Http2Options, PseudoId, PseudoOrder, SettingId, SettingsOrder, StreamDependency,
         StreamId,
     },
     redirect::Policy,
-    tls::{AlpnProtocol, AlpsProtocol, ExtensionType, TlsOptions, TlsVersion},
+    tls::{AlpnProtocol, AlpsProtocol, ExtensionType, KeyShare, TlsOptions, TlsVersion},
 };
 
 use crate::{
@@ -87,15 +91,69 @@ pub trait OriginFetcher: Send + Sync {
     ) -> Result<StreamingOriginResponse>;
 }
 
-#[derive(Debug)]
 pub struct WreqOriginFetcher {
     max_response_body_bytes: usize,
+    clients: RwLock<HashMap<TransportClientKey, Arc<Client>>>,
 }
 
 impl WreqOriginFetcher {
     pub fn new(max_response_body_bytes: usize) -> Self {
         Self {
             max_response_body_bytes,
+            clients: RwLock::new(HashMap::new()),
+        }
+    }
+
+    fn cached_client(
+        &self,
+        request: &RequestParts,
+        tls_plan: Option<&TlsClientPlan>,
+        mode: UpstreamMode,
+    ) -> Result<Arc<Client>> {
+        let key = TransportClientKey::new(request, tls_plan, mode);
+
+        if let Some(client) = self
+            .clients
+            .read()
+            .map_err(|_| anyhow!("wreq client cache lock poisoned"))?
+            .get(&key)
+            .cloned()
+        {
+            return Ok(client);
+        }
+
+        let client = Arc::new(build_client(request.uri.scheme_str() != Some("http"), tls_plan, mode)?);
+
+        let mut clients = self
+            .clients
+            .write()
+            .map_err(|_| anyhow!("wreq client cache lock poisoned"))?;
+
+        Ok(clients.entry(key).or_insert_with(|| client).clone())
+    }
+}
+
+impl std::fmt::Debug for WreqOriginFetcher {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WreqOriginFetcher")
+            .field("max_response_body_bytes", &self.max_response_body_bytes)
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct TransportClientKey {
+    is_https: bool,
+    mode: UpstreamMode,
+    tls_plan: Option<TlsClientPlan>,
+}
+
+impl TransportClientKey {
+    fn new(request: &RequestParts, tls_plan: Option<&TlsClientPlan>, mode: UpstreamMode) -> Self {
+        Self {
+            is_https: request.uri.scheme_str() != Some("http"),
+            mode,
+            tls_plan: tls_plan.cloned(),
         }
     }
 }
@@ -110,6 +168,7 @@ impl OriginFetcher for WreqOriginFetcher {
         mode: UpstreamMode,
     ) -> Result<OriginResponse> {
         match attempt_fetch(
+            self,
             flow,
             target,
             tls_plan.as_ref(),
@@ -119,13 +178,14 @@ impl OriginFetcher for WreqOriginFetcher {
         .await
         {
             Ok(origin) => Ok(origin),
-            Err(err) if should_retry_http1_only(tls_plan.as_ref(), mode) => {
+            Err(err) if should_retry_http1_only(tls_plan.as_ref(), mode, &err) => {
                 tracing::warn!(
                     target = %format!("{}:{}", target.host, target.port),
                     error = %format_args!("{err:#}"),
                     "preferred HTTP/2 upstream fetch failed, retrying over HTTP/1.1"
                 );
                 attempt_fetch(
+                    self,
                     flow,
                     target,
                     tls_plan.as_ref(),
@@ -145,15 +205,16 @@ impl OriginFetcher for WreqOriginFetcher {
         tls_plan: Option<TlsClientPlan>,
         mode: UpstreamMode,
     ) -> Result<StreamingOriginResponse> {
-        match attempt_fetch_streaming(flow, target, tls_plan.as_ref(), mode).await {
+        match attempt_fetch_streaming(self, flow, target, tls_plan.as_ref(), mode).await {
             Ok(origin) => Ok(origin),
-            Err(err) if should_retry_http1_only(tls_plan.as_ref(), mode) => {
+            Err(err) if should_retry_http1_only(tls_plan.as_ref(), mode, &err) => {
                 tracing::warn!(
                     target = %format!("{}:{}", target.host, target.port),
                     error = %format_args!("{err:#}"),
                     "preferred HTTP/2 upstream fetch failed, retrying over HTTP/1.1"
                 );
                 attempt_fetch_streaming(
+                    self,
                     flow,
                     target,
                     tls_plan.as_ref(),
@@ -166,7 +227,11 @@ impl OriginFetcher for WreqOriginFetcher {
     }
 }
 
-fn should_retry_http1_only(tls_plan: Option<&TlsClientPlan>, mode: UpstreamMode) -> bool {
+fn should_retry_http1_only(
+    tls_plan: Option<&TlsClientPlan>,
+    mode: UpstreamMode,
+    _err: &anyhow::Error,
+) -> bool {
     if mode != UpstreamMode::PreferHttp2 {
         return false;
     }
@@ -175,13 +240,14 @@ fn should_retry_http1_only(tls_plan: Option<&TlsClientPlan>, mode: UpstreamMode)
 }
 
 async fn attempt_fetch(
+    fetcher: &WreqOriginFetcher,
     flow: &Flow,
     target: &OriginTarget,
     tls_plan: Option<&TlsClientPlan>,
     mode: UpstreamMode,
     max_response_body_bytes: usize,
 ) -> Result<OriginResponse> {
-    let response = send_request(flow, target, tls_plan, mode).await?;
+    let response = send_request(fetcher, flow, target, tls_plan, mode).await?;
 
     let upstream_protocol = negotiated_protocol_label(response.version());
     let response = response_into_parts(response, max_response_body_bytes).await?;
@@ -193,12 +259,13 @@ async fn attempt_fetch(
 }
 
 async fn attempt_fetch_streaming(
+    fetcher: &WreqOriginFetcher,
     flow: &Flow,
     target: &OriginTarget,
     tls_plan: Option<&TlsClientPlan>,
     mode: UpstreamMode,
 ) -> Result<StreamingOriginResponse> {
-    let response = send_request(flow, target, tls_plan, mode).await?;
+    let response = send_request(fetcher, flow, target, tls_plan, mode).await?;
     let upstream_protocol = negotiated_protocol_label(response.version());
 
     Ok(StreamingOriginResponse {
@@ -208,13 +275,14 @@ async fn attempt_fetch_streaming(
 }
 
 async fn send_request(
+    fetcher: &WreqOriginFetcher,
     flow: &Flow,
     target: &OriginTarget,
     tls_plan: Option<&TlsClientPlan>,
     mode: UpstreamMode,
 ) -> Result<wreq::Response> {
-    let client = build_client(&flow.request, target, tls_plan, mode)?;
-    let request = build_request(&client, flow, target, mode)?;
+    let client = fetcher.cached_client(&flow.request, tls_plan, mode)?;
+    let request = build_request(client.as_ref(), flow, target, mode)?;
     let mode_label = match mode {
         UpstreamMode::Http1Only => "http1-only",
         UpstreamMode::PreferHttp2 => "prefer-http2",
@@ -237,23 +305,31 @@ async fn send_request(
 }
 
 fn build_client(
-    request: &RequestParts,
-    target: &OriginTarget,
+    is_https: bool,
     tls_plan: Option<&TlsClientPlan>,
     mode: UpstreamMode,
 ) -> Result<Client> {
-    let headers = upstream_headers(request, &target.host, target.port, mode);
-    let emulation = build_emulation_provider(headers, tls_plan, mode);
-
     let mut builder = Client::builder()
         .no_proxy()
-        .https_only(true)
         .redirect(Policy::none())
         .no_gzip()
         .no_brotli()
         .no_deflate()
-        .no_zstd()
-        .emulation(emulation);
+        .no_zstd();
+
+    if let Some(tls_config) = tls_plan.map(|plan| build_tls_config(plan, mode)) {
+        builder = builder.tls_options(tls_config);
+    }
+
+    if mode != UpstreamMode::Http1Only && tls_plan.map(plan_supports_h2_upstream).unwrap_or(true) {
+        if let Some(http2_config) = tls_plan.and_then(|plan| plan.http2()).map(build_http2_config) {
+            builder = builder.http2_options(http2_config);
+        }
+    }
+
+    if is_https {
+        builder = builder.https_only(true);
+    }
 
     if mode == UpstreamMode::Http1Only {
         builder = builder.http1_only();
@@ -301,6 +377,10 @@ fn build_tls_config(plan: &TlsClientPlan, mode: UpstreamMode) -> TlsOptions {
 
     if let Some(value) = tls_curves_list(plan) {
         builder = builder.curves_list(Cow::Owned(value));
+    }
+
+    if let Some(value) = tls_key_shares(plan) {
+        builder = builder.key_shares(Cow::Owned(value));
     }
 
     let (extension_permutation, unsupported_extensions) =
@@ -378,22 +458,6 @@ fn build_http2_config(plan: &Http2Plan) -> Http2Options {
     builder.build()
 }
 
-fn apply_emulation_options(
-    mut builder: wreq::EmulationBuilder,
-    tls_config: Option<TlsOptions>,
-    http2_config: Option<Http2Options>,
-) -> wreq::EmulationBuilder {
-    if let Some(tls_config) = tls_config {
-        builder = builder.tls_options(tls_config);
-    }
-
-    if let Some(http2_config) = http2_config {
-        builder = builder.http2_options(http2_config);
-    }
-
-    builder
-}
-
 fn build_request(
     client: &Client,
     flow: &Flow,
@@ -402,7 +466,12 @@ fn build_request(
 ) -> Result<wreq::RequestBuilder> {
     let url = origin_url(&flow.request, target);
     let method = flow.request.method.clone();
-    let mut request = client.request(method, &url);
+    let headers = upstream_headers(&flow.request, &target.host, target.port, mode);
+    let mut request = client
+        .request(method, &url)
+        .default_headers(false)
+        .headers(headers.clone())
+        .orig_headers(header_order(&headers));
 
     if mode == UpstreamMode::Http1Only {
         request = request.version(http::Version::HTTP_11);
@@ -414,30 +483,11 @@ fn build_request(
     Ok(request)
 }
 
-fn build_emulation_provider(
-    headers: http::HeaderMap,
-    tls_plan: Option<&TlsClientPlan>,
-    mode: UpstreamMode,
-) -> Emulation {
-    let tls_config = tls_plan.map(|plan| build_tls_config(plan, mode));
-    let http2_config = if mode != UpstreamMode::Http1Only && tls_plan.map(plan_supports_h2_upstream).unwrap_or(true) {
-        tls_plan.and_then(|plan| plan.http2()).map(build_http2_config)
-    } else {
-        None
-    };
-
-    apply_emulation_options(
-        Emulation::builder()
-        .headers(headers.clone())
-        .orig_headers(header_order(&headers)),
-        tls_config,
-        http2_config,
-    )
-    .build()
-}
-
 fn origin_url(request: &RequestParts, target: &OriginTarget) -> String {
+    let scheme = request.uri.scheme_str().unwrap_or("https");
     let authority = if target.port == 443 {
+        target.host.clone()
+    } else if target.port == 80 && scheme == "http" {
         target.host.clone()
     } else {
         format!("{}:{}", target.host, target.port)
@@ -448,7 +498,7 @@ fn origin_url(request: &RequestParts, target: &OriginTarget) -> String {
         .map(|value| value.as_str())
         .unwrap_or("/");
 
-    format!("https://{}{}", authority, path)
+    format!("{}://{}{}", scheme, authority, path)
 }
 
 const REQUEST_HOP_BY_HOP_HEADERS: &[&str] = &[
@@ -647,6 +697,20 @@ fn tls_curves_list(plan: &TlsClientPlan) -> Option<String> {
     }
 }
 
+fn tls_key_shares(plan: &TlsClientPlan) -> Option<Vec<KeyShare>> {
+    let key_shares = plan
+        .key_share_order()
+        .iter()
+        .filter_map(|group| to_wreq_key_share(group))
+        .collect::<Vec<_>>();
+
+    if key_shares.is_empty() {
+        None
+    } else {
+        Some(key_shares)
+    }
+}
+
 fn select_alps(
     extension_sequence: &[TlsExtensionPlan],
     alpn: &[AlpnProtocol],
@@ -659,23 +723,15 @@ fn select_alps(
         return None;
     };
 
-    let mut alps = Vec::new();
-    if alpn.contains(&AlpnProtocol::HTTP2) {
-        alps.push(AlpsProtocol::HTTP2);
-    }
-    if alpn.contains(&AlpnProtocol::HTTP1) {
-        alps.push(AlpsProtocol::HTTP1);
-    }
-
-    if alps.is_empty() {
+    if !alpn.contains(&AlpnProtocol::HTTP2) {
         return None;
     }
 
     Some((
-        alps,
+        vec![AlpsProtocol::HTTP2],
         matches!(
             application_settings.code().map(ExtensionType::from),
-            Some(code) if code == ExtensionType::APPLICATION_SETTINGS_NEW
+            Some(code) if code == ExtensionType::APPLICATION_SETTINGS
         ),
     ))
 }
@@ -696,6 +752,18 @@ fn to_wreq_extension_permutation(sequence: &[TlsExtensionPlan]) -> (Vec<Extensio
 }
 
 fn to_wreq_extension_type(extension: &TlsExtensionPlan) -> Option<ExtensionType> {
+    if extension.name().eq_ignore_ascii_case("grease") {
+        return None;
+    }
+
+    if extension.name().eq_ignore_ascii_case("padding") {
+        return Some(ExtensionType::PADDING);
+    }
+
+    if extension.name().eq_ignore_ascii_case("application_settings") {
+        return Some(ExtensionType::APPLICATION_SETTINGS);
+    }
+
     if let Some(code) = extension.code() {
         return Some(ExtensionType::from(code));
     }
@@ -746,6 +814,20 @@ fn to_wreq_curve_name(name: &str) -> Option<&'static str> {
     }
 }
 
+fn to_wreq_key_share(name: &str) -> Option<KeyShare> {
+    match name.to_ascii_lowercase().as_str() {
+        "x25519" => Some(KeyShare::X25519),
+        "secp256r1" | "p256" => Some(KeyShare::P256),
+        "secp384r1" | "p384" => Some(KeyShare::P384),
+        "secp521r1" | "p521" => Some(KeyShare::P521),
+        "x25519mlkem768" => Some(KeyShare::X25519_MLKEM768),
+        other => {
+            tracing::debug!(curve = other, "unsupported wreq key share in profile");
+            None
+        }
+    }
+}
+
 fn to_wreq_stream_dependency(
     dependency: &crate::tls::profiles::Http2StreamDependencyPlan,
 ) -> StreamDependency {
@@ -755,7 +837,7 @@ fn to_wreq_stream_dependency(
         StreamId::from(dependency.stream_id)
     };
 
-    StreamDependency::new(stream_id, dependency.weight, dependency.exclusive)
+    StreamDependency::new(stream_id, dependency.weight.saturating_sub(1), dependency.exclusive)
 }
 
 fn to_wreq_pseudo_id(name: &str) -> Option<PseudoId> {
@@ -817,16 +899,18 @@ fn to_wreq_settings_order(order: &[String]) -> Option<SettingsOrder> {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_http2_config, plan_supports_h2_upstream, select_alpn, select_alps, should_retry_http1_only,
-        to_wreq_extension_permutation, to_wreq_pseudo_id, to_wreq_setting_id, upstream_headers, UpstreamMode,
+        TransportClientKey, build_http2_config, origin_url, plan_supports_h2_upstream,
+        select_alpn, select_alps, should_retry_http1_only, tls_key_shares,
+        to_wreq_extension_permutation, to_wreq_pseudo_id, to_wreq_setting_id,
+        to_wreq_stream_dependency, upstream_headers, OriginTarget, UpstreamMode,
     };
     use crate::proxy::{BodyBuffer, RequestParts};
-    use crate::tls::profiles::{Http2Plan, TlsClientPlan, TlsExtensionPlan};
+    use crate::tls::profiles::{Http2Plan, Http2StreamDependencyPlan, TlsClientPlan, TlsExtensionPlan};
     use http::header::{CONTENT_LENGTH, HOST};
     use http::{HeaderMap, HeaderValue, Method, Uri, Version};
     use wreq::{
-        http2::{PseudoId, SettingId},
-        tls::{AlpnProtocol, AlpsProtocol, ExtensionType},
+        http2::{PseudoId, SettingId, StreamDependency, StreamId},
+        tls::{AlpnProtocol, AlpsProtocol, ExtensionType, KeyShare},
     };
 
     fn sample_tls_plan(alpn: Vec<&str>) -> TlsClientPlan {
@@ -851,12 +935,18 @@ mod tests {
     }
 
     #[test]
-    fn http2_retry_only_applies_without_a_tls_plan() {
+    fn http2_retry_applies_only_without_a_tls_plan() {
         let h2_plan = TlsClientPlan::test_fixture(vec!["h2".into(), "http/1.1".into()]);
+        let retryable = anyhow::Error::new(std::io::Error::new(
+            std::io::ErrorKind::ConnectionReset,
+            "reset by peer",
+        ));
+        let non_retryable = anyhow::anyhow!("certificate mismatch");
 
-        assert!(should_retry_http1_only(None, UpstreamMode::PreferHttp2));
-        assert!(!should_retry_http1_only(Some(&h2_plan), UpstreamMode::PreferHttp2));
-        assert!(!should_retry_http1_only(Some(&h2_plan), UpstreamMode::Http1Only));
+        assert!(should_retry_http1_only(None, UpstreamMode::PreferHttp2, &non_retryable));
+        assert!(!should_retry_http1_only(Some(&h2_plan), UpstreamMode::PreferHttp2, &retryable));
+        assert!(!should_retry_http1_only(Some(&h2_plan), UpstreamMode::PreferHttp2, &non_retryable));
+        assert!(!should_retry_http1_only(Some(&h2_plan), UpstreamMode::Http1Only, &retryable));
     }
 
     #[test]
@@ -903,6 +993,20 @@ mod tests {
     }
 
     #[test]
+    fn stream_dependency_weight_maps_to_the_wire_value_expected_by_wreq() {
+        let dependency = Http2StreamDependencyPlan {
+            stream_id: 0,
+            weight: 220,
+            exclusive: true,
+        };
+
+        assert_eq!(
+            to_wreq_stream_dependency(&dependency),
+            StreamDependency::new(StreamId::ZERO, 219, true)
+        );
+    }
+
+    #[test]
     fn build_http2_config_preserves_supported_wreq6_fields() {
         let plan = Http2Plan {
             initial_stream_id: Some(1),
@@ -945,6 +1049,33 @@ mod tests {
     }
 
     #[test]
+    fn tls_key_shares_follow_profile_order() {
+        let plan = sample_tls_plan(vec!["h2", "http/1.1"])
+            .clone_with_alpn(vec!["h2".into(), "http/1.1".into()])
+            .with_key_share_order(vec!["x25519".into(), "secp256r1".into()]);
+
+        assert_eq!(tls_key_shares(&plan), Some(vec![KeyShare::X25519, KeyShare::P256]));
+    }
+
+    #[test]
+    fn transport_client_key_changes_when_alpn_changes() {
+        let request = RequestParts {
+            method: Method::GET,
+            uri: Uri::from_static("https://example.com/test"),
+            version: Version::HTTP_11,
+            headers: HeaderMap::new(),
+            body: BodyBuffer::default(),
+        };
+        let plan = sample_tls_plan(vec!["h2", "http/1.1"]);
+        let h1_only = plan.clone_with_alpn(vec!["http/1.1".into()]);
+
+        assert_ne!(
+            TransportClientKey::new(&request, Some(&plan), UpstreamMode::PreferHttp2),
+            TransportClientKey::new(&request, Some(&h1_only), UpstreamMode::PreferHttp2)
+        );
+    }
+
+    #[test]
     fn tls_extension_sequence_maps_to_wreq_permutation() {
         let (mapped, unsupported) = to_wreq_extension_permutation(&[
             TlsExtensionPlan::from_parts(Some(0x6a6a), "grease"),
@@ -958,7 +1089,7 @@ mod tests {
             mapped,
             vec![
                 ExtensionType::SERVER_NAME,
-                ExtensionType::from(0x445c),
+                ExtensionType::APPLICATION_SETTINGS,
                 ExtensionType::from(0x0031),
                 ExtensionType::PADDING,
             ]
@@ -974,8 +1105,18 @@ mod tests {
         )
         .expect("alps should be enabled when application_settings is requested");
 
-        assert_eq!(alps.0, vec![AlpsProtocol::HTTP2, AlpsProtocol::HTTP1]);
+        assert_eq!(alps.0, vec![AlpsProtocol::HTTP2]);
         assert!(!alps.1);
+    }
+
+    #[test]
+    fn application_settings_does_not_enable_alps_for_http1_only() {
+        let alps = select_alps(
+            &[TlsExtensionPlan::from_parts(Some(0x445c), "application_settings")],
+            &[AlpnProtocol::HTTP1],
+        );
+
+        assert!(alps.is_none());
     }
 
     #[test]
@@ -1021,6 +1162,21 @@ mod tests {
         let normalized = upstream_headers(&request, "example.com", 443, UpstreamMode::PreferHttp2);
 
         assert!(normalized.get(CONTENT_LENGTH).is_none());
+    }
+
+    #[test]
+    fn origin_url_preserves_plain_http_scheme() {
+        let request = RequestParts {
+            method: Method::GET,
+            uri: Uri::from_static("http://detectportal.firefox.com/canonical.html"),
+            version: Version::HTTP_11,
+            headers: HeaderMap::new(),
+            body: BodyBuffer::default(),
+        };
+
+        let url = origin_url(&request, &OriginTarget::new("detectportal.firefox.com".to_string(), 80));
+
+        assert_eq!(url, "http://detectportal.firefox.com/canonical.html");
     }
 
 }

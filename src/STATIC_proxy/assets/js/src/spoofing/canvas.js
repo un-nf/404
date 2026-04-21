@@ -25,6 +25,8 @@ const DEFAULT_NOISE = {
   touch_alpha: false,
 }
 
+const CANVAS_SIGNATURE_SAMPLES = 32
+
 function normalizeNoiseConfig(fingerprint) {
   return {
     ...DEFAULT_NOISE,
@@ -42,17 +44,58 @@ function clampByte(value) {
   return value
 }
 
-function createNoiseRng(runtime, fingerprint, width, height) {
-  const seed = runtime.entropy.hash(`${fingerprint.canvas_hash || 'static'}:${runtime.entropy.sessionId}:${width}x${height}`)
+function resolveOriginKey(runtime) {
+  if (runtime.entropy?.origin) {
+    return runtime.entropy.origin
+  }
+
+  try {
+    return location.origin
+  } catch {
+    return 'opaque'
+  }
+}
+
+function buildCanvasContentSignature(imageData, runtime, scopeLabel) {
+  const bytes = imageData?.data
+  const width = imageData?.width || 0
+  const height = imageData?.height || 0
+
+  if (!bytes?.length || width <= 0 || height <= 0) {
+    return `${scopeLabel}:${width}x${height}:empty`
+  }
+
+  const targetSamples = Math.max(1, Math.min(CANVAS_SIGNATURE_SAMPLES, Math.floor(bytes.length / 4)))
+  const stride = Math.max(4, Math.floor(bytes.length / targetSamples / 4) * 4)
+  let signature = 0x811c9dc5
+
+  for (let index = 0; index < bytes.length; index += stride) {
+    signature = runtime.entropy.hash(
+      `${signature}:${bytes[index] || 0}:${bytes[index + 1] || 0}:${bytes[index + 2] || 0}:${bytes[index + 3] || 0}`,
+    )
+  }
+
+  const lastIndex = Math.max(0, bytes.length - 4)
+  signature = runtime.entropy.hash(
+    `${signature}:${bytes[lastIndex] || 0}:${bytes[lastIndex + 1] || 0}:${bytes[lastIndex + 2] || 0}:${bytes[lastIndex + 3] || 0}`,
+  )
+
+  return `${scopeLabel}:${width}x${height}:${signature.toString(16)}`
+}
+
+function createNoiseRng(runtime, fingerprint, imageData, seedLabel) {
+  const scope = resolveOriginKey(runtime)
+  const signature = buildCanvasContentSignature(imageData, runtime, `${scope}:${seedLabel}`)
+  const seed = runtime.entropy.hash(`${fingerprint.canvas_hash || 'static'}:${runtime.entropy.sessionId}:${signature}`)
   return runtime.entropy.rng(seed)
 }
 
-function injectCanvasNoise(imageData, runtime, fingerprint, noiseConfig) {
+function injectCanvasNoise(imageData, runtime, fingerprint, noiseConfig, seedLabel = 'canvas') {
   if (!imageData?.data) {
     return
   }
 
-  const rng = createNoiseRng(runtime, fingerprint, imageData.width || 0, imageData.height || 0)
+  const rng = createNoiseRng(runtime, fingerprint, imageData, seedLabel)
   const stride = imageData.width <= noiseConfig.small_canvas_threshold && imageData.height <= noiseConfig.small_canvas_threshold
     ? noiseConfig.small_canvas_stride
     : noiseConfig.default_stride
@@ -97,7 +140,7 @@ function restoreSnapshot(context, snapshot, runtime) {
   }
 }
 
-function withCanvasExportNoise(canvasLike, runtime, fingerprint, noiseConfig, operation) {
+function withCanvasExportNoise(canvasLike, runtime, fingerprint, noiseConfig, operation, seedLabel = 'export') {
   if (!canvasLike || typeof canvasLike.getContext !== 'function') {
     return operation()
   }
@@ -111,7 +154,7 @@ function withCanvasExportNoise(canvasLike, runtime, fingerprint, noiseConfig, op
     const imageData = runtime.nativeRefs.canvasGetImageData.call(context, 0, 0, canvasLike.width || 0, canvasLike.height || 0)
     const snapshot = cloneSnapshot(imageData)
     canvasSnapshotMap.set(canvasLike, snapshot)
-    injectCanvasNoise(imageData, runtime, fingerprint, noiseConfig)
+    injectCanvasNoise(imageData, runtime, fingerprint, noiseConfig, seedLabel)
     runtime.nativeRefs.canvasPutImageData.call(context, imageData, 0, 0)
 
     let result
@@ -146,7 +189,7 @@ function exposeLegacyFingerprint(runtime, fingerprint) {
   const value = `${fingerprint.canvas_hash || 'static'}:${runtime.entropy.sessionId}`
   try {
     Object.defineProperty(window, '__404_canvas_fingerprint', {
-      value,
+      value: `${value}:${resolveOriginKey(runtime)}`,
       writable: false,
       enumerable: false,
       configurable: false,
@@ -170,14 +213,14 @@ export function installCanvasSpoof() {
   if (runtime.nativeRefs.canvasGetImageData) {
     defineMethod(runtime.nativeRefs.canvas2dPrototype, 'getImageData', markNativeCode(function getImageData(sx, sy, sw, sh) {
       const imageData = runtime.nativeRefs.canvasGetImageData.call(this, sx, sy, sw, sh)
-      injectCanvasNoise(imageData, runtime, fingerprint, noiseConfig)
+      injectCanvasNoise(imageData, runtime, fingerprint, noiseConfig, `readback:${sx || 0},${sy || 0},${sw || 0},${sh || 0}`)
       return imageData
     }, 'getImageData'))
   }
 
   if (runtime.nativeRefs.canvasToDataURL) {
     defineMethod(runtime.nativeRefs.canvasPrototype, 'toDataURL', markNativeCode(function toDataURL() {
-      return withCanvasExportNoise(this, runtime, fingerprint, noiseConfig, () => runtime.nativeRefs.canvasToDataURL.apply(this, arguments))
+      return withCanvasExportNoise(this, runtime, fingerprint, noiseConfig, () => runtime.nativeRefs.canvasToDataURL.apply(this, arguments), 'toDataURL')
     }, 'toDataURL'))
 
     if (runtime.nativeRefs.canvasToBlob) {
@@ -185,7 +228,7 @@ export function installCanvasSpoof() {
         const args = arguments
         return withCanvasExportNoise(this, runtime, fingerprint, noiseConfig, () => runtime.nativeRefs.canvasToBlob.call(this, function blobCallback() {
           return typeof callback === 'function' ? callback.apply(this, arguments) : undefined
-        }, args[1], args[2]))
+        }, args[1], args[2]), 'toBlob')
       }, 'toBlob'))
     }
   }
@@ -193,13 +236,13 @@ export function installCanvasSpoof() {
   if (runtime.nativeRefs.offscreenPrototype) {
     if (runtime.nativeRefs.offscreenConvertToBlob) {
       defineMethod(runtime.nativeRefs.offscreenPrototype, 'convertToBlob', markNativeCode(function convertToBlob() {
-        return withCanvasExportNoise(this, runtime, fingerprint, noiseConfig, () => runtime.nativeRefs.offscreenConvertToBlob.apply(this, arguments))
+        return withCanvasExportNoise(this, runtime, fingerprint, noiseConfig, () => runtime.nativeRefs.offscreenConvertToBlob.apply(this, arguments), 'convertToBlob')
       }, 'convertToBlob'))
     }
 
     if (runtime.nativeRefs.offscreenTransferToImageBitmap) {
       defineMethod(runtime.nativeRefs.offscreenPrototype, 'transferToImageBitmap', markNativeCode(function transferToImageBitmap() {
-        return withCanvasExportNoise(this, runtime, fingerprint, noiseConfig, () => runtime.nativeRefs.offscreenTransferToImageBitmap.apply(this, arguments))
+        return withCanvasExportNoise(this, runtime, fingerprint, noiseConfig, () => runtime.nativeRefs.offscreenTransferToImageBitmap.apply(this, arguments), 'transferToImageBitmap')
       }, 'transferToImageBitmap'))
     }
   }
@@ -207,7 +250,7 @@ export function installCanvasSpoof() {
   if (runtime.nativeRefs.createImageBitmap) {
     defineMethod(window, 'createImageBitmap', markNativeCode(function createImageBitmap(source) {
       if (source && typeof source === 'object' && 'width' in source && 'height' in source) {
-        return withCanvasExportNoise(source, runtime, fingerprint, noiseConfig, () => runtime.nativeRefs.createImageBitmap.apply(window, arguments))
+        return withCanvasExportNoise(source, runtime, fingerprint, noiseConfig, () => runtime.nativeRefs.createImageBitmap.apply(window, arguments), 'createImageBitmap')
       }
       return runtime.nativeRefs.createImageBitmap.apply(window, arguments)
     }, 'createImageBitmap'))

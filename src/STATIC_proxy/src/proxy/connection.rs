@@ -48,7 +48,7 @@ use crate::{
     telemetry::TelemetrySink,
     tls::{
         cert::TlsProvider,
-        profiles::{plan_from_profile, plan_from_profile_with_alpn}
+        profiles::{plan_attempts_from_profile_with_alpn, plan_from_profile, TlsClientPlan}
     },
 };
 
@@ -83,6 +83,12 @@ enum Protocol {
     Unknown,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HttpRequestKind {
+    Connect,
+    Plain,
+}
+
 /// Handles a single client connection from TCP accept through TLS termination, protocol routing,
 pub async fn handle_connection(
     mut socket: TcpStream,
@@ -99,16 +105,32 @@ pub async fn handle_connection(
 
     let target_host = match protocol {
         Protocol::Http => {
+            match detect_http_request_kind(&socket).await? {
+                HttpRequestKind::Connect => {
 
-            tracing::debug!(%peer, "HTTP CONNECT detected, establishing tunnel");
-            match handle_connect_tunnel(&mut socket).await {
-                Ok(host) => {
-                    tracing::info!(%peer, target = %host, "CONNECT tunnel established");
-                    Some(host)
+                    tracing::debug!(%peer, "HTTP CONNECT detected, establishing tunnel");
+                    match handle_connect_tunnel(&mut socket).await {
+                        Ok(host) => {
+                            tracing::info!(%peer, target = %host, "CONNECT tunnel established");
+                            Some(host)
+                        }
+                        Err(e) => {
+                            tracing::error!(%peer, error = %e, "CONNECT tunnel failed");
+                            return Err(e);
+                        }
+                    }
                 }
-                Err(e) => {
-                    tracing::error!(%peer, error = %e, "CONNECT tunnel failed");
-                    return Err(e);
+                HttpRequestKind::Plain => {
+                    tracing::debug!(%peer, "plain HTTP proxy request detected");
+                    return handle_plain_http_session(
+                        socket,
+                        peer,
+                        body_limits,
+                        fetcher,
+                        stages,
+                        telemetry,
+                    )
+                    .await;
                 }
             }
         }
@@ -125,7 +147,8 @@ pub async fn handle_connection(
 
     tracing::debug!(%peer, "starting TLS handshake");
 
-    let handshake = timeout(HANDSHAKE_TIMEOUT, accept_tls_session(socket, tls)).await;
+    let fallback_sni = handshake_fallback_sni(target_host.as_deref());
+    let handshake = timeout(HANDSHAKE_TIMEOUT, accept_tls_session(socket, tls, fallback_sni)).await;
     let (client_tls, sni) = match handshake {
         Ok(result) => result.with_context(|| format!("TLS handshake failed for {peer}"))?,
         Err(_) => {
@@ -176,6 +199,29 @@ pub async fn handle_connection(
     }
 }
 
+async fn detect_http_request_kind(socket: &TcpStream) -> Result<HttpRequestKind> {
+    let mut buf = [0u8; 4096];
+    let read = socket
+        .peek(&mut buf)
+        .await
+        .context("failed to peek HTTP request line")?;
+    if read == 0 {
+        anyhow::bail!("client closed connection before sending HTTP request line");
+    }
+
+    let method = String::from_utf8_lossy(&buf[..read])
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .to_ascii_uppercase();
+
+    if method == "CONNECT" {
+        Ok(HttpRequestKind::Connect)
+    } else {
+        Ok(HttpRequestKind::Plain)
+    }
+}
+
 /// Handles HTTP CONNECT tunnel establishment for browser proxy connections.
 async fn handle_connect_tunnel(socket: &mut TcpStream) -> Result<String> {
     let mut reader = BufReader::new(socket);
@@ -213,10 +259,10 @@ async fn handle_connect_tunnel(socket: &mut TcpStream) -> Result<String> {
 }
 
 /// Builds a rustls ServerConfig that dynamically issues certificates per-SNI.
-fn build_server_config(tls: Arc<TlsProvider>) -> ServerConfig {
+fn build_server_config(tls: Arc<TlsProvider>, fallback_sni: Option<String>) -> ServerConfig {
     let mut config = ServerConfig::builder()
         .with_no_client_auth()
-        .with_cert_resolver(Arc::new(OnDemandCertResolver::new(tls)));
+        .with_cert_resolver(Arc::new(OnDemandCertResolver::new(tls, fallback_sni)));
     config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
     config
 }
@@ -257,12 +303,14 @@ async fn handle_http1_session(
 
     stages.process_request(&mut flow).await?;
 
-    let mut tls_plan = plan_from_profile(&flow.metadata.fingerprint_config, flow.id)?;
-    if let Some(plan) = tls_plan.take() {
-        tls_plan = Some(plan.clone_with_alpn(vec!["http/1.1".to_string()]));
-    }
+    let tls_plan = http1_tls_plan(&flow.metadata.fingerprint_config, flow.id)?;
     if let Some(plan) = &tls_plan {
         flow.metadata.tls_variant_id = Some(plan.variant_id().to_string());
+        if !plan_supports_h2_upstream(plan) {
+            flow.metadata
+                .transport_notes
+                .push("upstream-http1-only-variant".to_string());
+        }
         tracing::debug!(%peer, variant = plan.variant_id(), "selected TLS hello variant");
     }
 
@@ -315,6 +363,69 @@ async fn handle_http1_session(
         .context("response missing after pipeline execution")?;
     send_response_to_client(&mut client_stream, response).await?;
     tracing::debug!(%peer, "response delivered to client");
+    Ok(())
+}
+
+async fn handle_plain_http_session(
+    mut client_stream: TcpStream,
+    peer: SocketAddr,
+    body_limits: BodyLimitsConfig,
+    fetcher: Arc<dyn OriginFetcher>,
+    stages: StagePipeline,
+    telemetry: TelemetrySink,
+) -> Result<()> {
+    let parsed = parse_http_request(&mut client_stream, body_limits.max_request_body_bytes).await?;
+    tracing::debug!(%peer, method = %parsed.request.method, uri = %parsed.request.uri, "parsed plain HTTP request");
+
+    let mut flow = Flow::new(parsed.request);
+    flow.metadata.client_protocol = Some("http/1.1".to_string());
+    flow.metadata.request_protocol = Some("http-proxy".to_string());
+    flow.metadata.buffering_mode = Some("buffered-http1".to_string());
+
+    if is_proxy_runtime_asset_request(&flow.request) {
+        flow.metadata.upstream_protocol = Some("local".to_string());
+        flow.metadata.buffering_mode = Some("local-asset".to_string());
+        flow.response = Some(build_proxy_runtime_asset_response(flow.request.version, &flow.request.method)?);
+        emit_flow_telemetry(&telemetry, &flow, &None, peer);
+        let response = flow.response.as_ref().context("runtime asset response missing")?;
+        send_response_to_client(&mut client_stream, response).await?;
+        return Ok(());
+    }
+
+    stages.process_request(&mut flow).await?;
+
+    let (host, port) = resolve_upstream_target(&flow);
+    tracing::debug!(%peer, %host, port, "connecting to upstream (plain HTTP/1.1)");
+    let origin = fetcher
+        .fetch(
+            &flow,
+            &OriginTarget::new(host, port),
+            None,
+            UpstreamMode::Http1Only,
+        )
+        .await?;
+    tracing::debug!(%peer, status = %origin.response.status, "received upstream response");
+    flow.metadata.upstream_protocol = Some(origin.upstream_protocol);
+    flow.response = Some(origin.response);
+
+    stages.process_response_headers(&mut flow).await?;
+    stages.process_response_body(&mut flow).await?;
+    stages.finalize_response(&mut flow).await?;
+
+    if let Some(response) = flow.response.as_mut() {
+        normalize_bootstrap_asset_response(&flow.request, response);
+        enforce_content_length(response)?;
+        response.version = flow.request.version;
+    }
+
+    emit_flow_telemetry(&telemetry, &flow, &None, peer);
+
+    let response = flow
+        .response
+        .as_ref()
+        .context("response missing after pipeline execution")?;
+    send_response_to_client(&mut client_stream, response).await?;
+    tracing::debug!(%peer, "plain HTTP response delivered to client");
     Ok(())
 }
 
@@ -490,6 +601,13 @@ fn is_benign_client_h2_stream_error(err: &anyhow::Error) -> bool {
     is_benign_client_h2_shutdown(&err.to_string())
 }
 
+#[derive(Debug, Clone)]
+struct Http2UpstreamAttempt {
+    tls_plan: Option<TlsClientPlan>,
+    upstream_mode: UpstreamMode,
+    transport_note: Option<&'static str>,
+}
+
 /// Executes the full HTTP/2 request lifecycle for a single client stream.
 async fn process_http2_stream(
     request: http::Request<h2::RecvStream>,
@@ -538,33 +656,34 @@ async fn process_http2_stream(
 
     stages.process_request(&mut flow).await?;
 
-    let tls_plan = plan_from_profile_with_alpn(&flow.metadata.fingerprint_config, flow.id, Some("h2"))?;
-    if let Some(plan) = &tls_plan {
-        flow.metadata.tls_variant_id = Some(plan.variant_id().to_string());
-        tracing::debug!(%peer, variant = plan.variant_id(), "selected TLS hello variant");
-    }
-    let upstream_mode = tls_plan
-        .as_ref()
-        .filter(|plan| plan_supports_h2_upstream(plan))
-        .map(|_| UpstreamMode::PreferHttp2)
-        .unwrap_or(UpstreamMode::Http1Only);
-    if upstream_mode == UpstreamMode::Http1Only {
-        flow.metadata.transport_notes.push("upstream-http1-only-plan".to_string());
-    }
-
     let (host, port) = resolve_upstream_target(&flow);
-    tracing::debug!(%peer, %host, port, "forwarding HTTP/2 stream upstream");
-
     let mut respond = respond;
-    match fetcher
-        .fetch_streaming(
-            &flow,
-            &OriginTarget::new(host.clone(), port),
-            tls_plan,
-            upstream_mode,
-        )
-        .await
-    {
+    let upstream_attempts = http2_upstream_attempts(&flow.metadata.fingerprint_config, flow.id)?;
+
+    let mut last_err = None;
+    let total_attempts = upstream_attempts.len();
+    for (attempt_index, attempt) in upstream_attempts.into_iter().enumerate() {
+        flow.metadata.tls_variant_id = None;
+        if let Some(plan) = &attempt.tls_plan {
+            flow.metadata.tls_variant_id = Some(plan.variant_id().to_string());
+            tracing::debug!(%peer, variant = plan.variant_id(), "selected TLS hello variant");
+        }
+
+        if let Some(note) = attempt.transport_note {
+            flow.metadata.transport_notes.push(note.to_string());
+        }
+
+        tracing::debug!(%peer, %host, port, attempt = attempt_index + 1, "forwarding HTTP/2 stream upstream");
+
+        match fetcher
+            .fetch_streaming(
+                &flow,
+                &OriginTarget::new(host.clone(), port),
+                attempt.tls_plan,
+                attempt.upstream_mode,
+            )
+            .await
+        {
         Ok(mut origin) => {
             tracing::debug!(
                 %peer,
@@ -580,28 +699,60 @@ async fn process_http2_stream(
                 .as_ref()
                 .map(|response| response_requires_body_buffering(&flow.request, response))
                 .unwrap_or(false);
+            let bootstrap_asset = is_bootstrap_asset_request(&flow.request);
             flow.metadata.buffering_mode = Some(if requires_buffering {
-                "buffered-h2-document".to_string()
+                if bootstrap_asset {
+                    "buffered-h2-bootstrap".to_string()
+                } else {
+                    "buffered-h2-document".to_string()
+                }
             } else {
                 "streaming-h2-raw".to_string()
             });
 
-            stages.process_response_headers(&mut flow).await?;
-
             if requires_buffering {
-                let response = flow
-                    .response
-                    .as_mut()
-                    .context("response missing after upstream response headers")?;
-                response.body = buffer_streaming_response_body(
-                    &mut origin.response,
-                    body_limits.max_response_body_bytes,
-                )
-                .await?;
-            }
+                let prepare_result: Result<()> = async {
+                    stages.process_response_headers(&mut flow).await?;
 
-            stages.process_response_body(&mut flow).await?;
-            stages.finalize_response(&mut flow).await?;
+                    let response = flow
+                        .response
+                        .as_mut()
+                        .context("response missing after upstream response headers")?;
+                    response.body = buffer_streaming_response_body(
+                        &mut origin.response,
+                        body_limits.max_response_body_bytes,
+                    )
+                    .await?;
+
+                    stages.process_response_body(&mut flow).await?;
+                    stages.finalize_response(&mut flow).await?;
+                    Ok(())
+                }
+                .await;
+
+                if let Err(err) = prepare_result {
+                    let should_retry = attempt_index + 1 < total_attempts
+                        && is_retryable_upstream_stream_error(&err);
+                    if should_retry {
+                        tracing::warn!(
+                            %peer,
+                            %host,
+                            attempt = attempt_index + 1,
+                            error = %format_args!("{err:#}"),
+                            "buffered upstream HTTP/2 response handling failed before downstream commit, retrying with alternate candidate"
+                        );
+                        flow.response = None;
+                        last_err = Some(err);
+                        continue;
+                    }
+
+                    return Err(err);
+                }
+            } else {
+                stages.process_response_headers(&mut flow).await?;
+                stages.process_response_body(&mut flow).await?;
+                stages.finalize_response(&mut flow).await?;
+            }
 
             if requires_buffering {
                 let response = flow
@@ -659,15 +810,78 @@ async fn process_http2_stream(
             }
 
             emit_flow_telemetry(&telemetry, &flow, &sni, peer);
-            Ok(())
+            return Ok(());
         }
         Err(err) => {
-            respond.send_reset(Reason::INTERNAL_ERROR);
-            tracing::error!(%peer, %host, error = %format_args!("{err:#}"), "failed to forward HTTP/2 stream");
+            let should_retry = attempt_index + 1 < total_attempts && is_retryable_upstream_connect_error(&err);
+            if should_retry {
+                tracing::warn!(
+                    %peer,
+                    %host,
+                    attempt = attempt_index + 1,
+                    error = %format_args!("{err:#}"),
+                    "upstream connect failed for selected TLS hello variant, retrying with alternate candidate"
+                );
+                last_err = Some(err);
+                continue;
+            }
 
-            Err(err)
+            last_err = Some(err);
+            break;
+        }
         }
     }
+
+    let err = last_err.context("upstream HTTP/2 forwarding failed without an error")?;
+    respond.send_reset(Reason::INTERNAL_ERROR);
+    tracing::error!(%peer, %host, error = %format_args!("{err:#}"), "failed to forward HTTP/2 stream");
+
+    Err(err)
+}
+
+fn http2_upstream_attempts(
+    profile: &serde_json::Value,
+    flow_id: uuid::Uuid,
+) -> Result<Vec<Http2UpstreamAttempt>> {
+    let mut attempts = plan_attempts_from_profile_with_alpn(profile, flow_id, Some("h2"), 3)?
+        .into_iter()
+        .map(|plan| Http2UpstreamAttempt {
+            tls_plan: Some(plan),
+            upstream_mode: UpstreamMode::PreferHttp2,
+            transport_note: None,
+        })
+        .collect::<Vec<_>>();
+
+    if let Some(plan) = http1_tls_plan(profile, flow_id)? {
+        attempts.push(Http2UpstreamAttempt {
+            tls_plan: Some(plan),
+            upstream_mode: UpstreamMode::Http1Only,
+            transport_note: Some("upstream-http1-only-variant"),
+        });
+    }
+
+    attempts.push(Http2UpstreamAttempt {
+        tls_plan: None,
+        upstream_mode: UpstreamMode::PreferHttp2,
+        transport_note: Some("upstream-transparent-h2"),
+    });
+
+    Ok(attempts)
+}
+
+fn http1_tls_plan(
+    profile: &serde_json::Value,
+    flow_id: uuid::Uuid,
+) -> Result<Option<TlsClientPlan>> {
+    if let Some(plan) = plan_attempts_from_profile_with_alpn(profile, flow_id, None, usize::MAX)?
+        .into_iter()
+        .find(|plan| !plan_supports_h2_upstream(plan))
+    {
+        return Ok(Some(plan));
+    }
+
+    Ok(plan_from_profile(profile, flow_id)?
+        .map(|plan| plan.clone_with_alpn(vec!["http/1.1".to_string()])))
 }
 
 fn streaming_response_head(response: &wreq::Response) -> ResponseParts {
@@ -679,7 +893,11 @@ fn streaming_response_head(response: &wreq::Response) -> ResponseParts {
     }
 }
 
-fn response_requires_body_buffering(_request: &RequestParts, response: &ResponseParts) -> bool {
+fn response_requires_body_buffering(request: &RequestParts, response: &ResponseParts) -> bool {
+    if is_bootstrap_asset_request(request) {
+        return true;
+    }
+
     response
         .headers
         .get(CONTENT_TYPE)
@@ -747,12 +965,11 @@ async fn buffer_streaming_response_body(
     }
 
     let mut body = BodyBuffer::default();
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .context("failed to buffer upstream response body")?
-    {
-        body.push_bytes_limited(&chunk, max_response_body_bytes, "upstream response body")?;
+    while let Some(frame) = poll_fn(|cx| Pin::new(&mut *response).poll_frame(cx)).await {
+        let frame = frame.context("failed to buffer upstream response body")?;
+        if let Ok(chunk) = frame.into_data() {
+            body.push_bytes_limited(&chunk, max_response_body_bytes, "upstream response body")?;
+        }
     }
     Ok(body)
 }
@@ -813,8 +1030,9 @@ async fn send_streaming_http2_response(
 async fn accept_tls_session(
     socket: TcpStream,
     tls: Arc<TlsProvider>,
+    fallback_sni: Option<String>,
 ) -> Result<(ClientTlsStream, Option<String>)> {
-    let config = build_server_config(tls);
+    let config = build_server_config(tls, fallback_sni);
 
     let acceptor = TlsAcceptor::from(Arc::new(config));
 
@@ -829,6 +1047,10 @@ async fn accept_tls_session(
 fn extract_sni(conn: &ServerConnection) -> Option<String> {
 
     conn.server_name().map(|name| name.to_owned())
+}
+
+fn handshake_fallback_sni(target_host: Option<&str>) -> Option<String> {
+    target_host.map(connect_target_host)
 }
 
 fn normalize_content_length(headers: &mut http::HeaderMap, len: usize) -> Result<()> {
@@ -847,7 +1069,10 @@ struct ParsedHttpRequest {
     buffered_tail: Vec<u8>,
 }
 
-async fn parse_http_request(stream: &mut ClientTlsStream, max_request_body_bytes: usize) -> Result<ParsedHttpRequest> {
+async fn parse_http_request<S>(stream: &mut S, max_request_body_bytes: usize) -> Result<ParsedHttpRequest>
+where
+    S: AsyncRead + Unpin,
+{
     let (head, mut buffered_tail) = read_http_head(stream, MAX_HTTP_HEAD_BYTES).await?;
     let (method, target, version, headers) = parse_http_request_head(&head)?;
 
@@ -1431,10 +1656,13 @@ async fn send_http2_response(respond: &mut SendResponse<Bytes>, response: &Respo
 }
 
 /// Serializes the staged HTTP/1.x response back to the client.
-async fn send_response_to_client(
-    client: &mut ClientTlsStream,
+async fn send_response_to_client<S>(
+    client: &mut S,
     response: &ResponseParts,
-) -> Result<()> {
+) -> Result<()>
+where
+    S: AsyncWrite + Unpin,
+{
     use tokio::io::AsyncWriteExt;
 
     let reason = response.status.canonical_reason().unwrap_or("");
@@ -1525,7 +1753,10 @@ fn resolve_upstream_target(flow: &Flow) -> (String, u16) {
                 .as_ref()
                 .and_then(|t| connect_target_port(t))
         })
-        .unwrap_or(443);
+        .unwrap_or_else(|| match flow.request.uri.scheme_str() {
+            Some("http") => 80,
+            _ => 443,
+        });
 
     (host, port)
 }
@@ -1536,6 +1767,58 @@ fn connect_target_host(target: &str) -> String {
 
 fn connect_target_port(target: &str) -> Option<u16> {
     target.split(':').nth(1)?.parse().ok()
+}
+
+fn error_chain_contains_message(err: &anyhow::Error, needles: &[&str]) -> bool {
+    err.chain().any(|cause| {
+        let message = cause.to_string().to_ascii_lowercase();
+        needles.iter().any(|needle| message.contains(needle))
+    })
+}
+
+fn is_retryable_upstream_connect_error(err: &anyhow::Error) -> bool {
+    for cause in err.chain() {
+        if let Some(io_err) = cause.downcast_ref::<std::io::Error>() {
+            if matches!(
+                io_err.kind(),
+                ErrorKind::ConnectionAborted
+                    | ErrorKind::ConnectionReset
+                    | ErrorKind::UnexpectedEof
+                    | ErrorKind::BrokenPipe
+            ) {
+                return true;
+            }
+        }
+    }
+
+    error_chain_contains_message(
+        err,
+        &[
+            "forcibly closed by the remote host",
+            "unexpected eof",
+            "handshake_failure_on_client_hello",
+            "sslv3_alert_handshake_failure",
+            "alert_unexpected_message",
+            "sslv3_alert_unexpected_message",
+        ],
+    )
+}
+
+fn is_retryable_upstream_stream_error(err: &anyhow::Error) -> bool {
+    if is_retryable_upstream_connect_error(err) {
+        return true;
+    }
+
+    error_chain_contains_message(
+        err,
+        &[
+            "failed to buffer upstream response body",
+            "failed to read upstream streamed response body",
+            "protocol error",
+            "stream error",
+            "unexpected eof",
+        ],
+    )
 }
 
 fn is_proxy_runtime_asset_request(request: &RequestParts) -> bool {
@@ -1614,10 +1897,10 @@ struct OnDemandCertResolver {
 
 impl OnDemandCertResolver {
 
-    fn new(provider: Arc<TlsProvider>) -> Self {
+    fn new(provider: Arc<TlsProvider>, fallback_sni: Option<String>) -> Self {
         Self {
             provider,
-            fallback: FALLBACK_SNI.to_string(),
+            fallback: fallback_sni.unwrap_or_else(|| FALLBACK_SNI.to_string()),
         }
     }
 }
@@ -1645,14 +1928,21 @@ impl ResolvesServerCert for OnDemandCertResolver {
 #[cfg(test)]
 mod tests {
     use super::{
+        handshake_fallback_sni,
+        http1_tls_plan,
+        http2_upstream_attempts,
+        is_retryable_upstream_connect_error,
+        is_retryable_upstream_stream_error,
         is_benign_client_h2_shutdown, is_benign_client_h2_stream_error,
         is_bootstrap_asset_request, normalize_bootstrap_asset_response,
-        is_h2_websocket_upgrade_request,
+        is_h2_websocket_upgrade_request, resolve_upstream_target,
         response_requires_body_buffering,
     };
-    use crate::proxy::{RequestParts, ResponseParts};
+    use crate::proxy::fetcher::UpstreamMode;
+    use crate::proxy::{BodyBuffer, Flow, RequestParts, ResponseParts};
     use http::header::{HeaderValue, CACHE_CONTROL, CONTENT_TYPE, ETAG, PRAGMA};
     use http::{Method, Uri, Version};
+    use uuid::Uuid;
 
     #[test]
     fn benign_h2_stream_error_accepts_reset_like_io_kinds() {
@@ -1694,6 +1984,24 @@ mod tests {
     }
 
     #[test]
+    fn resolve_upstream_target_defaults_plain_http_to_port_80() {
+        let mut flow = Flow::new(RequestParts {
+            method: Method::GET,
+            uri: Uri::from_static("http://detectportal.firefox.com/canonical.html"),
+            version: Version::HTTP_11,
+            headers: http::HeaderMap::new(),
+            body: BodyBuffer::default(),
+        });
+        flow.metadata.tls_sni = None;
+        flow.metadata.connect_target = None;
+
+        let (host, port) = resolve_upstream_target(&flow);
+
+        assert_eq!(host, "detectportal.firefox.com");
+        assert_eq!(port, 80);
+    }
+
+    #[test]
     fn response_skips_buffering_for_non_document_content() {
         let request = RequestParts::default();
         let mut response = ResponseParts::default();
@@ -1706,7 +2014,7 @@ mod tests {
     }
 
     #[test]
-    fn bootstrap_asset_requests_do_not_require_buffering() {
+    fn bootstrap_asset_requests_require_buffering() {
         let mut request = RequestParts {
             method: Method::GET,
             uri: Uri::from_static("https://app.tuta.com/common-min-vt_wlNjZ.js"),
@@ -1719,7 +2027,14 @@ mod tests {
             .insert("sec-fetch-dest", HeaderValue::from_static("script"));
 
         assert!(is_bootstrap_asset_request(&request));
-        assert!(!response_requires_body_buffering(&request, &ResponseParts::default()));
+        assert!(response_requires_body_buffering(&request, &ResponseParts::default()));
+    }
+
+    #[test]
+    fn retryable_upstream_stream_errors_accept_protocol_failures() {
+        let err = anyhow::anyhow!("failed to read upstream streamed response body: protocol error: stream closed");
+
+        assert!(is_retryable_upstream_stream_error(&err));
     }
 
     #[test]
@@ -1749,6 +2064,70 @@ mod tests {
             Some("no-cache")
         );
         assert!(response.headers.get(ETAG).is_none());
+    }
+
+    #[test]
+    fn http2_attempts_include_profiled_http11_fallback_before_transparent_h2() {
+        let profile: serde_json::Value = serde_json::from_str(include_str!("../../profiles/chrome-windows.json"))
+            .expect("profile should parse");
+
+        let attempts = http2_upstream_attempts(&profile, Uuid::nil()).expect("attempts should build");
+
+        assert!(attempts.len() >= 4);
+        assert!(attempts.iter().take(attempts.len() - 2).all(|attempt| matches!(attempt.upstream_mode, UpstreamMode::PreferHttp2) && attempt.tls_plan.is_some()));
+        let http1_fallback = &attempts[attempts.len() - 2];
+        assert!(matches!(http1_fallback.upstream_mode, UpstreamMode::Http1Only));
+        assert_eq!(http1_fallback.transport_note, Some("upstream-http1-only-variant"));
+        assert_eq!(http1_fallback.tls_plan.as_ref().map(|plan| plan.variant_id()), Some("ch_h1_fallback"));
+        let fallback = attempts.last().expect("fallback attempt should exist");
+        assert!(fallback.tls_plan.is_none());
+        assert_eq!(fallback.transport_note, Some("upstream-transparent-h2"));
+        assert!(matches!(fallback.upstream_mode, UpstreamMode::PreferHttp2));
+    }
+
+    #[test]
+    fn retryable_upstream_connect_errors_exclude_dns_failures() {
+        let dns_err = anyhow::anyhow!("client error (Connect): dns error: No such host is known. (os error 11001)");
+        let handshake_err = anyhow::anyhow!("client error (Connect): [SSLV3_ALERT_HANDSHAKE_FAILURE] [HANDSHAKE_FAILURE_ON_CLIENT_HELLO]");
+        let unexpected_message_err = anyhow::anyhow!("client error (Connect): [SSLV3_ALERT_UNEXPECTED_MESSAGE]: [SSLV3_ALERT_UNEXPECTED_MESSAGE]");
+
+        assert!(!is_retryable_upstream_connect_error(&dns_err));
+        assert!(is_retryable_upstream_connect_error(&handshake_err));
+        assert!(is_retryable_upstream_connect_error(&unexpected_message_err));
+    }
+
+    #[test]
+    fn retryable_upstream_connect_errors_match_nested_unexpected_eof_causes() {
+        let err = anyhow::Error::new(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "client error (Connect): unexpected EOF",
+        ))
+        .context("client error (Connect)")
+        .context("wreq fetch failed: method=GET uri=https://lh3.google.com mode=prefer-http2");
+
+        assert!(is_retryable_upstream_connect_error(&err));
+    }
+
+    #[test]
+    fn handshake_fallback_sni_uses_connect_target_host() {
+        assert_eq!(
+            handshake_fallback_sni(Some("api.github.com:443")).as_deref(),
+            Some("api.github.com")
+        );
+        assert!(handshake_fallback_sni(None).is_none());
+    }
+
+    #[test]
+    fn http1_tls_plan_prefers_an_explicit_http11_only_variant() {
+        let profile: serde_json::Value = serde_json::from_str(include_str!("../../profiles/chrome-windows.json"))
+            .expect("profile should parse");
+
+        let plan = http1_tls_plan(&profile, Uuid::nil())
+            .expect("plan selection should succeed")
+            .expect("a plan should be available");
+
+        assert_eq!(plan.variant_id(), "ch_h1_fallback");
+        assert!(!plan.alpn_protocols().iter().any(|value| value == "h2"));
     }
 
     #[test]

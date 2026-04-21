@@ -19,13 +19,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 use std::sync::{atomic::AtomicBool, Arc};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use tokio::sync::watch;
 
 use crate::{
     config::StaticConfig,
     control::{ControlMode, ControlPlane},
-    proxy::{stages::StagePipeline, OriginFetcher, ProxyServer, WreqOriginFetcher},
+    proxy::{stages::{ProfileStore, StagePipeline}, OriginFetcher, ProxyServer, WreqOriginFetcher},
     telemetry::TelemetrySink,
     tls::cert::TlsProvider,
 };
@@ -56,12 +56,32 @@ impl StaticApp {
     pub async fn new(config: StaticConfig, mode: RunMode) -> Result<Self> {
         let ready = Arc::new(AtomicBool::new(false));
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let profile_store = ProfileStore::load(
+            config.pipeline.profiles_path.clone(),
+            config.pipeline.default_profile.clone(),
+        )?;
+
+        if mode == RunMode::Proxy && profile_store.active_profile().is_none() {
+            let available_profiles = profile_store
+                .catalog()
+                .into_iter()
+                .map(|entry| entry.key)
+                .collect::<Vec<_>>();
+            let available_profiles = if available_profiles.is_empty() {
+                "no profiles were found in the configured profiles path".to_string()
+            } else {
+                format!("available profiles: {}", available_profiles.join(", "))
+            };
+            return Err(anyhow!(
+                "proxy mode requires an explicit profile selection; pass --profile <NAME> or set pipeline.default_profile in the config ({available_profiles})"
+            ));
+        }
 
         let server = match mode {
             RunMode::Proxy => {
                 let telemetry = TelemetrySink::new(config.telemetry.clone());
                 let tls = Arc::new(TlsProvider::new(config.tls.clone()).await?);
-                let pipeline = StagePipeline::build(&config.pipeline, telemetry.clone())?;
+                let pipeline = StagePipeline::build(&config.pipeline, telemetry.clone(), profile_store.clone())?;
                 let body_limits = config.pipeline.body_limits.clone();
                 let fetcher: Arc<dyn OriginFetcher> = Arc::new(WreqOriginFetcher::new(
                     body_limits.max_response_body_bytes,
@@ -82,7 +102,7 @@ impl StaticApp {
             RunMode::ControlOnly => None,
         };
 
-        let control = ControlPlane::new(config, mode.control_mode(), ready, shutdown_tx);
+        let control = ControlPlane::new(config, mode.control_mode(), ready, shutdown_tx, profile_store);
 
         Ok(Self { control, server })
     }

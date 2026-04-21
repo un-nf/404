@@ -1,13 +1,22 @@
+import { isChromiumLike } from '../core/browser.js'
+import { getFingerprint } from '../core/config.js'
 import { getRuntime, markModule } from '../core/guard.js'
 
-const WINDOW_GLOBALS = [
+const BASE_WINDOW_GLOBALS = [
   '__STATIC_RUNTIME__',
   '__STATIC_CSP_NONCE',
   'fetch',
   'createImageBitmap',
   'Notification',
-  'chrome',
 ]
+
+function getWindowGlobals(fingerprint) {
+  const globals = BASE_WINDOW_GLOBALS.slice()
+  if (isChromiumLike(fingerprint)) {
+    globals.push('chrome')
+  }
+  return globals
+}
 
 function isSafeFrame(frame) {
   try {
@@ -56,8 +65,8 @@ function copyOwnDescriptor(source, target, key) {
   }
 }
 
-function copyWindowGlobals(parentWindow, childWindow) {
-  for (const key of WINDOW_GLOBALS) {
+function copyWindowGlobals(parentWindow, childWindow, fingerprint) {
+  for (const key of getWindowGlobals(fingerprint)) {
     copyOwnDescriptor(parentWindow, childWindow, key)
   }
 }
@@ -88,6 +97,7 @@ function propagate(frame) {
     }
 
     const runtime = getRuntime()
+    const fingerprint = getFingerprint()
     Object.defineProperty(childWindow, '__STATIC_RUNTIME__', {
       value: runtime,
       configurable: true,
@@ -101,7 +111,7 @@ function propagate(frame) {
       writable: true,
     })
 
-    copyWindowGlobals(window, childWindow)
+    copyWindowGlobals(window, childWindow, fingerprint)
 
     copyPrototypeFromInstance(window.navigator, childWindow.navigator)
     copyPrototypeFromInstance(window.screen, childWindow.screen)

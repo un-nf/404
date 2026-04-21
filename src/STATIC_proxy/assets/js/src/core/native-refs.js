@@ -8,6 +8,7 @@ export function captureNativeRefs() {
   const peerPrototype = window.RTCPeerConnection?.prototype || window.webkitRTCPeerConnection?.prototype || null
   const offlineAudioPrototype = window.OfflineAudioContext?.prototype || window.webkitOfflineAudioContext?.prototype || null
   const baseAudioPrototype = window.BaseAudioContext?.prototype || window.AudioContext?.prototype || window.webkitAudioContext?.prototype || null
+  const audioDestinationPrototype = window.AudioDestinationNode?.prototype || null
   const analyserPrototype = window.AnalyserNode?.prototype || null
   const audioWorkletPrototype = window.AudioWorkletNode?.prototype || null
   const xhrPrototype = window.XMLHttpRequest?.prototype || null
@@ -97,6 +98,7 @@ export function captureNativeRefs() {
     offlineStartRendering: typeof offlineAudioPrototype?.startRendering === 'function' ? offlineAudioPrototype.startRendering : null,
     BaseAudioContext: window.BaseAudioContext || window.AudioContext || window.webkitAudioContext || null,
     baseAudioPrototype,
+    audioDestinationPrototype,
     baseCreateOscillator: typeof baseAudioPrototype?.createOscillator === 'function' ? baseAudioPrototype.createOscillator : null,
     AnalyserNode: window.AnalyserNode || null,
     analyserPrototype,

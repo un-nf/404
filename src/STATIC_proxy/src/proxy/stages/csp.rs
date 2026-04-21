@@ -19,9 +19,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 use anyhow::Result;
 use async_trait::async_trait;
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD_NO_PAD as BASE64_STANDARD_NO_PAD;
 use http::header::CONTENT_SECURITY_POLICY;
+use http::HeaderValue;
+use rand::RngCore;
+use rand::rngs::OsRng;
 
-use crate::proxy::flow::Flow;
+use crate::proxy::flow::{Flow, ResponseParts};
 
 use super::FlowStage;
 
@@ -47,22 +52,41 @@ impl FlowStage for CspStage {
             return Ok(());
         }
 
-        for value in &csp_values {
-            if let Some(nonce) = extract_existing_nonce(value) {
-                flow.metadata.csp_nonce = Some(nonce);
-                return Ok(());
-            }
+        if let Some(nonce) = csp_values.iter().find_map(|value| extract_existing_nonce(value)) {
+            flow.metadata.csp_nonce = Some(nonce);
+            return Ok(());
         }
+
+        flow.metadata.csp_nonce = Some(generate_proxy_nonce());
 
         Ok(())
     }
 
-    async fn on_response_finalized(&self, _flow: &mut Flow) -> Result<()> {
+    async fn on_response_finalized(&self, flow: &mut Flow) -> Result<()> {
+        if !flow.metadata.script_injected {
+            return Ok(());
+        }
+
+        let Some(nonce) = flow.metadata.csp_nonce.as_deref() else {
+            return Ok(());
+        };
+
+        let Some(response) = flow.response.as_mut() else {
+            return Ok(());
+        };
+
+        rewrite_csp_headers_for_injected_nonce(response, nonce)?;
         Ok(())
     }
 }
 
-fn extract_existing_nonce(csp: &str) -> Option<String> {
+pub(crate) fn generate_proxy_nonce() -> String {
+    let mut nonce_bytes = [0u8; 18];
+    OsRng.fill_bytes(&mut nonce_bytes);
+    BASE64_STANDARD_NO_PAD.encode(nonce_bytes)
+}
+
+pub(crate) fn extract_existing_nonce(csp: &str) -> Option<String> {
     for directive in csp.split(';') {
         let directive = directive.trim();
         if directive.is_empty() {
@@ -89,11 +113,157 @@ fn extract_existing_nonce(csp: &str) -> Option<String> {
     None
 }
 
+fn rewrite_csp_headers_for_injected_nonce(response: &mut ResponseParts, nonce: &str) -> Result<()> {
+    let values = response
+        .headers
+        .get_all(CONTENT_SECURITY_POLICY)
+        .iter()
+        .filter_map(|value| value.to_str().ok().map(|raw| raw.to_string()))
+        .collect::<Vec<_>>();
+
+    if values.is_empty() {
+        return Ok(());
+    }
+
+    response.headers.remove(CONTENT_SECURITY_POLICY);
+    for value in values {
+        let rewritten = rewrite_policy_for_injected_nonce(&value, nonce);
+        let header = HeaderValue::from_str(&rewritten)?;
+        response.headers.append(CONTENT_SECURITY_POLICY, header);
+    }
+
+    Ok(())
+}
+
+pub(crate) fn rewrite_policy_for_injected_nonce(csp: &str, nonce: &str) -> String {
+    let nonce_token = format!("'nonce-{nonce}'");
+    let mut rewritten = Vec::new();
+    let mut default_tokens: Option<Vec<String>> = None;
+    let mut child_tokens: Option<Vec<String>> = None;
+    let mut script_tokens: Option<Vec<String>> = None;
+    let mut saw_script_src = false;
+    let mut saw_worker_src = false;
+
+    for directive in csp.split(';') {
+        let directive = directive.trim();
+        if directive.is_empty() {
+            continue;
+        }
+
+        let mut tokens = directive
+            .split_whitespace()
+            .map(|token| token.to_string())
+            .collect::<Vec<_>>();
+        if tokens.is_empty() {
+            continue;
+        }
+
+        let name = tokens[0].to_ascii_lowercase();
+        match name.as_str() {
+            "default-src" => {
+                default_tokens = Some(tokens[1..].to_vec());
+                rewritten.push(directive.to_string());
+            }
+            "child-src" => {
+                child_tokens = Some(tokens[1..].to_vec());
+                rewritten.push(directive.to_string());
+            }
+            "script-src" => {
+                saw_script_src = true;
+                append_csp_token_if_missing(&mut tokens, &nonce_token);
+                script_tokens = Some(tokens[1..].to_vec());
+                rewritten.push(tokens.join(" "));
+            }
+            "script-src-elem" => {
+                append_csp_token_if_missing(&mut tokens, &nonce_token);
+                rewritten.push(tokens.join(" "));
+            }
+            "worker-src" => {
+                saw_worker_src = true;
+                append_csp_token_if_missing(&mut tokens, "blob:");
+                rewritten.push(tokens.join(" "));
+            }
+            _ => rewritten.push(directive.to_string()),
+        }
+    }
+
+    if !saw_script_src {
+        if let Some(default_tokens) = default_tokens.as_ref() {
+            let mut tokens = vec!["script-src".to_string()];
+            tokens.extend(default_tokens.clone());
+            append_csp_token_if_missing(&mut tokens, &nonce_token);
+            script_tokens = Some(tokens[1..].to_vec());
+            rewritten.push(tokens.join(" "));
+        }
+    }
+
+    if !saw_worker_src {
+        let inherited_tokens = child_tokens
+            .as_deref()
+            .or(script_tokens.as_deref())
+            .or(default_tokens.as_deref())
+            .map(filter_worker_source_tokens)
+            .unwrap_or_else(|| vec!["'self'".to_string()]);
+
+        let mut tokens = vec!["worker-src".to_string()];
+        tokens.extend(inherited_tokens);
+        append_csp_token_if_missing(&mut tokens, "blob:");
+        rewritten.push(tokens.join(" "));
+    }
+
+    rewritten.join("; ")
+}
+
+fn append_csp_token_if_missing(tokens: &mut Vec<String>, expected: &str) {
+    if !is_none_token(expected) {
+        tokens.retain(|token| !is_none_token(token));
+    }
+
+    if tokens.iter().skip(1).any(|token| token.eq_ignore_ascii_case(expected)) {
+        return;
+    }
+
+    tokens.push(expected.to_string());
+}
+
+fn filter_worker_source_tokens(tokens: &[String]) -> Vec<String> {
+    tokens
+        .iter()
+        .filter(|token| should_retain_worker_source_token(token))
+        .cloned()
+        .collect()
+}
+
+fn should_retain_worker_source_token(token: &str) -> bool {
+    let normalized = token.trim().trim_matches('"').to_ascii_lowercase();
+
+    if normalized.is_empty() {
+        return false;
+    }
+
+    if is_none_token(&normalized) {
+        return true;
+    }
+
+    if normalized.starts_with("'nonce-") || normalized.starts_with("'sha") {
+        return false;
+    }
+
+    !matches!(
+        normalized.as_str(),
+        "'unsafe-inline'" | "'unsafe-eval'" | "'strict-dynamic'" | "'report-sample'" | "'wasm-unsafe-eval'"
+    )
+}
+
+fn is_none_token(token: &str) -> bool {
+    token.trim().trim_matches('"').eq_ignore_ascii_case("'none'")
+        || token.trim().eq_ignore_ascii_case("none")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::proxy::flow::{Flow, RequestParts, ResponseParts};
-    use http::HeaderValue;
     use http::header::CONTENT_SECURITY_POLICY_REPORT_ONLY;
 
     #[test]
@@ -106,7 +276,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn on_response_headers_keeps_policy_unchanged_without_origin_nonce() {
+    async fn on_response_headers_generates_nonce_without_rewriting_policy() {
         let mut flow = Flow::new(RequestParts::default());
         let mut response = ResponseParts::default();
         response.headers.insert(
@@ -127,7 +297,7 @@ mod tests {
                 .unwrap(),
             &HeaderValue::from_static("script-src 'self' 'unsafe-inline' https://cdn.example")
         );
-        assert!(flow.metadata.csp_nonce.is_none());
+        assert!(flow.metadata.csp_nonce.is_some());
     }
 
     #[tokio::test]
@@ -156,9 +326,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn on_response_finalized_leaves_csp_unchanged_after_injection() {
+    async fn on_response_finalized_rewrites_policy_after_injection() {
         let mut flow = Flow::new(RequestParts::default());
         flow.metadata.script_injected = true;
+        flow.metadata.csp_nonce = Some("fresh123".to_string());
 
         let mut response = ResponseParts::default();
         response.headers.insert(
@@ -170,15 +341,17 @@ mod tests {
         let stage = CspStage;
         stage.on_response_finalized(&mut flow).await.unwrap();
 
-        assert_eq!(
-            flow.response
-                .as_ref()
-                .unwrap()
-                .headers
-                .get(CONTENT_SECURITY_POLICY)
-                .unwrap(),
-            &HeaderValue::from_static("script-src 'self' 'unsafe-inline' https://cdn.example")
-        );
+        let rewritten = flow
+            .response
+            .as_ref()
+            .unwrap()
+            .headers
+            .get(CONTENT_SECURITY_POLICY)
+            .and_then(|value| value.to_str().ok())
+            .unwrap();
+        assert!(rewritten.contains("script-src 'self' 'unsafe-inline' https://cdn.example 'nonce-fresh123'"));
+        assert!(rewritten.contains("worker-src 'self' https://cdn.example blob:"));
+        assert!(!rewritten.contains("script-src-elem 'nonce-fresh123'"));
     }
 
     #[tokio::test]
@@ -205,6 +378,63 @@ mod tests {
                 .unwrap(),
             &HeaderValue::from_static("script-src 'self' 'unsafe-inline' https://cdn.example")
         );
+    }
+
+    #[tokio::test]
+    async fn on_response_finalized_clones_default_src_when_script_src_is_missing() {
+        let mut flow = Flow::new(RequestParts::default());
+        flow.metadata.script_injected = true;
+        flow.metadata.csp_nonce = Some("fresh123".to_string());
+
+        let mut response = ResponseParts::default();
+        response.headers.insert(
+            CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static("default-src 'self' https://cdn.example; connect-src 'self'"),
+        );
+        flow.response = Some(response);
+
+        let stage = CspStage;
+        stage.on_response_finalized(&mut flow).await.unwrap();
+
+        let rewritten = flow
+            .response
+            .as_ref()
+            .unwrap()
+            .headers
+            .get(CONTENT_SECURITY_POLICY)
+            .and_then(|value| value.to_str().ok())
+            .unwrap();
+        assert!(rewritten.contains("default-src 'self' https://cdn.example"));
+        assert!(rewritten.contains("script-src 'self' https://cdn.example 'nonce-fresh123'"));
+        assert!(rewritten.contains("worker-src 'self' https://cdn.example blob:"));
+        assert!(!rewritten.contains("script-src-elem 'nonce-fresh123'"));
+    }
+
+    #[tokio::test]
+    async fn on_response_finalized_appends_blob_to_existing_worker_src() {
+        let mut flow = Flow::new(RequestParts::default());
+        flow.metadata.script_injected = true;
+        flow.metadata.csp_nonce = Some("fresh123".to_string());
+
+        let mut response = ResponseParts::default();
+        response.headers.insert(
+            CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static("default-src 'self'; worker-src 'self' https://workers.example"),
+        );
+        flow.response = Some(response);
+
+        let stage = CspStage;
+        stage.on_response_finalized(&mut flow).await.unwrap();
+
+        let rewritten = flow
+            .response
+            .as_ref()
+            .unwrap()
+            .headers
+            .get(CONTENT_SECURITY_POLICY)
+            .and_then(|value| value.to_str().ok())
+            .unwrap();
+        assert!(rewritten.contains("worker-src 'self' https://workers.example blob:"));
     }
 
     #[test]

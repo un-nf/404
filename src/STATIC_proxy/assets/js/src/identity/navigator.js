@@ -1,16 +1,19 @@
 import { getFingerprint } from '../core/config.js'
+import { defaultUaDataBrands, isFirefoxLike } from '../core/browser.js'
 import { markModule } from '../core/guard.js'
 import { markNativeCode } from '../core/toString.js'
 
 function defineNavigatorGetter(name, fn) {
+  const descriptor = Object.getOwnPropertyDescriptor(Navigator.prototype, name)
   const namedGetter = { [name]: function getter() { return fn() } }[name]
   markNativeCode(namedGetter, name)
   Object.defineProperty(Navigator.prototype, name, {
     get: namedGetter,
-    configurable: true,
-    enumerable: true,
+    configurable: descriptor?.configurable ?? true,
+    enumerable: descriptor?.enumerable ?? true,
   })
 }
+
 
 function normalizeLanguages(languages) {
   if (Array.isArray(languages)) {
@@ -51,11 +54,7 @@ function deriveOscpu(platform) {
 
 function buildUserAgentData(fingerprint) {
   const uaData = fingerprint.ua_data || {}
-  const brands = uaData.brands || [
-    { brand: 'Not A(Brand', version: '8' },
-    { brand: 'Chromium', version: String(fingerprint.browser_version || '').split('.')[0] || '141' },
-    { brand: 'Google Chrome', version: String(fingerprint.browser_version || '').split('.')[0] || '141' },
-  ]
+  const brands = uaData.brands || defaultUaDataBrands(fingerprint)
   const mobile = uaData.mobile || false
   const platform = uaData.platform || fingerprint.sec_ch_ua_platform || fingerprint.platform || ''
 
@@ -93,8 +92,7 @@ function buildUserAgentData(fingerprint) {
 
 export function installNavigator() {
   const fingerprint = getFingerprint()
-  const browserType = fingerprint.browser_type || 'chrome'
-  const isFirefox = browserType === 'firefox'
+  const isFirefox = isFirefoxLike(fingerprint)
   const languages = normalizeLanguages(fingerprint.languages || fingerprint.language || 'en-US')
 
   defineNavigatorGetter('userAgent', () => fingerprint.user_agent || navigator.userAgent)
@@ -123,7 +121,6 @@ export function installNavigator() {
   defineNavigatorGetter('languages', () => Object.freeze(languages.slice()))
   defineNavigatorGetter('doNotTrack', () => fingerprint.do_not_track ?? null)
   defineNavigatorGetter('cookieEnabled', () => fingerprint.cookie_enabled !== false)
-  defineNavigatorGetter('webdriver', () => false)
   defineNavigatorGetter('pdfViewerEnabled', () => fingerprint.pdf_viewer_enabled ?? !isFirefox)
 
   if (isFirefox) {

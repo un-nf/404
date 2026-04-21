@@ -30,6 +30,7 @@ use zstd::stream::decode_all as zstd_decode_all;
 
 use crate::proxy::flow::{Flow, ResponseParts};
 
+use super::csp::{extract_existing_nonce, generate_proxy_nonce, rewrite_policy_for_injected_nonce};
 use super::FlowStage;
 
 const INJECTION_MARKER_HEADER: &str = "x-static-injected";
@@ -268,6 +269,238 @@ impl JsInjectionStage {
         let rel = body_lower[idx..].find('>')?;
         Some(idx + rel + 1)
     }
+
+    fn prepare_meta_csp_nonce(flow: &mut Flow, body: &str) {
+        if flow.metadata.csp_nonce.is_some() {
+            return;
+        }
+
+        if let Some(nonce) = find_meta_csp_nonce(body) {
+            flow.metadata.csp_nonce = Some(nonce);
+            return;
+        }
+
+        if has_meta_csp(body) {
+            flow.metadata.csp_nonce = Some(generate_proxy_nonce());
+        }
+    }
+
+    fn rewrite_meta_csp(body: &str, nonce: &str) -> String {
+        rewrite_meta_csp_tags(body, nonce)
+    }
+}
+
+#[derive(Clone, Debug)]
+struct HtmlAttrMatch {
+    full_range: std::ops::Range<usize>,
+    value: String,
+    quote: Option<char>,
+}
+
+fn has_meta_csp(body: &str) -> bool {
+    find_meta_csp_tag_ranges(body)
+        .into_iter()
+        .any(|(start, end)| is_csp_meta_tag(&body[start..end]))
+}
+
+fn find_meta_csp_nonce(body: &str) -> Option<String> {
+    for (start, end) in find_meta_csp_tag_ranges(body) {
+        let tag = &body[start..end];
+        if !is_csp_meta_tag(tag) {
+            continue;
+        }
+
+        let Some(content) = find_html_attr(tag, "content") else {
+            continue;
+        };
+
+        if let Some(nonce) = extract_existing_nonce(&content.value) {
+            return Some(nonce);
+        }
+    }
+
+    None
+}
+
+fn rewrite_meta_csp_tags(body: &str, nonce: &str) -> String {
+    let tag_ranges = find_meta_csp_tag_ranges(body);
+    if tag_ranges.is_empty() {
+        return body.to_string();
+    }
+
+    let mut rewritten = String::with_capacity(body.len() + 128);
+    let mut cursor = 0;
+
+    for (start, end) in tag_ranges {
+        rewritten.push_str(&body[cursor..start]);
+        let tag = &body[start..end];
+        rewritten.push_str(&rewrite_meta_csp_tag(tag, nonce));
+        cursor = end;
+    }
+
+    rewritten.push_str(&body[cursor..]);
+    rewritten
+}
+
+fn rewrite_meta_csp_tag(tag: &str, nonce: &str) -> String {
+    if !is_csp_meta_tag(tag) {
+        return tag.to_string();
+    }
+
+    let Some(content_attr) = find_html_attr(tag, "content") else {
+        return tag.to_string();
+    };
+
+    let rewritten_policy = rewrite_policy_for_injected_nonce(&content_attr.value, nonce);
+    let replacement = match content_attr.quote {
+        Some('\'') => format!("content='{}'", escape_single_quoted_html_attr(&rewritten_policy)),
+        _ => format!("content=\"{}\"", escape_double_quoted_html_attr(&rewritten_policy)),
+    };
+
+    let mut rewritten = String::with_capacity(tag.len() + replacement.len());
+    rewritten.push_str(&tag[..content_attr.full_range.start]);
+    rewritten.push_str(&replacement);
+    rewritten.push_str(&tag[content_attr.full_range.end..]);
+    rewritten
+}
+
+fn find_meta_csp_tag_ranges(body: &str) -> Vec<(usize, usize)> {
+    let body_lower = body.to_ascii_lowercase();
+    let mut matches = Vec::new();
+    let mut search_start = 0;
+
+    while search_start < body_lower.len() {
+        let Some(relative) = body_lower[search_start..].find("<meta") else {
+            break;
+        };
+        let start = search_start + relative;
+        let Some(end) = find_html_tag_end(body, start) else {
+            break;
+        };
+        matches.push((start, end));
+        search_start = end;
+    }
+
+    matches
+}
+
+fn find_html_tag_end(body: &str, tag_start: usize) -> Option<usize> {
+    let bytes = body.as_bytes();
+    let mut idx = tag_start;
+    let mut quote: Option<u8> = None;
+
+    while idx < bytes.len() {
+        let byte = bytes[idx];
+        if let Some(active_quote) = quote {
+            if byte == active_quote {
+                quote = None;
+            }
+        } else if byte == b'\'' || byte == b'"' {
+            quote = Some(byte);
+        } else if byte == b'>' {
+            return Some(idx + 1);
+        }
+        idx += 1;
+    }
+
+    None
+}
+
+fn is_csp_meta_tag(tag: &str) -> bool {
+    find_html_attr(tag, "http-equiv")
+        .map(|attr| attr.value.eq_ignore_ascii_case("content-security-policy"))
+        .unwrap_or(false)
+}
+
+fn find_html_attr(tag: &str, target_name: &str) -> Option<HtmlAttrMatch> {
+    let bytes = tag.as_bytes();
+    let mut idx = 0;
+
+    while idx < bytes.len() && bytes[idx] != b'<' {
+        idx += 1;
+    }
+    if idx < bytes.len() {
+        idx += 1;
+    }
+    while idx < bytes.len() && !bytes[idx].is_ascii_whitespace() && bytes[idx] != b'>' {
+        idx += 1;
+    }
+
+    while idx < bytes.len() {
+        while idx < bytes.len() && bytes[idx].is_ascii_whitespace() {
+            idx += 1;
+        }
+        if idx >= bytes.len() || bytes[idx] == b'>' || bytes[idx] == b'/' {
+            break;
+        }
+
+        let name_start = idx;
+        while idx < bytes.len()
+            && !bytes[idx].is_ascii_whitespace()
+            && bytes[idx] != b'='
+            && bytes[idx] != b'>'
+        {
+            idx += 1;
+        }
+        let name_end = idx;
+
+        while idx < bytes.len() && bytes[idx].is_ascii_whitespace() {
+            idx += 1;
+        }
+
+        let mut value = String::new();
+        let mut quote = None;
+        if idx < bytes.len() && bytes[idx] == b'=' {
+            idx += 1;
+            while idx < bytes.len() && bytes[idx].is_ascii_whitespace() {
+                idx += 1;
+            }
+            if idx < bytes.len() && (bytes[idx] == b'"' || bytes[idx] == b'\'') {
+                quote = Some(bytes[idx] as char);
+                let quoted = bytes[idx];
+                idx += 1;
+                let value_start = idx;
+                while idx < bytes.len() && bytes[idx] != quoted {
+                    idx += 1;
+                }
+                value = tag[value_start..idx].to_string();
+                if idx < bytes.len() {
+                    idx += 1;
+                }
+            } else {
+                let value_start = idx;
+                while idx < bytes.len() && !bytes[idx].is_ascii_whitespace() && bytes[idx] != b'>' {
+                    idx += 1;
+                }
+                value = tag[value_start..idx].to_string();
+            }
+        }
+
+        let name = &tag[name_start..name_end];
+        if name.eq_ignore_ascii_case(target_name) {
+            return Some(HtmlAttrMatch {
+                full_range: name_start..idx,
+                value,
+                quote,
+            });
+        }
+    }
+
+    None
+}
+
+fn escape_double_quoted_html_attr(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+}
+
+fn escape_single_quoted_html_attr(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('\'', "&#39;")
+        .replace('<', "&lt;")
 }
 
 enum InsertionStrategy {
@@ -360,6 +593,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn on_response_body_injects_before_existing_head_script() {
+        let stage = JsInjectionStage::new(false, 16 * 1024 * 1024);
+        let mut flow = Flow::new(RequestParts::default());
+
+        let mut response = ResponseParts::default();
+        response.headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/html"));
+        response.body.replace(b"<!doctype html><html><head><script src=\"/app.js\"></script><title>x</title></head><body>ok</body></html>");
+        flow.response = Some(response);
+
+        stage.on_response_body(&mut flow).await.unwrap();
+
+        let body = std::str::from_utf8(flow.response.as_ref().unwrap().body.as_bytes()).unwrap();
+        let injected_idx = body.find("<script src=\"/__static/runtime.js\"").unwrap();
+        let page_script_idx = body.find("<script src=\"/app.js\"></script>").unwrap();
+        assert!(injected_idx < page_script_idx);
+    }
+
+    #[tokio::test]
     async fn on_response_body_decodes_zstd_html_and_injects_runtime() {
         let stage = JsInjectionStage::new(false, 16 * 1024 * 1024);
         let mut flow = Flow::new(RequestParts::default());
@@ -379,6 +630,49 @@ mod tests {
         let body = std::str::from_utf8(response.body.as_bytes()).unwrap();
         assert!(body.contains("<script src=\"/__static/runtime.js\""));
         assert!(response.headers.get(CONTENT_ENCODING).is_none());
+    }
+
+    #[tokio::test]
+    async fn on_response_body_rewrites_meta_csp_and_reuses_existing_nonce() {
+        let stage = JsInjectionStage::new(false, 16 * 1024 * 1024);
+        let mut flow = Flow::new(RequestParts::default());
+        flow.metadata.js_runtime_config = json!({});
+
+        let mut response = ResponseParts::default();
+        response.headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
+        response.body.replace(
+            b"<!doctype html><html><head><meta http-equiv=\"Content-Security-Policy\" content=\"script-src 'self' 'nonce-origin123'; worker-src 'self'\"><script src=\"/app.js\"></script></head><body>ok</body></html>",
+        );
+        flow.response = Some(response);
+
+        stage.on_response_body(&mut flow).await.unwrap();
+
+        let body = std::str::from_utf8(flow.response.as_ref().unwrap().body.as_bytes()).unwrap();
+        assert!(body.contains("nonce=\"origin123\""));
+        assert!(body.contains("worker-src 'self' blob:"));
+        assert_eq!(flow.metadata.csp_nonce.as_deref(), Some("origin123"));
+    }
+
+    #[tokio::test]
+    async fn on_response_body_generates_nonce_for_meta_csp_without_one() {
+        let stage = JsInjectionStage::new(false, 16 * 1024 * 1024);
+        let mut flow = Flow::new(RequestParts::default());
+        flow.metadata.js_runtime_config = json!({});
+
+        let mut response = ResponseParts::default();
+        response.headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
+        response.body.replace(
+            b"<!doctype html><html><head><meta http-equiv=\"content-security-policy\" content=\"default-src 'self'; worker-src 'self'\"></head><body>ok</body></html>",
+        );
+        flow.response = Some(response);
+
+        stage.on_response_body(&mut flow).await.unwrap();
+
+        let nonce = flow.metadata.csp_nonce.clone().expect("meta CSP should produce a nonce");
+        let body = std::str::from_utf8(flow.response.as_ref().unwrap().body.as_bytes()).unwrap();
+        assert!(body.contains(&format!("nonce=\"{nonce}\"")));
+        assert!(body.contains(&format!("script-src 'self' 'nonce-{nonce}'")));
+        assert!(body.contains("worker-src 'self' blob:"));
     }
 
     #[tokio::test]
@@ -420,6 +714,8 @@ impl FlowStage for JsInjectionStage {
             std::str::from_utf8(response_ref.body.as_bytes())?.to_owned()
         };
 
+        Self::prepare_meta_csp_nonce(flow, &body_owned);
+
         let injection_block = self.build_injection_block(flow);
 
         let response = flow
@@ -431,13 +727,7 @@ impl FlowStage for JsInjectionStage {
         let body_lower = body.to_ascii_lowercase();
         let mut strategy = self.choose_insertion_strategy(&body_lower);
         if let Some(script_idx) = body_lower.find("<script") {
-            let planned_idx = match strategy {
-                InsertionStrategy::InsideHead(i) | InsertionStrategy::CreateHeadAt(i) | InsertionStrategy::BeforeScript(i) => i,
-                InsertionStrategy::PrependHead => 0,
-            };
-            if script_idx < planned_idx {
-                strategy = InsertionStrategy::BeforeScript(script_idx);
-            }
+            strategy = InsertionStrategy::BeforeScript(script_idx);
         }
         let wrapped_block = format!("<head>\n{}\n</head>\n", injection_block);
 
@@ -468,6 +758,10 @@ impl FlowStage for JsInjectionStage {
                 mutated.push_str(&wrapped_block);
                 mutated.push_str(&body);
             }
+        }
+
+        if let Some(nonce) = flow.metadata.csp_nonce.as_deref() {
+            mutated = Self::rewrite_meta_csp(&mutated, nonce);
         }
 
         response.body.replace(mutated.as_bytes());

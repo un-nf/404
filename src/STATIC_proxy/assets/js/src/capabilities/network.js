@@ -1,9 +1,15 @@
 import { getFingerprint } from '../core/config.js'
+import { isFirefoxLike } from '../core/browser.js'
 import { markModule } from '../core/guard.js'
 import { markNativeCode } from '../core/toString.js'
 
 export function installNetwork() {
   const fingerprint = getFingerprint()
+  if (isFirefoxLike(fingerprint)) {
+    markModule('network')
+    return
+  }
+
   const connection = Object.freeze({
     downlink: fingerprint.downlink ?? 10,
     effectiveType: fingerprint.effective_type || '4g',

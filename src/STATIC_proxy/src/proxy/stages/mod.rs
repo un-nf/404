@@ -29,7 +29,7 @@ mod js;
 pub use alt_svc::AltSvcStage;
 pub use behavior::BehavioralNoiseStage;
 pub use csp::CspStage;
-pub use header_profile::HeaderProfileStage;
+pub use header_profile::{HeaderProfileStage, ProfileCatalogEntry, ProfileStore};
 pub use js::JsInjectionStage;
 
 use std::sync::Arc;
@@ -52,13 +52,10 @@ struct PipelineInner {
 impl StagePipeline {
     /// Builds the pipeline with deterministic ordering so request mutations always happen before
     /// CSP/JS stages and response sanitizers run after script injection.
-    pub fn build(cfg: &PipelineConfig, _telemetry: TelemetrySink) -> Result<Self> {
+    pub fn build(cfg: &PipelineConfig, _telemetry: TelemetrySink, profile_store: ProfileStore) -> Result<Self> {
         let mut stages: Vec<Arc<dyn FlowStage>> = Vec::new();
 
-        stages.push(Arc::new(HeaderProfileStage::new(
-            cfg.profiles_path.clone(),
-            cfg.default_profile.clone(),
-        )?));
+        stages.push(Arc::new(HeaderProfileStage::from_store(profile_store)));
         stages.push(Arc::new(BehavioralNoiseStage::new()));
         stages.push(Arc::new(CspStage::default()));
         stages.push(Arc::new(JsInjectionStage::new(
