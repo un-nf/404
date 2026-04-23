@@ -26,7 +26,7 @@ use flate2::read::{GzDecoder, ZlibDecoder};
 use http::header::{CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, TRANSFER_ENCODING};
 use http::{HeaderName, HeaderValue};
 use std::io::{Cursor, Read};
-use zstd::stream::decode_all as zstd_decode_all;
+use zstd::stream::read::Decoder as ZstdDecoder;
 
 use crate::proxy::flow::{Flow, ResponseParts};
 
@@ -177,32 +177,45 @@ impl JsInjectionStage {
 
     fn decode_gzip(&self, data: &[u8]) -> Result<Vec<u8>> {
         let mut decoder = GzDecoder::new(data);
-        let mut out = Vec::new();
-        decoder.read_to_end(&mut out)?;
-        self.ensure_decompressed_limit(&out)?;
-        Ok(out)
+        self.read_decompressed_limited(&mut decoder)
     }
 
     fn decode_deflate(&self, data: &[u8]) -> Result<Vec<u8>> {
         let mut decoder = ZlibDecoder::new(data);
-        let mut out = Vec::new();
-        decoder.read_to_end(&mut out)?;
-        self.ensure_decompressed_limit(&out)?;
-        Ok(out)
+        self.read_decompressed_limited(&mut decoder)
     }
 
     fn decode_brotli(&self, data: &[u8]) -> Result<Vec<u8>> {
         let cursor = Cursor::new(data);
         let mut decoder = Decompressor::new(cursor, 4096);
-        let mut out = Vec::new();
-        decoder.read_to_end(&mut out)?;
-        self.ensure_decompressed_limit(&out)?;
-        Ok(out)
+        self.read_decompressed_limited(&mut decoder)
     }
 
     fn decode_zstd(&self, data: &[u8]) -> Result<Vec<u8>> {
-        let decoded = zstd_decode_all(Cursor::new(data)).context("failed to decode zstd body")?;
-        self.ensure_decompressed_limit(&decoded)?;
+        let mut decoder = ZstdDecoder::new(Cursor::new(data)).context("failed to decode zstd body")?;
+        self.read_decompressed_limited(&mut decoder)
+    }
+
+    fn read_decompressed_limited<R: Read>(&self, reader: &mut R) -> Result<Vec<u8>> {
+        let mut decoded = Vec::new();
+        let mut chunk = [0u8; 8192];
+
+        loop {
+            let read = reader.read(&mut chunk)?;
+            if read == 0 {
+                break;
+            }
+
+            if read > self.max_decompressed_html_bytes.saturating_sub(decoded.len()) {
+                anyhow::bail!(
+                    "decompressed HTML response body exceeds configured limit of {} bytes",
+                    self.max_decompressed_html_bytes
+                );
+            }
+
+            decoded.extend_from_slice(&chunk[..read]);
+        }
+
         Ok(decoded)
     }
 
@@ -514,8 +527,32 @@ enum InsertionStrategy {
 mod tests {
     use super::*;
     use crate::proxy::flow::RequestParts;
+    use brotli::CompressorWriter;
+    use flate2::{Compression, write::{GzEncoder, ZlibEncoder}};
     use serde_json::json;
+    use std::io::Write;
     use zstd::stream::encode_all as zstd_encode_all;
+
+    fn gzip_encode(data: &[u8]) -> Vec<u8> {
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(data).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    fn deflate_encode(data: &[u8]) -> Vec<u8> {
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(data).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    fn brotli_encode(data: &[u8]) -> Vec<u8> {
+        let mut encoded = Vec::new();
+        {
+            let mut encoder = CompressorWriter::new(&mut encoded, 4096, 5, 22);
+            encoder.write_all(data).unwrap();
+        }
+        encoded
+    }
 
     #[test]
     fn render_runtime_config_escapes_script_terminator() {
@@ -693,6 +730,54 @@ mod tests {
             .on_response_body(&mut flow)
             .await
             .expect_err("oversized decompressed HTML should fail");
+
+        assert!(err.to_string().contains("decompressed HTML response body exceeds configured limit"));
+    }
+
+    #[test]
+    fn decode_gzip_rejects_oversized_decompressed_html() {
+        let stage = JsInjectionStage::new(false, 32);
+        let encoded = gzip_encode(b"this body is intentionally too large");
+
+        let err = stage
+            .decode_gzip(&encoded)
+            .expect_err("oversized gzip body should fail");
+
+        assert!(err.to_string().contains("decompressed HTML response body exceeds configured limit"));
+    }
+
+    #[test]
+    fn decode_deflate_rejects_oversized_decompressed_html() {
+        let stage = JsInjectionStage::new(false, 32);
+        let encoded = deflate_encode(b"this body is intentionally too large");
+
+        let err = stage
+            .decode_deflate(&encoded)
+            .expect_err("oversized deflate body should fail");
+
+        assert!(err.to_string().contains("decompressed HTML response body exceeds configured limit"));
+    }
+
+    #[test]
+    fn decode_brotli_rejects_oversized_decompressed_html() {
+        let stage = JsInjectionStage::new(false, 32);
+        let encoded = brotli_encode(b"this body is intentionally too large");
+
+        let err = stage
+            .decode_brotli(&encoded)
+            .expect_err("oversized brotli body should fail");
+
+        assert!(err.to_string().contains("decompressed HTML response body exceeds configured limit"));
+    }
+
+    #[test]
+    fn decode_zstd_rejects_oversized_decompressed_html() {
+        let stage = JsInjectionStage::new(false, 32);
+        let encoded = zstd_encode_all(Cursor::new(b"this body is intentionally too large"), 0).unwrap();
+
+        let err = stage
+            .decode_zstd(&encoded)
+            .expect_err("oversized zstd body should fail");
 
         assert!(err.to_string().contains("decompressed HTML response body exceeds configured limit"));
     }

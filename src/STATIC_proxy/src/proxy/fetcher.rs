@@ -20,12 +20,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 use std::{
     borrow::Cow,
     collections::HashMap,
+    future::poll_fn,
+    pin::Pin,
     sync::{Arc, RwLock},
 };
 
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
+use bytes::Bytes;
 use http::header::{HeaderValue, CONTENT_LENGTH, HOST};
+use http_body::Body as _;
 use wreq::{
     Client,
     header::OrigHeaderMap,
@@ -577,7 +581,22 @@ fn header_order(headers: &http::HeaderMap) -> OrigHeaderMap {
     ordered
 }
 
-async fn response_into_parts(response: wreq::Response, max_response_body_bytes: usize) -> Result<ResponseParts> {
+async fn buffer_response_body<B>(body: &mut B, max_response_body_bytes: usize) -> Result<BodyBuffer>
+where
+    B: http_body::Body<Data = Bytes> + Unpin,
+    B::Error: std::error::Error + Send + Sync + 'static,
+{
+    let mut buffered = BodyBuffer::default();
+    while let Some(frame) = poll_fn(|cx| Pin::new(&mut *body).poll_frame(cx)).await {
+        let frame = frame.context("failed to buffer upstream response body")?;
+        if let Ok(chunk) = frame.into_data() {
+            buffered.push_bytes_limited(&chunk, max_response_body_bytes, "upstream response body")?;
+        }
+    }
+    Ok(buffered)
+}
+
+async fn response_into_parts(mut response: wreq::Response, max_response_body_bytes: usize) -> Result<ResponseParts> {
     let status = response.status();
     let version = response.version();
     if let Some(content_length) = response
@@ -593,19 +612,7 @@ async fn response_into_parts(response: wreq::Response, max_response_body_bytes: 
         }
     }
     let headers = response.headers().clone();
-    let bytes = response
-        .bytes()
-        .await
-        .context("failed to buffer upstream response body")?;
-
-    if bytes.len() > max_response_body_bytes {
-        return Err(anyhow!(
-            "upstream response body exceeds configured limit of {max_response_body_bytes} bytes"
-        ));
-    }
-
-    let mut body = BodyBuffer::default();
-    body.push_bytes_limited(bytes.as_ref(), max_response_body_bytes, "upstream response body")?;
+    let body = buffer_response_body(&mut response, max_response_body_bytes).await?;
 
     Ok(ResponseParts {
         status,
@@ -899,19 +906,61 @@ fn to_wreq_settings_order(order: &[String]) -> Option<SettingsOrder> {
 #[cfg(test)]
 mod tests {
     use super::{
-        TransportClientKey, build_http2_config, origin_url, plan_supports_h2_upstream,
-        select_alpn, select_alps, should_retry_http1_only, tls_key_shares,
-        to_wreq_extension_permutation, to_wreq_pseudo_id, to_wreq_setting_id,
-        to_wreq_stream_dependency, upstream_headers, OriginTarget, UpstreamMode,
+        TransportClientKey, buffer_response_body, build_http2_config, origin_url,
+        plan_supports_h2_upstream, select_alpn, select_alps, should_retry_http1_only,
+        tls_key_shares, to_wreq_extension_permutation, to_wreq_pseudo_id,
+        to_wreq_setting_id, to_wreq_stream_dependency, upstream_headers,
+        OriginTarget, UpstreamMode,
     };
     use crate::proxy::{BodyBuffer, RequestParts};
+    use bytes::Bytes;
     use crate::tls::profiles::{Http2Plan, Http2StreamDependencyPlan, TlsClientPlan, TlsExtensionPlan};
     use http::header::{CONTENT_LENGTH, HOST};
     use http::{HeaderMap, HeaderValue, Method, Uri, Version};
+    use http_body::{Body, Frame, SizeHint};
+    use std::collections::VecDeque;
+    use std::pin::Pin;
+    use std::task::{Context, Poll};
     use wreq::{
         http2::{PseudoId, SettingId, StreamDependency, StreamId},
         tls::{AlpnProtocol, AlpsProtocol, ExtensionType, KeyShare},
     };
+
+    #[derive(Default)]
+    struct TestBody {
+        frames: VecDeque<Result<Frame<Bytes>, std::io::Error>>,
+    }
+
+    impl TestBody {
+        fn from_chunks(chunks: &[&[u8]]) -> Self {
+            Self {
+                frames: chunks
+                    .iter()
+                    .map(|chunk| Ok(Frame::data(Bytes::copy_from_slice(chunk))))
+                    .collect(),
+            }
+        }
+    }
+
+    impl Body for TestBody {
+        type Data = Bytes;
+        type Error = std::io::Error;
+
+        fn poll_frame(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+            Poll::Ready(self.get_mut().frames.pop_front())
+        }
+
+        fn is_end_stream(&self) -> bool {
+            self.frames.is_empty()
+        }
+
+        fn size_hint(&self) -> SizeHint {
+            SizeHint::default()
+        }
+    }
 
     fn sample_tls_plan(alpn: Vec<&str>) -> TlsClientPlan {
         TlsClientPlan::test_fixture(alpn.into_iter().map(str::to_string).collect())
@@ -1162,6 +1211,28 @@ mod tests {
         let normalized = upstream_headers(&request, "example.com", 443, UpstreamMode::PreferHttp2);
 
         assert!(normalized.get(CONTENT_LENGTH).is_none());
+    }
+
+    #[tokio::test]
+    async fn buffer_response_body_rejects_oversized_accumulated_frames() {
+        let mut body = TestBody::from_chunks(&[b"abc", b"def"]);
+
+        let err = buffer_response_body(&mut body, 5)
+            .await
+            .expect_err("oversized buffered body should fail");
+
+        assert!(err.to_string().contains("upstream response body exceeds configured limit"));
+    }
+
+    #[tokio::test]
+    async fn buffer_response_body_accepts_in_limit_frames() {
+        let mut body = TestBody::from_chunks(&[b"abc", b"de"]);
+
+        let buffered = buffer_response_body(&mut body, 5)
+            .await
+            .expect("buffering should succeed");
+
+        assert_eq!(buffered.as_bytes(), b"abcde");
     }
 
     #[test]
