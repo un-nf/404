@@ -40,7 +40,7 @@ https://github.com/user-attachments/assets/fb403522-ac09-4c49-a599-5edd53f33994
 
 ## What is 404?
 
-> Got questions? [Email Me}(mailto:support@404privacy.com)
+> Got questions? [Email Me](mailto:support@404privacy.com)
 
 404 houses two main modules:
 - STATIC Proxy - *Synthetic Traffic and TLS Identity Camouflage*
@@ -106,7 +106,7 @@ Pick the profile that matches your native browser family. For example, use `edge
 ```powershell
 cd $HOME\Downloads\404_REL # wherever your ./static binary lives.
 .\static.exe --list-profiles
-.\static.exe --profile edge-windows
+.\static.exe -- --profile edge-windows
 ```
 
 **Linux / macOS**
@@ -115,7 +115,7 @@ cd $HOME\Downloads\404_REL # wherever your ./static binary lives.
 cd ~/Downloads/404_REL # wherever your ./static binary lives.
 chmod +x ./static
 ./static --list-profiles
-./static --profile edge-windows
+./static -- --profile edge-windows
 ```
 
 Useful flags:
@@ -134,7 +134,7 @@ Important listener note:
 Example with an explicit listener override:
 
 ```powershell
-.\static.exe --profile edge-windows --bind-address 127.0.0.1 --bind-port 4040
+.\static.exe -- --profile edge-windows --bind-address 127.0.0.1 --bind-port 4040
 ```
 
 ### 2. Build from source
