@@ -1,4 +1,7 @@
 # 404
+
+ [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0) ![Rust](https://img.shields.io/badge/rust-%23000000.svg?style=for-the-badge&logo=rust&logoColor=white) [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/un-nf/404)
+
 *404 acts as the middleman between you and those collecting your data.* [more...](https://404privacy.com)
 Rust privacy proxy & Linux kernel module. Full client-fingerprint control. 
 
