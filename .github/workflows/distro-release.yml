@@ -64,10 +64,44 @@ jobs:
             perl \
             make \
             g++ \
+            xz-utils \
             iproute2 \
             libbpf-dev \
             libelf-dev \
             linux-libc-dev
+
+      - name: Install Zig toolchain
+        shell: bash
+        env:
+          ZIG_VERSION: 0.14.1
+        run: |
+          set -euo pipefail
+
+          curl -fsSL "https://ziglang.org/download/${ZIG_VERSION}/zig-linux-x86_64-${ZIG_VERSION}.tar.xz" -o "$RUNNER_TEMP/zig.tar.xz"
+          sudo mkdir -p /opt/zig
+          sudo tar -xJf "$RUNNER_TEMP/zig.tar.xz" -C /opt/zig --strip-components=1
+          echo "/opt/zig" >> "$GITHUB_PATH"
+
+      - name: Prepare musl compiler wrappers
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          wrapper_dir="$RUNNER_TEMP/musl-toolchain/bin"
+          mkdir -p "$wrapper_dir"
+
+          cat > "$wrapper_dir/musl-gcc" <<'EOF'
+          #!/usr/bin/env bash
+          exec zig cc -target x86_64-linux-musl "$@"
+          EOF
+
+          cat > "$wrapper_dir/musl-g++" <<'EOF'
+          #!/usr/bin/env bash
+          exec zig c++ -target x86_64-linux-musl "$@"
+          EOF
+
+          chmod +x "$wrapper_dir/musl-gcc" "$wrapper_dir/musl-g++"
+          echo "$wrapper_dir" >> "$GITHUB_PATH"
 
       - name: Install STATIC JS build dependencies
         run: npm ci --prefix src/STATIC_proxy/build
@@ -81,7 +115,9 @@ jobs:
       - name: Build STATIC proxy for musl
         env:
           CC_x86_64_unknown_linux_musl: musl-gcc
+          CXX_x86_64_unknown_linux_musl: musl-g++
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+          BORING_BSSL_RUST_CPPLIB_x86_64_unknown_linux_musl: c++
         run: cargo build --release --locked --manifest-path src/STATIC_proxy/Cargo.toml --bin static_proxy --target $TARGET
 
       - name: Build eBPF artifact

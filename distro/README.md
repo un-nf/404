@@ -16,6 +16,7 @@ Files:
 ## Current Status
 
 - CI explicitly builds `static_proxy` for `x86_64-unknown-linux-musl`
+- CI bootstraps Zig-backed `musl-gcc` and `musl-g++` wrappers because `btls-sys` now builds patched BoringSSL C and C++ sources during the musl release build
 - CI compiles `src/ebpf/ttl_editor.o` separately with clang targeting BPF
 - CI packages `dist/404-distro.tar.gz`
 - CI generates and signs `dist/distro/manifest.json`
@@ -70,6 +71,8 @@ Notes:
 - STATIC binary must be musl
 - Alpine will not reliably run a glibc-targeted `target/release/static_proxy`
 - The workflow and the build docs now intentionally point at `target/x86_64-unknown-linux-musl/release/static_proxy`
+- A successful local musl build now needs a musl-capable C++ compiler as well as a musl C compiler because `btls-sys` compiles BoringSSL `.cc` files before Rust links the final binary
+- The release workflow satisfies that requirement with Zig-backed `musl-gcc` and `musl-g++` wrappers plus `BORING_BSSL_RUST_CPPLIB=c++`; equivalent local toolchain wiring is required if you build the musl binary outside CI
 
 ## Local Packaging CLI
 
@@ -202,14 +205,15 @@ High-level flow:
 1. Resolve the release version from the tag or manual input
 2. Install Node and Rust target tooling
 3. Install Linux build dependencies including musl, clang, libbpf, and kernel libc headers
-4. Build `static_proxy` for `x86_64-unknown-linux-musl`
-5. Build `src/ebpf/ttl_editor.o`
-6. Package `dist/404-distro.tar.gz`
-7. Generate `dist/distro/manifest.json`
-8. Sign the manifest with `DISTRO_MANIFEST_SIGNING_KEY`
-9. Upload workflow artifacts
-10. Publish stable and versioned distro assets to R2
-11. Publish tarball and manifest files as GitHub Release assets
+4. Install Zig and expose `musl-gcc` / `musl-g++` wrappers that target `x86_64-linux-musl`
+5. Build `static_proxy` for `x86_64-unknown-linux-musl`
+6. Build `src/ebpf/ttl_editor.o`
+7. Package `dist/404-distro.tar.gz`
+8. Generate `dist/distro/manifest.json`
+9. Sign the manifest with `DISTRO_MANIFEST_SIGNING_KEY`
+10. Upload workflow artifacts
+11. Publish stable and versioned distro assets to R2
+12. Publish tarball and manifest files as GitHub Release assets
 
 Publish layout:
 
