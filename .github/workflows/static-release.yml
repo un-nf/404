@@ -177,3 +177,110 @@ jobs:
             dist-release/static_proxy-release-manifest.json
             dist-release/static_proxy-release-manifest.json.sig
             dist-release/static_proxy-release-manifest.json.pem
+
+  package-operator-bundles:
+    name: Package operator bundles
+    runs-on: ubuntu-latest
+    needs:
+      - build
+      - publish-release-manifest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download staged STATIC binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-release
+          pattern: static_proxy-*
+          merge-multiple: false
+
+      - name: Download STATIC release manifest artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-release/manifest
+          name: static_proxy-release-manifest
+
+      - name: Build macOS operator bundles
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p dist-bundles
+
+          make_bundle() {
+            local source_file="$1"
+            local bundle_name="$2"
+            local bundle_dir="dist-bundles/${bundle_name%.zip}"
+
+            rm -rf "$bundle_dir"
+            mkdir -p "$bundle_dir/404-runtime/profiles"
+            mkdir -p "$bundle_dir/404-runtime/config"
+
+            cp "$source_file" "$bundle_dir/404-runtime/static_proxy"
+            chmod +x "$bundle_dir/404-runtime/static_proxy"
+
+            cp dist-release/manifest/static_proxy-release-manifest.json "$bundle_dir/404-runtime/"
+            cp dist-release/manifest/static_proxy-release-manifest.json.sig "$bundle_dir/404-runtime/"
+            cp dist-release/manifest/static_proxy-release-manifest.json.pem "$bundle_dir/404-runtime/"
+
+            cp src/STATIC_proxy/profiles/manifest.json "$bundle_dir/404-runtime/profiles/"
+            cp src/STATIC_proxy/profiles/chrome-windows.json "$bundle_dir/404-runtime/profiles/"
+            cp src/STATIC_proxy/profiles/edge-windows.json "$bundle_dir/404-runtime/profiles/"
+            cp src/STATIC_proxy/profiles/firefox-windows.json "$bundle_dir/404-runtime/profiles/"
+
+            cat > "$bundle_dir/404-runtime/config/static.example.toml" <<'EOF'
+            [listener]
+            bind_address = "127.0.0.1"
+            bind_port = 4040
+            proxy_protocol = "tls"
+
+            [tls]
+            keystore = { mode = "keychain", service = "404.static_proxy", account = "ca_key" }
+
+            [pipeline]
+            profiles_path = "../profiles"
+            default_profile = "firefox-windows"
+            js_debug = false
+            alt_svc_strategy = "normalize"
+            body_limits = { max_request_body_bytes = 16777216, max_response_body_bytes = 33554432, max_decompressed_html_bytes = 16777216 }
+
+            [http3]
+            enabled = false
+            bind_address = "127.0.0.1"
+            bind_port = 4041
+
+            [telemetry]
+            mode = "stdout"
+            EOF
+
+            (
+              cd "$bundle_dir"
+              zip -r "../$bundle_name" 404-runtime
+            )
+          }
+
+          make_bundle \
+            dist-release/static_proxy-macos-aarch64/static_proxy-macos-aarch64 \
+            404-macos-aarch64.zip
+
+          make_bundle \
+            dist-release/static_proxy-macos-x86_64/static_proxy-macos-x86_64 \
+            404-macos-x64.zip
+
+      - name: Upload bundle workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: static-operator-bundles
+          path: |
+            dist-bundles/404-macos-aarch64.zip
+            dist-bundles/404-macos-x64.zip
+
+      - name: Publish bundle release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist-bundles/404-macos-aarch64.zip
+            dist-bundles/404-macos-x64.zip

@@ -6,7 +6,7 @@
 
 If you discover a security issue in 404, email us directly:
 
-**404mesh@proton.me**
+**support@404privacy.com**
 
 Include:
 - Description of the vulnerability
@@ -105,7 +105,7 @@ If you need to disclose publicly before we've patched, give us at least 7 days n
 
 ## Contact
 
-**Email:** 404mesh@proton.me
+**Email:** support@404privacy.com
 
 **PGP:** (not yet available)
 

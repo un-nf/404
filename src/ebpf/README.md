@@ -1,146 +1,169 @@
 # 404 v.02 - eBPF TTL Editor
 
-Packet-level fingerprint manipulation using eBPF (Extended Berkeley Packet Filter) and Linux TC (Traffic Control).
+Packet-level fingerprint manipulation using eBPF and Linux TC.
 
 ## What does this do?
 
-This eBPF program hooks into the Linux kernel's network stack at the TC egress point and modifies outgoing packets before they leave your machine. It rewrites packet-level fingerprints that are visible to network observers and can be used to identify your OS and network stack implementation.
+This program attaches to the Linux TC egress hook and rewrites outgoing packet fields that are commonly used for passive OS and network stack fingerprinting. It aligns packet-layer traits with the browser profile selected by `STATIC`, so network-visible behavior stays consistent with the browser, TLS, and JavaScript fingerprint surfaces being presented at higher layers.
+
+The classifier applies profile-driven changes to:
+
+- IPv4 TTL, TOS, and IP ID
+- IPv6 hop limit, traffic class, and flow label
+- TCP window size
+- TCP SYN option layout and values, including MSS, window scale, and optional timestamp values
+
+## Why this exists
+
+Operating systems expose distinct TCP/IP defaults. Windows, Linux, and macOS differ in TTL, window sizing, window scale, timestamp behavior, and SYN option ordering. Those differences are easy to observe with tools such as `p0f` or `nmap`, and they remain visible even when HTTP headers, TLS behavior, and browser APIs are being spoofed successfully.
+
+Keeping the transport layer aligned with the selected browser persona reduces cross-layer mismatches that can be used to identify automation or synthetic traffic.
+
+## Profile model
+
+Packet settings are described by a `fingerprint_profile` map entry in the kernel and a matching `PacketProfile` struct in `STATIC`. The active browser profile is materialized from the selected browser profile JSON, including any seeded overlays, then converted into a packet profile and written into the pinned eBPF map at:
+
+`/sys/fs/bpf/404/fingerprint_profiles`
+
+The path can be overridden for testing with:
+
+`STATIC_EBPF_MAP_PATH`
+
+The Linux distro bootstrap mounts `bpffs`, attaches `ttl_editor.o` to `eth0`, and pins the map so the userspace STATIC process can update it at boot and whenever `/profiles/select` changes the active persona.
+
+## Default fingerprints
+
+Built-in defaults map to the selected platform family when a profile does not override packet values explicitly.
+
+| OS | TTL | Window Size | Window Scale | MSS | Timestamps | TCP Option Order |
+| ----------- | ----------- | ----------- | ----------- | ----------- | ----------- | ----------- |
+| Windows | 128 | 64240 | 8 | 1460 | Disabled on SYN | MSS,NOP,WS,NOP,NOP,SACK |
+| macOS | 64 | 65535 | 6 | 1460 | Enabled | MSS,NOP,WS,NOP,NOP,TS,SACK,EOL |
+| Linux | 64 | 65535 | 7 | 1460 | Enabled | MSS,SACK,TS,NOP,WS |
+
+Shipped Windows browser profiles also carry explicit `packet_profile` blocks and seeded packet overlays so non-critical device-like traits such as MSS and initial SYN window can vary across restarts while preserving the core platform shape.
 
 ## Build
 
+Build on Linux or WSL with the required kernel headers and networking tools available:
+
 ```bash
-$ make deps-install  # shows dependency installation command
-$ make               # compiles ttl_editor.o
-$
-$ # Manual compilation
-$ clang -O2 -g -target bpf -D__TARGET_ARCH_x86 -I/usr/include/ -I/usr/include/linux -c TTLEDIT-STABLE.c -o <output>.o
-
+$ make deps-install
+$ make
 ```
- 
-Dependencies: `clang`, `llvm`, `libbpf-dev`, `linux-headers-$(uname -r)`, `iproute2`
 
-## Usage
+Manual compilation:
 
-Attach to network interface (replace `<interface>` with `eth0`, `wlan0`, etc.):
+```bash
+$ clang -O2 -g -target bpf -D__TARGET_ARCH_x86 -I/usr/include -I/usr/include/x86-linux-gnu -c ttl_editor.c -o ttl_editor.o
+```
+
+Dependencies:
+
+- `clang`
+- `llvm`
+- `libbpf-dev`
+- `linux-headers-$(uname -r)`
+- `iproute2`
+
+## Attach and remove
+
+Attach to an interface such as `eth0` or `wlan0`:
 
 ```bash
 $ sudo tc qdisc add dev <interface> clsact
 $ sudo tc filter add dev <interface> egress bpf da obj ttl_editor.o sec classifier
 ```
- 
-Remove:
+
+Remove the classifier:
 
 ```bash
 $ sudo tc filter del dev <interface> egress
 $ sudo tc qdisc del dev <interface> clsact
 ```
 
-**Modifications:**
+## How it works
 
-Currently, IP/TCP packet header values are assigned via global variables at the top of `ttl_editor.c`.
+The classifier inspects each outgoing Ethernet frame, identifies IPv4 or IPv6 traffic, and applies profile-driven mutations in place.
 
-**IPv4:**
-- TTL (Time To Live) → forced to 255
-- TOS (Type of Service) → set to 0x10
-- IP ID (Identification) → randomized per packet
-- TCP window size → 65535
-- TCP initial sequence number → randomized (again)
-- TCP window scale → 5
-- TCP MSS (Maximum Segment Size) → 1460
-- TCP timestamps → randomized
+For IPv4 it can:
 
-**IPv6:**
-- Hop limit → forced to 255
-- Flow label → randomized
-- TCP parameters (same as IPv4)
+- Rewrite TOS
+- Randomize IP ID for non-fragmented packets
+- Rewrite TTL
+- Apply TCP window and SYN option changes
 
-![tcpdump output](https://raw.githubusercontent.com/un-nf/404/refs/heads/main/.github/IMAGES/tcpdump_output.png "tcpdump output")
+For IPv6 it can:
 
-### Limitations:
+- Rewrite traffic class
+- Randomize the flow label
+- Rewrite hop limit
+- Apply TCP window and SYN option changes
 
-In its current state, this eBPF program does *not* map to the values being passed from `profiles.json`. This is a *major* pitfall of the current version. Future patch will fix this. This eBPF program serves as POC.
+SYN option rewriting supports both fixed layouts and resized option blocks. When the TCP header length changes, the program adjusts packet length fields and updates TCP checksums explicitly so the rewritten packet remains valid after `bpf_skb_change_tail()` drops offload state.
 
-*Many packet types and their headers are not handled.*
+## Verification
 
-> A common list of TCP/IP fingeprinting methods can be found at this [nmap source](https://nmap.org/book/osdetect-methods.html).
-
-#### For now:
-
-Default OS network stack fingerprints:
-
-| OS | TTL | Window Size | Window Scale | ISN | MSS* | Timestamps | TCP Option Order |
-| ----------- | ----------- | ----------- | ----------- | ----------- | ----------- | ----------- | ----------- |
-| Windows | 128 | 64 kb (64240 bytes) | 8 | Randomized | Varies based on connection | Not used | MSS,NOP,WS,NOP,NOP,SACK |
-| MacOS | 64 | 64 kb (65535 bytes) | 6 | Randomized | Varies based on connection | Internal counter | MSS,NOP,WS,NOP,NOP,TS,SACK,EOL |
-| Linux | 64 | 64 kb (65535 bytes - 5840 bytes for 2.4/2.6 kernels) | 7 | Randomized | Varies based on connection | Internal counter - sometimes randomized | MSS,SACK,TS,NOP,WS |
-
-## So... why?
-
-Operating systems have distinct network stack implementations. Windows, Linux, macOS, Android, and iOS set different default values for TCP/IP packet headers (TTL, MSS, WinSize/Scale). These fingerprinting vectors are trivial to collect and can identify your OS even if you spoof your HTTP headers and browser fingerprint perfectly. Tools like nmap and p0f allow third party network observers to exploit this fingerprinting vector.
-
-> Mismatches between network, JS, and HTTPS values can also be used by servers to identify bot-likely traffic and block connections. 
-
-Tools like `p0f` and `nmap` can passively fingerprint an OS by analyzing these packet-level characteristics. This eBPF program attempts to normalize these values to make passive fingerprinting harder.
-
-## How does it work?
-
-eBPF programs run in the kernel with strict safety guarantees enforced by the verifier. This program:
-
-1. Attaches to a network interface's TC egress hook
-2. Inspects every outgoing packet
-3. Modifies packet headers in-place (TTL, TCP options, etc.)
-4. Recalculates checksums where necessary
-5. Passes the modified packet onwards
-
-The verifier ensures the program can't crash the kernel, access arbitrary memory, or run forever. All bounds checks are verified at load time.
-
-## Limitations
-
-- **Linux only** - eBPF is a Linux kernel feature
-- **Requires kernel 4.15+** - uses `bpf_skb_change_tail` for packet modifications
-- **Root/CAP_NET_ADMIN required** - kernel hooks need elevated privileges
-- **Egress only** - only modifies outgoing packets (ingress fingerprinting still works)
-- **Not comprehensive** - doesn't cover all fingerprinting vectors (e.g., TCP options ordering, TCP timestamps beyond randomization, ICMP behavior)
-
-## Verify
-
-Verify it's running:
+Confirm the classifier is attached:
 
 ```bash
 $ sudo tc filter show dev <interface> egress
 ```
 
-Verify w/ tcpdump output, some examples below:
+Confirm the pinned map exists:
 
 ```bash
-$ tcpdump -i <interface> -vvv -Q out
-$
-$ # View specific TCP/IP fields:
-$ tcpdump -i <interface> -vvv -c 20 -Q out 'tcp[tcpflags] & tcp-syn != 0'  # SYN packets only (-c for 20 packets)
-$ tcpdump -i <interface> -vvv -nn -Q out | grep -E 'ttl|win|mss|wscale'  # Filter for specific fields
-$
-$ # More detailed packet inspection:
-$ tcpdump -i <interface> -vvv -XX -Q out  # Show full hex dump
-$ tcpdump -i <interface> -vvv -Q out port 443  # HTTPS traffic only
+$ sudo bpftool map show pinned /sys/fs/bpf/404/fingerprint_profiles
 ```
+
+Inspect outbound SYN packets with `tcpdump`:
+
+```bash
+$ tcpdump -i <interface> -vvv -c 20 -Q out 'tcp[tcpflags] & tcp-syn != 0'
+$ tcpdump -i <interface> -vvv -nn -Q out | grep -E 'ttl|win|mss|wscale'
+$ tcpdump -i <interface> -vvv -XX -Q out port 443
+```
+
+![tcpdump output](https://raw.githubusercontent.com/un-nf/404/refs/heads/main/.github/IMAGES/tcpdump_output.png "tcpdump output")
+
+## Limitations
+
+- **Linux only**: eBPF and TC are Linux kernel features.
+- **Requires a kernel with the needed TC/eBPF helpers**: the classifier relies on helpers such as `bpf_skb_change_tail`, `bpf_csum_diff`, and `bpf_l4_csum_replace`.
+- **Requires root or `CAP_NET_ADMIN`**: attaching classifiers and pinning maps needs elevated privileges.
+- **Egress only**: ingress-side fingerprinting remains outside this hook.
+- **Focused on IP and TCP traits**: it does not model every packet type or every transport-layer behavior.
+- **SYN payload rewrites are limited**: SYN packets carrying payload are not resized.
 
 ## Configuration
 
-Edit `ttl_editor.c` and modify the `#define` values at the top:
+Packet behavior is configured through the profile JSON that STATIC loads, not by editing compile-time constants for normal use. A profile may include a `packet_profile` block with fields such as:
 
-```c
-#define FORCE_TTL 255
-#define SPOOF_TCP_WINDOW_SIZE 65535
-#define SPOOF_TCP_MSS 1460
-#define SPOOF_TCP_WINDOW_SCALE 5
-// etc.
-```
+- `ttl`
+- `tos`
+- `tcp_window`
+- `tcp_mss`
+- `tcp_window_scale`
+- `randomize_tcp_timestamp`
+- `randomize_ipv4_id`
+- `randomize_ipv6_flow`
+- `options`
 
-Then recompile with `make`.
+The `options` field is an ordered array of symbolic TCP option tokens. Supported tokens are:
+
+- `mss`
+- `nop`
+- `window_scale` or `ws`
+- `sack_permitted` or `sack`
+- `timestamp`, `timestamps`, or `ts`
+- `eol`
+
+Packet overlays can be merged through `seeded_overlays`, which allows a profile family to keep a stable platform fingerprint while varying secondary device-like transport traits across process lifetimes.
 
 ## References
 
 - eBPF: https://ebpf.io/
 - TC (Traffic Control): https://man7.org/linux/man-pages/man8/tc.8.html
-- p0f (passive OS fingerprinting): https://lcamtuf.coredump.cx/p0f3/
+- `tc-bpf(8)`: https://man7.org/linux/man-pages/man8/tc-bpf.8.html
+- p0f: https://lcamtuf.coredump.cx/p0f3/
 - nmap OS detection: https://nmap.org/book/osdetect.html

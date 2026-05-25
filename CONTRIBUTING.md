@@ -15,7 +15,7 @@ We value long-term collaborators over one-off patches. If you want to contribute
 - **Team Members:** Developers willing to commit, sign a contributor agreement, and share the burden of design, security, and maintenance for a specific subsystem.
 - **Specialized Contributors:** If you can't join the team, provide high-signal contributions: file a detailed bug, submit a failing test case, or write a design proposal.
 
-**To apply to the team, contact:** `404mesh@proton.me`
+**To apply to the team, contact:** `info@404privacy.com`
 
 ## Why This Policy?
 
@@ -28,7 +28,7 @@ This software intentionally terminates TLS and manipulates traffic at multiple l
 Every line of contributed code increases the audit surface. Unknown authorship means unknown intent. To maintain a defensible security posture, we require code provenance and GPG-signed commits from vetted team members.
 
 ### Product Integrity
-Now at v1.0, the project has a stable core architecture. Contributions must align with the roadmap and architectural principles. Random PRs often diverge, creating technical debt and making it harder to harden the system for distribution.
+Now at v2.6, the project has a stable core architecture. Contributions must align with the roadmap and architectural principles. Random PRs often diverge, creating technical debt and making it harder to harden the system for distribution.
 
 ### Licensing & Copyright
 To maintain legal agility (for potential relicensing, commercial offerings, or partnerships), we must have a clean copyright chain. This requires a Contributor License Agreement (CLA) from anyone who contributes code, which is impractical to manage for drive-by PRs.
@@ -59,7 +59,7 @@ We will review these contributions and, where appropriate, provide guidance or i
 
 ## How to Join the Team
 
-We are looking for engineers who will own a piece of the system, not just patch a bug.
+We are looking for engineers who will own a piece of the system, not just close issues.
 
 ### What We Expect
 - **Subsystem Ownership:** Be prepared to become the expert on a part of the codebase (e.g., the HTTP/2 engine, the eBPF module, profile management, a specific pipeline stage).
@@ -68,6 +68,6 @@ We are looking for engineers who will own a piece of the system, not just patch 
 - **Write Tests:** All code contributions must be accompanied by tests. You are responsible for maintaining CI for the components you own.
 
 ### Onboarding Steps
-1. **Email `404mesh@proton.me`:** Introduce yourself, explain why you want to join, and state which subsystem you're interested in owning.
+1. **Email `join@404privacy.com`:** Introduce yourself, explain why you want to join, and state which subsystem you're interested in owning.
 2. **Provide a Work Sample:** Link to a relevant project, a detailed technical write-up, or a code sample that demonstrates your capabilities.
 3. **Technical Conversation:** If there's a good fit, we'll schedule a call to discuss the project and your potential role. If accepted, we'll provide the CLA and get you started.

@@ -83,6 +83,9 @@ pub fn managed_cache_dir() -> &'static Path {
 pub struct StaticConfig {
     /// Listener configuration (bind address, port, and protocol expectations).
     pub listener: ListenerConfig,
+    /// Control-plane authentication configuration.
+    #[serde(default)]
+    pub control: ControlConfig,
     /// TLS configuration (on-disk CA material and cache layout).
     pub tls: TlsConfig,
     /// Pipeline configuration (profile lookup paths plus stage toggles).
@@ -105,11 +108,13 @@ impl StaticConfig {
 
         let base_dir = path.parent();
         Self::absolutize_dir(base_dir, &mut raw_cfg.pipeline.profiles_path);
+        Self::absolutize_optional_path(base_dir, &mut raw_cfg.control.token_path);
 
         let tls = Self::build_managed_tls_config(raw_cfg.tls)?;
 
         let cfg = StaticConfig {
             listener: raw_cfg.listener,
+            control: raw_cfg.control,
             tls,
             pipeline: raw_cfg.pipeline,
             http3: raw_cfg.http3,
@@ -123,6 +128,7 @@ impl StaticConfig {
     pub fn default_for_cli(profiles_path: PathBuf) -> Self {
         Self {
             listener: ListenerConfig::default(),
+            control: ControlConfig::default(),
             tls: TlsConfig::default(),
             pipeline: PipelineConfig {
                 profiles_path,
@@ -142,6 +148,12 @@ impl StaticConfig {
             if let Some(dir) = base_dir {
                 *target = dir.join(&*target);
             }
+        }
+    }
+
+    fn absolutize_optional_path(base_dir: Option<&Path>, target: &mut Option<PathBuf>) {
+        if let Some(path) = target.as_mut() {
+            Self::absolutize_dir(base_dir, path);
         }
     }
 
@@ -171,11 +183,21 @@ impl StaticConfig {
 #[derive(Debug, Clone, Deserialize)]
 struct RawStaticConfig {
     pub listener: ListenerConfig,
+    #[serde(default)]
+    pub control: ControlConfig,
     pub tls: RawTlsConfig,
     pub pipeline: PipelineConfig,
     #[serde(default)]
     pub http3: Http3Config,
     pub telemetry: TelemetryConfig,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ControlConfig {
+    #[serde(default = "default_bind_address")]
+    pub bind_address: String,
+    #[serde(default)]
+    pub token_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

@@ -2,36 +2,38 @@
 
  [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0) ![Rust](https://img.shields.io/badge/rust-%23000000.svg?style=for-the-badge&logo=rust&logoColor=white) [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/un-nf/404)
 
+`v2.6.0`
 *404 acts as the middleman between you and those collecting your data.* [more...](https://404privacy.com)
-Rust privacy proxy & Linux kernel module. Full client-fingerprint control. 
+Rust privacy proxy, WSL distro packaging path, & Linux kernel module. Full client-fingerprint control. 
 
-> **404 is a dual-module network application designed to give uers profile-driven control over multiple layers of their fingerprint: TCP/IP options (TTL, MSS, etc.), TLS cipher-suite, HTTP headers, browser APIs, canvas, WebRTC, and more...**
+> **404 is a dual-module network application designed to give users profile-driven control over multiple layers of their fingerprint: TCP/IP options (TTL, MSS, etc.), TLS cipher-suite behavior, HTTP headers, browser APIs, canvas, WebRTC, and more...**
 
 ---
 
 **Manual Links:**
-- [***View the manual instead***](https://un-nf.github.io/404-docs/)
-- [What is 404?](https://un-nf.github.io/404-docs/Overview/whatIs/)
-- [Quick Start](https://un-nf.github.io/404-docs/dev/downloadDev/)
-- [Why does this matter?](https://un-nf.github.io/404-docs/Overview/why404/)
+- [***View the manual instead***](https://docs.404privacy.com/)
+- [What is 404?](https://docs.404privacy.com/Overview/whatIs/)
+- [Quick Start](https://docs.404privacy.com/dev/)
+- [Why does this matter?](https://docs.404privacy.com/Overview/why404/)
 
 ---
 
-https://github.com/user-attachments/assets/fb403522-ac09-4c49-a599-5edd53f33994
+[![Demo](./docs/proof/demo.mp4)]
 
 ---
 
 ## Quick consent & warning
 
 *By running this software you understand that:*
-- This proxy will generate a local CA and key-pair on its first run. As of now, there is no functionality or instructions for removing these from your trust store.
+
 - **This proxy terminates TLS**, usernames and passwords that pass through this proxy may be temporarily stored/visible in ***local only*** logs. Do not share logs. 
-- This is beta software - no warranty, no guarantees, minimal support.
+- This is cutting-edge software - no warranty, no guarantees, minimal support.
 
 *...and agree that:*
+
 - You will not use your primary accounts.
 - You will not share your CA certificate with anyone.
-- If you find a security issue report it to 404co@proton.me
+- If you find a security issue report it to support@404privacy.com
 
 [Join the Discord for support!](https://discord.gg/X9QrVm6dqS)
 
@@ -47,14 +49,14 @@ https://github.com/user-attachments/assets/fb403522-ac09-4c49-a599-5edd53f33994
 
 404 houses two main modules:
 - STATIC Proxy - *Synthetic Traffic and TLS Identity Camouflage*
-- Linux eBPF module
+- *Windows & Linux compatible* eBPF module
 
 ### STATIC Proxy
 #### *Synthetic Traffic and TLS Identity Camouflage*
 
 The STATIC proxy is built from the ground up and wired specifically to give the user granular control over their online fingerprint. Not just their browser fingerprint, but any device or app they choose to route through the proxy.
 
-That runtime contract now reaches:
+That profile contract now reaches:
 - request headers and client hints
 - upstream TLS hello variants and HTTP/2 behavior
 - iframe propagation and worker bootstrap state
@@ -62,7 +64,7 @@ That runtime contract now reaches:
 
 Profile data does still drive the upstream TLS plan. STATIC passes profile-defined cipher suites, signature algorithms, curves, ALPN, and extension ordering into the `wreq` adapter, but exact wire-level parity is still bounded by what `wreq` and its TLS backend can actually emit. Unsupported claims stay in the validator as warnings, not promises of packet-perfect parity.
 
-Best practice is to stay within your native browser family. Chromium users should choose Chromium-family profiles such as Chrome or Edge. Firefox users should choose Firefox-family profiles such as Firefox. STATIC does not hard-enforce that policy for manual operators; higher-level wrappers can be stricter if they want to be.
+Best practice is to stay within your native browser family. Chromium users should choose Blink-family profiles such as Chrome or Edge. Firefox users should choose Gecko-family profiles such as Firefox. STATIC does not hard-enforce that policy for manual operators; higher-level wrappers can be stricter if they want to be.
 
 Don't believe me? Check my work... 
 1. https://demo.fingerprint.com/playground
@@ -73,9 +75,10 @@ Don't believe me? Check my work...
 
 ### Linux eBPF module
 
-The eBPF module is, again, quite simple. It leverages powerful, fast, well documented, low-level Linux kernel hooks. By attaching eBPF programs to Linux's `Traffic Control` (`tc`) egress hooks, we can mutate packets extensively.
+The eBPF module leverages powerful, fast, well documented, low-level Linux kernel hooks. By attaching eBPF programs to Linux's `Traffic Control` (`tc`) egress hooks, we can mutate packets extensively.
 
-Currently, the following is implemented:
+404 defaults:
+
 ```md
 **IPv4:**
 - TTL (Time To Live) -> forced to 255
@@ -96,263 +99,138 @@ Currently, the following is implemented:
 
 ## How do I install and run 404 on my machine?
 
-### 1. Run the downloaded binary
+The supported Windows path is the WSL2 distro bundle.
 
-If you downloaded a release build, keep the `profiles/` directory beside the binary.
+### Release paths
 
-The proxy now requires an explicit profile selection. If no profile is set, it will refuse to start instead of silently picking one for you.
+- **Windows:** use the `404-windows-x64.zip` WSL2 operator bundle
+- **macOS Apple Silicon:** use `404-macos-aarch64.zip`
+- **macOS Intel:** use `404-macos-x64.zip`
+- **Linux:** use `static_proxy-linux-x86_64` and stage `profiles/` beside it yourself
 
-Pick the profile that matches your native browser family. For example, use `edge-windows` or `chrome-windows` on Chromium-family browsers, and `firefox-windows` on Firefox-family browsers.
+Documentation:
 
-**Windows**
+- [Windows self-hosted guide](https://docs.404privacy.com/dev/windows/)
+- [macOS self-hosted guide](https://docs.404privacy.com/dev/macos/)
+- [Linux self-hosted guide](https://docs.404privacy.com/dev/linux/)
+- [Developer build guide](https://docs.404privacy.com/dev/developers/)
+- [WSL distro packaging docs](https://docs.404privacy.com/runtime/distro/)
 
-```powershell
-cd $HOME\Downloads\404_REL # wherever your ./static binary lives.
-.\static.exe --list-profiles
-.\static.exe -- --profile edge-windows
-```
+### Windows
 
-**Linux / macOS**
+1. Download `404-windows-x64.zip`
+2. Extract it into your Windows home folder
+3. Optionally switch the default profile in `%APPDATA%\404\static\static.runtime.toml`
+4. Import the distro:
 
-```bash
-cd ~/Downloads/404_REL # wherever your ./static binary lives.
-chmod +x ./static
-./static --list-profiles
-./static -- --profile edge-windows
-```
+The published WSL2 bundle includes:
 
-Useful flags:
-
-- `--profile <name>` selects the active runtime profile.
-- `--profiles-path <path>` points STATIC at a different profile directory.
-- `--bind-address <addr>` changes the listener address. *default 127.0.0.1*
-- `--bind-port <port>` changes the listener port.
-- `--list-profiles` prints the discovered profiles and exits.
-
-Important listener note:
-- If you run with the repo sample config, the listener is `127.0.0.1:4040`.
-- If you run the standalone binary without a config file, STATIC falls back to built-in CLI defaults and listens on `127.0.0.1:8443`.
-- The localhost control plane binds on `listener_port + 2`.
-
-Example with an explicit listener override:
+- `404-distro.tar.gz`
+- `404-distro-manifest.json`
+- `404-distro-manifest.json.sig`
+- Prebuilt STATIC config under `AppData\Roaming\404\static`
+- Control token under `AppData\Local\404\wsl`
 
 ```powershell
-.\static.exe -- --profile edge-windows --bind-address 127.0.0.1 --bind-port 4040
+wsl --import 404 "$env:LOCALAPPDATA\404\wsl\distribution" "$HOME\404-distro.tar.gz" --version 2
 ```
 
-### 2. Build from source
+5. Start the 404 distribution:
 
-#### Install dependencies & configure PATH
+```powershell
+wsl -d 404
+```
 
-> **Developer Tip:** All commands can be copy pasted into your terminal for easy usage!
+6. Query the local control plane on `127.0.0.1:4042` to fetch the generated CA and trust it on the Windows host
+7. Point your browser or system proxy at `127.0.0.1:4040`
 
-<details>
-<summary><b>Windows</b></summary>
+The full Windows walkthrough:
 
-**Install via winget**
+- [Windows self-hosted guide](https://docs.404privacy.com/dev/windows/)
 
-1. Click [here](https://static.rust-lang.org/rustup/dist/i686-pc-windows-msvc/rustup-init.exe) (32-bit) to download rust-up. Open the downloaded `.exe` file and follow setup instructions.
+### macOS
 
-   - Use the "Workload" tab to select the "Desktop Development with C++" option.
-   - [Help](https://rust-lang.github.io/rustup/installation/windows-msvc.html)
-
-2. Open the Command Prompt
-
-   - Press Windows + R
-   - Type "cmd" into the run dialogue box.
-
-3. Download the dependencies
+macOS uses the direct STATIC path.
 
 ```bash
-winget install --id Kitware.CMake -e && winget install --id NASM.NASM -e
-
+cd "$HOME/404-runtime"
+./static_proxy --config ./config/static.example.toml --list-profiles
+./static_proxy --config ./config/static.example.toml --profile firefox-windows
 ```
 
-Current source builds also require LLVM/libclang, Ninja, and Perl available on your `PATH`.
+The `404-runtime/` directory contains:
 
-*Restart your shell after installation. Tools should be on your PATH automatically.*
+- `static_proxy`
+- `config/static.example.toml`
+- the release manifest files
+- the `profiles/` catalog
 
-</details>
+If you use Chrome, switch to `chrome-windows`. If you use Edge, switch to `edge-windows`.
 
-<details>
-<summary><b>macOS</b></summary>
+The bundled config listens on `127.0.0.1:4040` and exposes the local control plane on `127.0.0.1:4042`.
 
-**Install via homebrew (recommended)**
+Full walkthrough:
 
-1. Open the Terminal
+- [macOS self-hosted guide](https://docs.404privacy.com/dev/macos/)
 
-   - Press Command + Space
-   - Search "Terminal" and press Enter
+### Linux
 
-2. Ensure you have homebrew installed
+Linux uses the direct STATIC path, the release asset is `static_proxy-linux-x86_64`.
 
-a.
-```zsh
-xcode-select --install
+Typical operator flow:
+mkdir -p "$HOME/404-runtime"
+mv "$HOME/Downloads/static_proxy-linux-x86_64" "$HOME/404-runtime/static_proxy"
+chmod +x "$HOME/404-runtime/static_proxy"
 
+git clone --depth 1 https://github.com/un-nf/404.git "$HOME/404-source"
+cp -R "$HOME/404-source/src/STATIC_proxy/profiles" "$HOME/404-runtime/profiles"
+
+cd "$HOME/404-runtime"
+./static_proxy --profiles-path ./profiles --list-profiles
+./static_proxy --profiles-path ./profiles --profile edge-windows
 ```
 
-b.
-```zsh
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+On the standalone Linux path, the listener defaults to `127.0.0.1:8443` and the local control plane defaults to `127.0.0.1:8445` unless you launch with a config file or explicit overrides.
 
-```
+Full walkthrough:
 
-3. Download dependencies w/ homebrew:
+- [Linux self-hosted guide](https://docs.404privacy.com/dev/linux/)
 
-```zsh
-brew install rust nasm cmake ninja perl
+### Build from source
 
-```
+If you are building locally, use the [developers guide](https://docs.404privacy.com/dev/developers/). That guide covers:
 
-*Restart your shell after installation. Tools should be on your PATH automatically.*
+- Native macOS and Linux source builds
+- Windows WSL distro build inputs
+- Docker-based distro packaging
+- Release artifact contract
 
-</details>
+Start here:
 
-<details>
-<summary><b>Linux</b></summary>
+- [Developer build guide](https://docs.404privacy.com/dev/developers/)
 
-**Install via package manager**
+### CA trust and routing
 
-```bash
-# Debian/Ubuntu
-$ sudo apt update
-$ sudo apt install -y curl build-essential clang pkg-config cmake ninja-build perl nasm
+Across all paths:
 
-# Arch
-$ sudo pacman -S rust clang pkgconf cmake ninja perl nasm
+- STATIC generates a local CA and you must trust it before browsers will accept proxied HTTPS
+- Firefox uses its own certificate store and needs a separate import
+- you only affect traffic after you point the browser or operating system at the local listener
 
-# Fedora/RHEL
-$ sudo dnf install -y rust cargo clang pkgconf-pkg-config cmake ninja-build perl gcc-c++ nasm
+Common listener/control-plane cases:
 
-# Install Rust via rustup (if not installed via package manager)
-$ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-$ source $HOME/.cargo/env
+- macOS operator bundle: `127.0.0.1:4040` with control plane on `127.0.0.1:4042`
+- Windows WSL bundle: `127.0.0.1:4040` with control plane on `127.0.0.1:4042`
+- Linux standalone binary: `127.0.0.1:8443` with control plane on `127.0.0.1:8445`
 
-```
+**Important:** STATIC is a local TLS-terminating proxy. It can see plaintext HTTPS traffic on your machine. Do not share the generated CA certificate or private key.
 
-</details>
+### Optional Linux packet-layer path
 
-#### Run the proxy
+The distro packaging path in this repo is the Windows kernel-adjacent path, and Linux still supports manual `tc` attachment when you want the packet mutator directly.
 
-> **Info:** All steps assume that there is a folder named `404/` located at `~/git/`
-
-**Linux/macOS:**
-
-```bash
-cd ~/git/404/src/STATIC_proxy # CHANGE to wherever you unzipped the 404 folder.
-cargo run -- --list-profiles
-cargo run -- --profile edge-windows  # This will take a while on the first run (~5-minutes)
-
-```
-
-**Windows:**
-
-```bash
-cd %USERPROFILE%\git\404\src\STATIC_proxy # CHANGE to wherever you unzipped the 404 folder.
-cargo run -- --list-profiles
-cargo run -- --profile edge-windows  # This will take a while on the first run (~5-minutes)
-
-```
-
-If you omit `--profile` and there is no profile selected in config, STATIC will stop at startup and tell you to choose one.
-
-### 3. Trust proxy-generated CA
-
-STATIC now manages its CA material in the platform app-data directory instead of treating `src/STATIC_proxy/certs/` as the canonical runtime location.
-
-If you need the exact CA path on disk, use the value reported by STATIC's localhost control plane at `GET /ca/status`, or locate `static-ca.crt` in STATIC's managed app-data directory.
-
-<details>
-<summary><b>Firefox</b></summary>
-
-**Firefox uses its own trust store, you must trust the CA in the application:**
-
-Firefox -> Settings -> Privacy & Security -> Certificates -> View Certificates -> Authorities tab -> Import -> select `static-ca.crt` from STATIC's managed CA path -> Check "Trust this CA to identify websites" -> OK
-
-</details>
-
-<details>
-<summary><b>Windows</b></summary>
-
-**Trust the CA using `certutil`:**
-
-```bash
-certutil.exe -addstore root C:\\path\\to\\static-ca.crt
-
-```
-
-**...or manually:**
-
-1. Locate the `static-ca.crt` path reported by STATIC.
-
-2. Double-click the file labeled `static-ca.crt` (may appear without .crt extension)
-
-3. Click `Install Certificate...`
-
-4. Select `Current User` and click `Next`
-
-5. Choose `Place all certificates in the following store` and click `Browse...`
-
-6. Select `Trusted Root Certification Authorities` and click `OK`
-
-7. Click `Next` then `Finish`
-
-</details>
-
-<details>
-<summary><b>macOS</b></summary>
-
-```zsh
-sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain /path/to/static-ca.crt
-
-```
-
-**Or use the GUI:**
-
-1. Open Keychain Access
-2. File -> Import Items -> select `static-ca.crt` from STATIC's managed CA path
-3. Find the certificate, double-click it
-4. Expand "Trust" and set "When using this certificate" to "Always Trust"
-
-</details>
-
-<details>
-<summary><b>Linux</b></summary>
-
-```bash
-# Copy CA to system trust store
-sudo cp /path/to/static-ca.crt /usr/local/share/ca-certificates/static-ca.crt
-sudo update-ca-certificates
-
-```
-
-</details>
-
-### 4. Configure your Browser
-
-Set your browser (or system) to use the STATIC listener address and port that you actually launched.
-
-Common cases:
-- repo sample config: `127.0.0.1:4040`
-- standalone binary with no config file: `127.0.0.1:8443`
-
-- **Chrome/Edge:** Settings -> System -> Open your computer's proxy settings
-- **Firefox:** Settings -> Network Settings -> Manual proxy configuration -> HTTP Proxy: `127.0.0.1`, Port: `4040` or `8443` depending on how you launched STATIC, then check "Also use this proxy for HTTPS"
-
-**Important:** **This tool is a TLS-terminating proxy (man-in-the-middle) and has access to your plaintext HTTPS data (usernames, passwords, certain message protocols, etc.). Do NOT share your CA cert with *anyone* for *anything, ever*.**
-
-*The current runtime is designed around staying inside the native rendering-engine family rather than pretending Chromium is Firefox or vice versa. That makes the remaining complexity more load-bearing and easier to reason about.*
-
-### 5. *Optional* - Configure a Linux VM (if not using Linux)
-
-**VM Setup:**
-
-> *VM images coming soon. I am using an Alpine distribution on WSL2 (Windows). Works well, but a little heavy. Definitely going to be looking into distributing the VMs as dedicated server images, not gerry-rigged forwarding machines with desktop environments.*
-
-You *100% could* configure a VM and route traffic from your host machine to a VM guest, instructions for VM configuration available in the [eBPF documentation](https://un-nf.github.io/404-docs/dev/ebpf/).
-
-For now, just running STATIC should be enough, though network level obfuscation is not possible without a Linux kernel (yet).
+- [eBPF reference](https://docs.404privacy.com/resources/ebpf/)
+- [WSL distro packaging](https://docs.404privacy.com/runtime/distro/)
 
 ---
 
@@ -369,4 +247,4 @@ Commercial fingerprinting services like FingerprintJS, Fingerprint.com, and Data
 - Cookie & cache clearing 
 - Different networks
 
-This isn't paranoia. This is surveillance capitalism.
+This is surveillance capitalism.

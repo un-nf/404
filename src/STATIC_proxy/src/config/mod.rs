@@ -22,6 +22,6 @@ pub mod settings;
 
 pub use settings::{
     managed_cache_dir, managed_ca_cert_path, managed_keystore_blob_path, AltSvcStrategy,
-    BodyLimitsConfig, Http3Config, ListenerConfig, PipelineConfig, ProxyProtocol, StaticConfig, TelemetryConfig,
-    TelemetryMode, TlsConfig,
+    BodyLimitsConfig, ControlConfig, Http3Config, ListenerConfig, PipelineConfig,
+    ProxyProtocol, StaticConfig, TelemetryConfig, TelemetryMode, TlsConfig,
 };

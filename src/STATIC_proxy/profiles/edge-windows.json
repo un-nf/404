@@ -261,6 +261,52 @@
     ],
     "debug": false
   },
+  "packet_profile": {
+    "ttl": 128,
+    "tos": 16,
+    "tcp_window": 64240,
+    "tcp_mss": 1460,
+    "tcp_window_scale": 8,
+    "randomize_tcp_timestamp": false,
+    "randomize_ipv4_id": true,
+    "randomize_ipv6_flow": true,
+    "options": [
+      "mss",
+      "nop",
+      "window_scale",
+      "nop",
+      "nop",
+      "sack_permitted"
+    ]
+  },
+  "seeded_overlays": {
+    "packet_device_profiles": [
+      {
+        "id": "win11_enterprise_ethernet",
+        "weight": 0.45,
+        "packet_profile": {
+          "tcp_window": 64240,
+          "tcp_mss": 1460
+        }
+      },
+      {
+        "id": "win11_enterprise_wifi",
+        "weight": 0.35,
+        "packet_profile": {
+          "tcp_window": 65535,
+          "tcp_mss": 1460
+        }
+      },
+      {
+        "id": "win11_corporate_tunnel",
+        "weight": 0.20,
+        "packet_profile": {
+          "tcp_window": 64240,
+          "tcp_mss": 1360
+        }
+      }
+    ]
+  },
   "tls": {
     "schema_version": 2,
     "versions": {

@@ -91,6 +91,13 @@ pub(crate) fn initialize_ca_material(cfg: &TlsConfig) -> Result<()> {
     Ok(())
 }
 
+pub(crate) fn current_ca_certificate_pem(cfg: &TlsConfig) -> Result<String> {
+    let _ = load_or_generate_ca(cfg)?;
+    let path = managed_ca_cert_path();
+    fs::read_to_string(path)
+        .map_err(|e| anyhow!("failed to read managed CA certificate {}: {e}", path.display()))
+}
+
 /// Lock-free, thread-safe storage for issued leaf certificates.
 
 #[derive(Debug)]

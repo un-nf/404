@@ -26,6 +26,7 @@ pub mod assets;
 pub mod behavior;
 pub mod config;
 pub mod control;
+pub mod ebpf;
 pub mod keystore;
 pub mod proxy;
 pub mod telemetry;

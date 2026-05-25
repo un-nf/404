@@ -25,6 +25,7 @@ use tokio::sync::watch;
 use crate::{
     config::StaticConfig,
     control::{ControlMode, ControlPlane},
+    ebpf,
     proxy::{stages::{ProfileStore, StagePipeline}, OriginFetcher, ProxyServer, WreqOriginFetcher},
     telemetry::TelemetrySink,
     tls::cert::TlsProvider,
@@ -76,6 +77,8 @@ impl StaticApp {
                 "proxy mode requires an explicit profile selection; pass --profile <NAME> or set pipeline.default_profile in the config ({available_profiles})"
             ));
         }
+
+        ebpf::sync_profile_store(&profile_store);
 
         let server = match mode {
             RunMode::Proxy => {

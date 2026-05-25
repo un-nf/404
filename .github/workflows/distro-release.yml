@@ -1,0 +1,254 @@
+name: Build WSL Distro Release Artifact
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version string for the distro manifest and tarball"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-distro:
+    name: build-wsl-distro
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
+      TARGET: x86_64-unknown-linux-musl
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve release version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="${{ github.event.inputs.version || github.ref_name }}"
+          if [[ -z "$version" ]]; then
+            echo "Unable to determine distro version" >&2
+            exit 1
+          fi
+
+          echo "DISTRO_VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: src/STATIC_proxy/build/package-lock.json
+
+      - name: Install Rust target
+        run: rustup target add $TARGET
+
+      - name: Install Linux build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang \
+            llvm \
+            musl-tools \
+            pkg-config \
+            cmake \
+            ninja-build \
+            perl \
+            make \
+            g++ \
+            iproute2 \
+            libbpf-dev \
+            libelf-dev \
+            linux-libc-dev
+
+      - name: Install STATIC JS build dependencies
+        run: npm ci --prefix src/STATIC_proxy/build
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src/STATIC_proxy -> target
+
+      - name: Build STATIC proxy for musl
+        env:
+          CC_x86_64_unknown_linux_musl: musl-gcc
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+        run: cargo build --release --locked --manifest-path src/STATIC_proxy/Cargo.toml --bin static_proxy --target $TARGET
+
+      - name: Build eBPF artifact
+        run: make -C src/ebpf clean all
+
+      - name: Package distro tarball
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./distro/build.sh \
+            --static-binary "$PWD/src/STATIC_proxy/target/$TARGET/release/static_proxy" \
+            --ttl-object "$PWD/src/ebpf/ttl_editor.o" \
+            --version "$DISTRO_VERSION" \
+            --output "$PWD/dist/404-distro.tar.gz" \
+            --image-tag "404-distro-build:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+      - name: Build signed distro manifest
+        env:
+          DISTRO_MANIFEST_SIGNING_KEY: ${{ secrets.DISTRO_MANIFEST_SIGNING_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${DISTRO_MANIFEST_SIGNING_KEY:-}" ]]; then
+            echo "DISTRO_MANIFEST_SIGNING_KEY is required to sign the distro manifest" >&2
+            exit 1
+          fi
+
+          node .github/scripts/build-distro-release-manifest.mjs \
+            --artifact dist/404-distro.tar.gz \
+            --output dist/distro/manifest.json \
+            --version "$DISTRO_VERSION" \
+            --artifact-path "/distro/${DISTRO_VERSION}/404-distro.tar.gz"
+
+          node <<'EOF'
+          const { createPrivateKey, sign } = require('node:crypto');
+          const { readFileSync, writeFileSync } = require('node:fs');
+
+          const privateKeyPem = process.env.DISTRO_MANIFEST_SIGNING_KEY;
+          if (!privateKeyPem) {
+            throw new Error('DISTRO_MANIFEST_SIGNING_KEY is required');
+          }
+
+          const manifestBytes = readFileSync('dist/distro/manifest.json');
+          const privateKey = createPrivateKey(privateKeyPem);
+          const signature = sign(null, manifestBytes, privateKey).toString('base64');
+          writeFileSync('dist/distro/manifest.json.sig', `${signature}\n`, 'utf8');
+          EOF
+
+          cp dist/distro/manifest.json dist/404-distro-manifest.json
+          cp dist/distro/manifest.json.sig dist/404-distro-manifest.json.sig
+
+      - name: Package Windows operator bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          bundle_dir="dist/windows-root"
+          rm -rf "$bundle_dir"
+          mkdir -p "$bundle_dir/AppData/Roaming/404/static/profiles"
+          mkdir -p "$bundle_dir/AppData/Local/404/wsl"
+
+          cp dist/404-distro.tar.gz "$bundle_dir/"
+          cp dist/404-distro-manifest.json "$bundle_dir/"
+          cp dist/404-distro-manifest.json.sig "$bundle_dir/"
+
+          cp src/STATIC_proxy/profiles/manifest.json "$bundle_dir/AppData/Roaming/404/static/profiles/"
+          cp src/STATIC_proxy/profiles/chrome-windows.json "$bundle_dir/AppData/Roaming/404/static/profiles/"
+          cp src/STATIC_proxy/profiles/edge-windows.json "$bundle_dir/AppData/Roaming/404/static/profiles/"
+          cp src/STATIC_proxy/profiles/firefox-windows.json "$bundle_dir/AppData/Roaming/404/static/profiles/"
+
+          cat > "$bundle_dir/AppData/Roaming/404/static/static.runtime.toml" <<'EOF'
+          [listener]
+          bind_address = "0.0.0.0"
+          bind_port = 4040
+          proxy_protocol = "tls"
+
+          [control]
+          bind_address = "0.0.0.0"
+          token_path = "../../../Local/404/wsl/control-token"
+
+          [tls]
+          keystore = { mode = "file", service = "404.static_proxy", account = "ca_key" }
+
+          [pipeline]
+          profiles_path = "./profiles"
+          default_profile = "firefox-windows"
+          js_debug = false
+          alt_svc_strategy = "normalize"
+
+          [http3]
+          enabled = false
+          bind_address = "0.0.0.0"
+          bind_port = 4041
+
+          [telemetry]
+          mode = "stdout"
+          EOF
+
+          printf 'firefox-control-token\n' > "$bundle_dir/AppData/Local/404/wsl/control-token"
+
+          (
+            cd "$bundle_dir"
+            zip -r ../404-windows-x64.zip .
+          )
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: distro-release-${{ env.DISTRO_VERSION }}
+          path: |
+            dist/404-distro.tar.gz
+            dist/distro/manifest.json
+            dist/distro/manifest.json.sig
+            dist/404-distro-manifest.json
+            dist/404-distro-manifest.json.sig
+            dist/404-windows-x64.zip
+            src/ebpf/ttl_editor.o
+
+      - name: Upload distro assets to R2
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_REGION: auto
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${R2_BUCKET:-}" || -z "${R2_ENDPOINT:-}" ]]; then
+            echo "R2_BUCKET and R2_ENDPOINT are required to publish distro assets to the public origin" >&2
+            exit 1
+          fi
+
+          aws s3 cp "dist/distro/manifest.json" "s3://${R2_BUCKET}/distro/manifest.json" \
+            --endpoint-url "${R2_ENDPOINT}" \
+            --cache-control "no-store" \
+            --content-type "application/json"
+
+          aws s3 cp "dist/distro/manifest.json.sig" "s3://${R2_BUCKET}/distro/manifest.json.sig" \
+            --endpoint-url "${R2_ENDPOINT}" \
+            --cache-control "no-store" \
+            --content-type "text/plain"
+
+          aws s3 cp "dist/404-distro.tar.gz" "s3://${R2_BUCKET}/distro/${DISTRO_VERSION}/404-distro.tar.gz" \
+            --endpoint-url "${R2_ENDPOINT}" \
+            --cache-control "public, max-age=31536000, immutable" \
+            --content-type "application/gzip"
+
+          aws s3 cp "dist/distro/manifest.json" "s3://${R2_BUCKET}/distro/${DISTRO_VERSION}/manifest.json" \
+            --endpoint-url "${R2_ENDPOINT}" \
+            --cache-control "public, max-age=31536000, immutable" \
+            --content-type "application/json"
+
+          aws s3 cp "dist/distro/manifest.json.sig" "s3://${R2_BUCKET}/distro/${DISTRO_VERSION}/manifest.json.sig" \
+            --endpoint-url "${R2_ENDPOINT}" \
+            --cache-control "public, max-age=31536000, immutable" \
+            --content-type "text/plain"
+
+      - name: Publish release assets
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/404-distro.tar.gz
+            dist/404-distro-manifest.json
+            dist/404-distro-manifest.json.sig
+            dist/404-windows-x64.zip

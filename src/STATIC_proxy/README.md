@@ -3,7 +3,7 @@
 
 <div align="center">
 
-**A Rust MITM proxy for profile-driven browser-family shaping across transport and runtime surfaces**
+**A Rust MITM proxy for profile-driven browser-family shaping across transport and browser surfaces**
 
 [![Rust](https://img.shields.io/badge/rust-1.76%2B-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-AGPLv3-blue.svg)](../LICENSE)
@@ -20,9 +20,9 @@
 STATIC is a profile-driven MITM proxy that shapes two layers at the same time:
 
 - outbound transport behavior such as headers, ALPN, TLS hello variants, and HTTP/2 behavior
-- injected runtime behavior such as navigator identity, canvas, WebGL, audio, iframe propagation, and worker bootstrap state
+- injected browser behavior such as navigator identity, canvas, WebGL, audio, iframe propagation, and worker bootstrap state
 
-The current architecture is centered on browser families rather than cross-engine impersonation. In practical terms, that means the runtime is designed around Chromium-family variants such as Chrome, Edge, and Brave, and Firefox-family variants such as Firefox and future Mullvad-style profiles.
+The current architecture is centered on browser families rather than cross-engine impersonation. In practical terms, that means the injected script layer is designed around Chromium-family variants such as Chrome, Edge, and Brave, and Firefox-family variants such as Firefox and future Mullvad-style profiles.
 
 STATIC itself does not enforce native-browser correctness. If an operator manually chooses the wrong family, the proxy will not stop them. Best practice is to stay within the native rendering-engine family and only vary the branded identity inside that family. External wrappers such as 404-APP can apply stricter selection policy on top of STATIC, but that policy is intentionally outside this repository.
 
@@ -37,25 +37,25 @@ STATIC loads one `ProfileStore` at startup and shares it between:
 - the proxy request pipeline
 - the localhost control plane
 
-That is what makes runtime profile selection coherent. The request pipeline and the control API are reading and mutating the same in-memory catalog and active profile state.
+That keeps profile selection coherent. The request pipeline and the control API are reading and mutating the same in-memory catalog and active profile state.
 
-### 2. Explicit runtime startup
+### 2. Explicit proxy startup
 
 Proxy mode does not start in an ambiguous identity state. A profile must be selected explicitly through CLI or config. STATIC will list available profiles, but it will not silently pick one for standalone proxy startup.
 
-### 3. Family-aware runtime shaping
+### 3. Family-aware browser shaping
 
-Profiles now describe family and variant explicitly. The runtime uses that contract in:
+Profiles now describe family and variant explicitly. STATIC uses that contract in:
 
 - profile validation
-- JS runtime config
+- injected-script config
 - worker bootstrap
 - iframe propagation
 - TLS/profile coherence checks
 
 ### 4. Seeded persona materialization
 
-Profiles are not just loaded raw. Any `seeded_overlays` are materialized into one concrete process-lifetime persona, which is then passed into the runtime and transport layers.
+Profiles are not just loaded raw. Any `seeded_overlays` are materialized into one concrete process-lifetime persona, which is then passed into the browser-side script layer and the transport layer.
 
 ---
 
@@ -63,7 +63,7 @@ Profiles are not just loaded raw. Any `seeded_overlays` are materialized into on
 
 ### Repository build
 
-Build the JS runtime bundle first:
+Build the JS bundle first:
 
 ```bash
 cd src/STATIC_proxy/build
@@ -78,7 +78,7 @@ cd src/STATIC_proxy
 cargo test --lib
 ```
 
-List the discovered runtime profiles:
+List the discovered profiles:
 
 ```bash
 cd src/STATIC_proxy
@@ -116,9 +116,13 @@ Useful CLI flags:
 
 ## Configuration
 
-The repository sample config is [config/static.example.toml](config/static.example.toml).
+The repository ships multiple config examples:
 
-Current sample defaults:
+- [config/static.example.toml](config/static.example.toml) for local standalone usage
+- [config/app.config.toml](config/app.config.toml) for app-managed startup defaults
+- [config/static.chrome.toml](config/static.chrome.toml) for a pinned Chromium-family example
+
+`static.example.toml`:
 
 ```toml
 [listener]
@@ -144,30 +148,40 @@ bind_port = 4041
 mode = "stdout"
 ```
 
-Important runtime behavior:
+Behavior:
 
 - the control plane binds on `listener.bind_port + 2`
 - if no config file is used, CLI defaults use port `8443` for the listener and `8444` for HTTP/3
+- the control plane can be configured explicitly with an optional `[control]` section
+- if `control.token_path` is set, control endpoints require the `X-404-Control-Token` header
 - managed CA material is owned by STATIC and stored under the OS app-data directory
 - legacy `tls.ca_cert_path`, `tls.ca_key_path`, and `tls.cache_dir` are not general override points anymore
+
+Optional control-plane config:
+
+```toml
+[control]
+bind_address = "127.0.0.1"
+token_path = "./control-token"
+```
 
 ---
 
 ## Profiles
 
-Current bundled runtime profiles live in [profiles](profiles):
+Current bundled browser profiles live in [profiles](profiles):
 
 - `chrome-windows.json`
 - `edge-windows.json`
 - `firefox-windows.json`
 - `manifest.json`
 
-Each runtime profile can contribute:
+Each profile can contribute:
 
-- header shaping rules
-- fingerprint/runtime config
+- HTTP header config
+- JavaScript fingerprint config
 - TLS hello variants and HTTP/2 settings
-- seeded overlay choices for process-lifetime persona materialization
+- Seeded overlay choices
 
 The profile catalog exposed by STATIC includes:
 
@@ -177,16 +191,15 @@ The profile catalog exposed by STATIC includes:
 - variant
 - platform
 
-### Selection guidance
+### Profile selection
 
-Best practice is simple:
+Best practice:
 
-- use Chromium-family profiles on Chromium-family browsers
-- use Firefox-family profiles on Firefox-family browsers
-- vary the branded identity inside that family rather than pretending to be a different engine
+- Use Chromium-family profiles on Blink-family browsers
+- Use Firefox-family profiles on Gecko-family browsers
+- Vary the branded identity inside that family rather than pretending to be a different engine
 
-STATIC does not hard-enforce that policy. Manual operators are responsible for selecting the right profile. That separation is intentional.
-
+> STATIC does not hard-enforce this policy. Manual operators are responsible for selecting the right profile.
 ---
 
 ## Architecture
@@ -197,9 +210,11 @@ Current high-value paths:
 
 ```text
 src/STATIC_proxy/
+├── Cargo.toml                      # Rust crate manifest for STATIC
 ├── assets/
 │   └── js/
-│       ├── dist/                  # Built runtime bundle embedded by Rust
+│       ├── behavioral_noise_v1.js  # Runtime-side behavioral noise helper
+│       ├── dist/                  # Built browser-side bundle embedded by Rust
 │       └── src/
 │           ├── capabilities/
 │           ├── contexts/
@@ -209,14 +224,22 @@ src/STATIC_proxy/
 │           ├── privacy/
 │           ├── spoofing/
 │           └── runtime.js
-├── build/                         # esbuild entrypoint for runtime.bundle.js
+├── build/                         # Node/esbuild workspace for runtime.bundle.js
+│   ├── build.js
+│   └── package.json
+├── build.rs                       # Rust build hook for embedded assets
+├── certs/                         # Local development certificates and fixtures
 ├── config/
+│   ├── app.config.toml
+│   ├── static.chrome.toml
 │   └── static.example.toml
 ├── profiles/
 ├── src/
 │   ├── app.rs
 │   ├── assets.rs
+│   ├── behavior/
 │   ├── control.rs
+│   ├── lib.rs
 │   ├── main.rs
 │   ├── telemetry.rs
 │   ├── config/
@@ -224,10 +247,10 @@ src/STATIC_proxy/
 │   ├── proxy/
 │   ├── tls/
 │   └── utils/
-└── tests/
+└── target/                        # Local build output when compiling in place
 ```
 
-### Runtime modes
+### Process modes
 
 STATIC can run in two modes:
 
@@ -249,7 +272,7 @@ The proxy path is currently split into explicit protocol classes:
 - HTTP/1.1 sessions
 - HTTP/2 sessions
 - raw websocket tunneling
-- local runtime asset delivery (`/__static/runtime.js`)
+- local injected-script delivery (`/__static/runtime.js`)
 - buffered HTML mutation only when response stages actually require it
 
 ### Stage pipeline
@@ -262,13 +285,13 @@ The current request/response stage order is deterministic:
 4. `JsInjectionStage`
 5. `AltSvcStage`
 
-That order matters. Profile state has to exist before the injected runtime is configured, and CSP/JS mutation has to happen before Alt-Svc normalization finalizes the downstream response.
+That order matters. Profile state has to exist before the injected script is configured, and CSP/JS mutation has to happen before Alt-Svc normalization finalizes the downstream response.
 
 ### Transport layer
 
 `fetcher.rs` is the boundary between STATIC's profile model and what the current `wreq` backend can actually express.
 
-The runtime currently passes through:
+The transport plan currently passes through:
 
 - cipher-suite ordering
 - signature-algorithm ordering
@@ -299,28 +322,26 @@ The profile loader in `header_profile.rs` recursively discovers profile JSON, bu
 
 ---
 
-## JS Runtime
+## Injected Script Layer
 
-The current JS runtime is built from [assets/js/src/runtime.js](assets/js/src/runtime.js) into `assets/js/dist/runtime.bundle.js`.
+The current browser-side script bundle is built from [assets/js/src/runtime.js](assets/js/src/runtime.js) into `assets/js/dist/runtime.bundle.js`.
 
-It is a bootstrap pipeline, not a loose set of independent patches.
+Bootstrap order:
 
-Current high-level bootstrap order:
-
-1. initialize the runtime registry
+1. initialize the shared registry
 2. capture native references
 3. install `Function.prototype.toString` masking
 4. capture nonce state
-5. load runtime config
+5. load browser-side config
 6. initialize entropy
 7. initialize policy
 8. install identity, capability, spoofing, evasion, privacy, and iframe modules
 
-### Runtime registry
+### Shared registry
 
 The shared registry lives under `window.__STATIC_RUNTIME__` and tracks:
 
-- runtime version
+- script version
 - config
 - policy
 - entropy state
@@ -346,9 +367,9 @@ This constructor-wrapping model is the only realistic place to affect worker sco
 
 Iframe propagation is same-origin and selective.
 
-The runtime mirrors:
+The injected script mirrors:
 
-- the shared runtime registry
+- the shared registry
 - nonce state
 - a base set of globals
 - `chrome` only for Chromium-family profiles
@@ -356,7 +377,7 @@ The runtime mirrors:
 
 ### High-entropy surfaces
 
-Current high-entropy runtime modules include:
+Current high-entropy browser-surface modules include:
 
 - canvas
 - WebGL
@@ -376,8 +397,8 @@ These modules now rely on shared entropy and materialized profile state rather t
 
 STATIC is responsible for:
 
-- loading and applying runtime profiles
-- shaping transport and runtime behavior from those profiles
+- loading and applying browser profiles
+- shaping transport behavior and browser-side behavior from those profiles
 - exposing catalog/selection state over the localhost control plane
 - documenting current implementation limits truthfully
 
@@ -398,7 +419,7 @@ cd src/STATIC_proxy
 cargo test --lib --quiet
 ```
 
-JS runtime bundle rebuild:
+JS bundle rebuild:
 
 ```bash
 cd src/STATIC_proxy/build
@@ -418,26 +439,6 @@ These should be part of any release hygiene for this subtree.
 
 ## Limitations
 
-Important current limits:
-
 - exact on-the-wire TLS parity is bounded by `wreq` and its TLS backend
-- service workers and pre-existing workers remain outside the injected runtime's reach
+- service workers and pre-existing workers remain outside the injected script's reach
 - STATIC does not enforce native-family profile correctness for manual operators
-- runtime shaping is strongest where the proxy owns both transport and injected JS entry points
-
-These limits are implementation boundaries, not hidden caveats.
-
----
-
-## Current Direction
-
-The direction of the live tree is straightforward:
-
-- keep the family model
-- keep explicit runtime profile state
-- keep seeded persona materialization
-- keep worker and iframe coherence
-- reduce cross-engine impersonation debt
-- stay honest about backend limits and scope boundaries
-
-That keeps the codebase aligned with the current architecture instead of carrying old Firefox-vs-Chromium impersonation complexity forever.

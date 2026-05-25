@@ -17,7 +17,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 */
 
-use std::{env, io::{self, Write}, path::{Path, PathBuf}};
+use std::{env, ffi::OsString, io::{self, Write}, path::{Path, PathBuf}};
 
 use anyhow::{Context, Result};
 use clap::{ArgAction, Parser, ValueEnum};
@@ -103,7 +103,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn run() -> anyhow::Result<()> {
-    let cli = Cli::parse();
+    let cli = parse_cli();
 
     init_tracing(cli.json_logs);
 
@@ -121,6 +121,21 @@ async fn run() -> anyhow::Result<()> {
     let app = StaticApp::new(config, cli.mode.into()).await?;
 
     app.run().await
+}
+
+fn parse_cli() -> Cli {
+    let mut args = env::args_os();
+    let program = args.next().unwrap_or_else(|| OsString::from("static"));
+    let mut normalized = vec![program];
+    let remaining: Vec<OsString> = args.collect();
+
+    if matches!(remaining.first().and_then(|value| value.to_str()), Some("--")) {
+        normalized.extend(remaining.into_iter().skip(1));
+    } else {
+        normalized.extend(remaining);
+    }
+
+    Cli::parse_from(normalized)
 }
 
 fn maybe_pause_before_exit() {

@@ -136,6 +136,20 @@ impl ProfileStore {
             })
     }
 
+    pub fn active_profile_config(&self) -> Option<Value> {
+        let selected = self.inner.selected_profile.read().clone();
+        selected
+            .as_deref()
+            .and_then(|value| self.resolve_record(value))
+            .or_else(|| {
+                self.inner
+                    .default_profile
+                    .as_deref()
+                    .and_then(|value| self.resolve_record(value))
+            })
+            .map(|(_, record)| record.config.clone())
+    }
+
     pub fn select_profile(&self, requested: &str) -> Result<ProfileCatalogEntry> {
         let entry = self
             .resolve_catalog_entry(requested)
@@ -990,6 +1004,10 @@ fn apply_overlay_entry(materialized: &mut Value, entry: &Map<String, Value>) {
         for (key, value) in headers_patch {
             merge_value_at_key(root, key, value);
         }
+    }
+
+    if let Some(packet_profile_patch) = entry.get("packet_profile") {
+        merge_value_at_key(root, "packet_profile", packet_profile_patch);
     }
 }
 

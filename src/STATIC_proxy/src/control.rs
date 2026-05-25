@@ -1,5 +1,6 @@
 use std::{
-    net::{Ipv4Addr, SocketAddr},
+    fs,
+    net::{IpAddr, SocketAddr},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -9,7 +10,7 @@ use std::{
 use anyhow::Result;
 use axum::{
     extract::State,
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     routing::{get, post},
     Json, Router,
 };
@@ -19,9 +20,10 @@ use tokio::{net::TcpListener, sync::watch};
 
 use crate::{
     config::{managed_ca_cert_path, StaticConfig},
+    ebpf,
     proxy::stages::{ProfileCatalogEntry, ProfileStore},
     telemetry,
-    tls::{cert::initialize_ca_material, profiles::validate_profile_coherence},
+    tls::{cert::{current_ca_certificate_pem, initialize_ca_material}, profiles::validate_profile_coherence},
 };
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -34,6 +36,7 @@ pub enum ControlMode {
 #[derive(Clone)]
 pub struct ControlPlane {
     config: StaticConfig,
+    control_token: Option<String>,
     mode: ControlMode,
     profile_store: ProfileStore,
     ready: Arc<AtomicBool>,
@@ -43,6 +46,7 @@ pub struct ControlPlane {
 #[derive(Clone)]
 struct ControlState {
     config: StaticConfig,
+    control_token: Option<String>,
     mode: ControlMode,
     profile_store: ProfileStore,
     ready: Arc<AtomicBool>,
@@ -59,6 +63,7 @@ struct StatusResponse {
 struct CaStatusResponse {
     cert_path: String,
     exists: bool,
+    cert_pem: String,
 }
 
 #[derive(Serialize)]
@@ -110,8 +115,11 @@ impl ControlPlane {
         shutdown_tx: watch::Sender<bool>,
         profile_store: ProfileStore,
     ) -> Self {
+        let control_token = load_control_token(&config)
+            .expect("STATIC control token path must be readable when configured");
         Self {
             config,
+            control_token,
             mode,
             profile_store,
             ready,
@@ -124,7 +132,13 @@ impl ControlPlane {
     }
 
     pub async fn run(self) -> Result<()> {
-        let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, control_port(self.config.listener.bind_port)));
+        let bind_ip = self
+            .config
+            .control
+            .bind_address
+            .parse::<IpAddr>()
+            .map_err(|e| anyhow::anyhow!("invalid control.bind_address '{}': {e}", self.config.control.bind_address))?;
+        let addr = SocketAddr::from((bind_ip, control_port(self.config.listener.bind_port)));
         let listener = TcpListener::bind(addr).await?;
         if self.mode == ControlMode::Control {
             self.ready.store(true, Ordering::SeqCst);
@@ -135,6 +149,7 @@ impl ControlPlane {
         let ready = Arc::clone(&self.ready);
         let state = ControlState {
             config: self.config,
+            control_token: self.control_token,
             mode: self.mode,
             profile_store: self.profile_store,
             ready,
@@ -173,74 +188,149 @@ pub fn control_port(bind_port: u16) -> u16 {
     bind_port.saturating_add(2)
 }
 
-async fn get_status(State(state): State<ControlState>) -> Json<StatusResponse> {
-    Json(StatusResponse {
-        mode: state.mode,
-        ready: state.ready.load(Ordering::SeqCst),
-    })
+fn load_control_token(config: &StaticConfig) -> Result<Option<String>> {
+    let Some(path) = config.control.token_path.as_ref() else {
+        return Ok(None);
+    };
+
+    let token = fs::read_to_string(path)?;
+    let token = token.trim().to_string();
+    if token.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(token))
+    }
 }
 
-async fn get_ca_status() -> Json<CaStatusResponse> {
+fn require_control_auth(headers: &HeaderMap, state: &ControlState) -> Result<(), (StatusCode, String)> {
+    let Some(expected_token) = state.control_token.as_deref() else {
+        return Ok(());
+    };
+
+    let presented = headers
+        .get("X-404-Control-Token")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| (StatusCode::FORBIDDEN, "missing control token".to_string()))?;
+
+    if presented == expected_token {
+        Ok(())
+    } else {
+        Err((StatusCode::FORBIDDEN, "invalid control token".to_string()))
+    }
+}
+
+async fn get_status(
+    State(state): State<ControlState>,
+    headers: HeaderMap,
+) -> Result<Json<StatusResponse>, (StatusCode, String)> {
+    require_control_auth(&headers, &state)?;
+    Ok(Json(StatusResponse {
+        mode: state.mode,
+        ready: state.ready.load(Ordering::SeqCst),
+    }))
+}
+
+async fn get_ca_status(
+    State(state): State<ControlState>,
+    headers: HeaderMap,
+) -> Result<Json<CaStatusResponse>, (StatusCode, String)> {
+    require_control_auth(&headers, &state)?;
     let cert_path = managed_ca_cert_path();
-    Json(CaStatusResponse {
+    let cert_pem = if cert_path.exists() {
+        current_ca_certificate_pem(&state.config.tls)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to read CA certificate: {e}")))?
+    } else {
+        String::new()
+    };
+    Ok(Json(CaStatusResponse {
         cert_path: cert_path.to_string_lossy().to_string(),
         exists: cert_path.exists(),
-    })
+        cert_pem,
+    }))
 }
 
 async fn post_ca_init(
     State(state): State<ControlState>,
+    headers: HeaderMap,
 ) -> Result<Json<CaStatusResponse>, (StatusCode, String)> {
+    require_control_auth(&headers, &state)?;
     initialize_ca_material(&state.config.tls)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to init CA: {e}")))?;
 
     let cert_path = managed_ca_cert_path();
+    let cert_pem = current_ca_certificate_pem(&state.config.tls)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to read CA certificate: {e}")))?;
     Ok(Json(CaStatusResponse {
         cert_path: cert_path.to_string_lossy().to_string(),
         exists: cert_path.exists(),
+        cert_pem,
     }))
 }
 
-async fn post_stop(State(state): State<ControlState>) -> Json<StopResponse> {
+async fn post_stop(
+    State(state): State<ControlState>,
+    headers: HeaderMap,
+) -> Result<Json<StopResponse>, (StatusCode, String)> {
+    require_control_auth(&headers, &state)?;
     let _ = state.shutdown_tx.send(true);
-    Json(StopResponse { stopping: true })
+    Ok(Json(StopResponse { stopping: true }))
 }
 
-async fn get_telemetry_snapshot() -> Json<TelemetrySnapshotResponse> {
-    Json(TelemetrySnapshotResponse {
+async fn get_telemetry_snapshot(
+    State(state): State<ControlState>,
+    headers: HeaderMap,
+) -> Result<Json<TelemetrySnapshotResponse>, (StatusCode, String)> {
+    require_control_auth(&headers, &state)?;
+    Ok(Json(TelemetrySnapshotResponse {
         events: telemetry::snapshot(),
-    })
+    }))
 }
 
-async fn get_profile_catalog(State(state): State<ControlState>) -> Json<ProfileCatalogResponse> {
-    Json(ProfileCatalogResponse {
+async fn get_profile_catalog(
+    State(state): State<ControlState>,
+    headers: HeaderMap,
+) -> Result<Json<ProfileCatalogResponse>, (StatusCode, String)> {
+    require_control_auth(&headers, &state)?;
+    Ok(Json(ProfileCatalogResponse {
         active_profile: state.profile_store.active_profile(),
         profiles: state.profile_store.catalog(),
-    })
+    }))
 }
 
-async fn get_active_profile(State(state): State<ControlState>) -> Json<ActiveProfileResponse> {
-    Json(ActiveProfileResponse {
+async fn get_active_profile(
+    State(state): State<ControlState>,
+    headers: HeaderMap,
+) -> Result<Json<ActiveProfileResponse>, (StatusCode, String)> {
+    require_control_auth(&headers, &state)?;
+    Ok(Json(ActiveProfileResponse {
         active_profile: state.profile_store.active_profile(),
-    })
+    }))
 }
 
 async fn post_profile_select(
     State(state): State<ControlState>,
+    headers: HeaderMap,
     Json(request): Json<ProfileSelectionRequest>,
 ) -> Result<Json<ProfileSelectionResponse>, (StatusCode, String)> {
+    require_control_auth(&headers, &state)?;
     let active_profile = state
         .profile_store
         .select_profile(&request.profile)
         .map_err(|err| (StatusCode::BAD_REQUEST, err.to_string()))?;
+    ebpf::sync_profile_store(&state.profile_store);
 
     Ok(Json(ProfileSelectionResponse { active_profile }))
 }
 
 async fn post_profile_validate(
+    State(state): State<ControlState>,
+    headers: HeaderMap,
     Json(request): Json<ProfileValidationRequest>,
-) -> Json<ProfileValidationResponse> {
-    Json(ProfileValidationResponse {
+) -> Result<Json<ProfileValidationResponse>, (StatusCode, String)> {
+    require_control_auth(&headers, &state)?;
+    Ok(Json(ProfileValidationResponse {
         warnings: validate_profile_coherence(&request.profile),
-    })
+    }))
 }

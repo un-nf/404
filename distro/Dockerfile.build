@@ -1,0 +1,15 @@
+FROM alpine:3.19
+
+RUN apk add --no-cache \
+    bpftool \
+    iproute2 \
+    libgcc
+
+COPY rootfs/ /
+COPY artifacts/static /opt/404/static
+COPY artifacts/ttl_editor.o /opt/404/ttl_editor.o
+
+RUN chmod 0755 /opt/404/static /opt/404/404-init.sh \
+    && mkdir -p /opt/404/certs
+
+CMD ["/bin/sh"]
