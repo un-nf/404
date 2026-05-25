@@ -3,17 +3,17 @@
     {
       "file_name": "chrome-windows.json",
       "path": "/src/STATIC_proxy/profiles/chrome-windows.json",
-      "sha256": "ac047cbcda20591d5a6ebe213922c619d57366bd87c133586ac0a67a73427038"
+      "sha256": "27b771240a4e48d177a82f18bc9e298fef6b9840deed740faeb927731e0e2bac"
     },
     {
       "file_name": "edge-windows.json",
       "path": "/src/STATIC_proxy/profiles/edge-windows.json",
-      "sha256": "10f66b27e3c5ab9ff15a4f6622d760d35999449b18b3996ec1bfcffb5b27a332"
+      "sha256": "dcf5426b38c233fbbcd72ede7bf0e0aed84150e9bd56e5f0978c0c8f0e656f82"
     },
     {
       "file_name": "firefox-windows.json",
       "path": "/src/STATIC_proxy/profiles/firefox-windows.json",
-      "sha256": "44acaa8a7a034f943db420def47cce8a3e93d5b57da4b89823f5cbe88112675f"
+      "sha256": "32177789cd424e756a5116fc4239cf44984cfcda4987e90e9be5de270580f021"
     }
   ]
 }
