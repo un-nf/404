@@ -77,7 +77,47 @@ jobs:
         run: |
           set -euo pipefail
 
-          curl -fsSL "https://ziglang.org/download/${ZIG_VERSION}/zig-linux-x86_64-${ZIG_VERSION}.tar.xz" -o "$RUNNER_TEMP/zig.tar.xz"
+          mapfile -t zig_release < <(node <<'EOF'
+          const https = require('node:https');
+
+          const version = process.env.ZIG_VERSION;
+          if (!version) {
+            console.error('ZIG_VERSION is required');
+            process.exit(1);
+          }
+
+          https
+            .get('https://ziglang.org/download/index.json', (response) => {
+              let body = '';
+              response.setEncoding('utf8');
+              response.on('data', (chunk) => {
+                body += chunk;
+              });
+              response.on('end', () => {
+                if (response.statusCode !== 200) {
+                  console.error(`failed to fetch Zig download index: HTTP ${response.statusCode}`);
+                  process.exit(1);
+                }
+
+                const target = JSON.parse(body)?.[version]?.['x86_64-linux'];
+                if (!target?.tarball || !target?.shasum) {
+                  console.error(`missing Zig x86_64-linux release metadata for ${version}`);
+                  process.exit(1);
+                }
+
+                console.log(target.tarball);
+                console.log(target.shasum);
+              });
+            })
+            .on('error', (error) => {
+              console.error(`failed to fetch Zig download index: ${error.message}`);
+              process.exit(1);
+            });
+          EOF
+          )
+
+          curl -fsSL "${zig_release[0]}" -o "$RUNNER_TEMP/zig.tar.xz"
+          echo "${zig_release[1]}  $RUNNER_TEMP/zig.tar.xz" | sha256sum -c -
           sudo mkdir -p /opt/zig
           sudo tar -xJf "$RUNNER_TEMP/zig.tar.xz" -C /opt/zig --strip-components=1
           echo "/opt/zig" >> "$GITHUB_PATH"
