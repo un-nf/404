@@ -27,7 +27,19 @@ pin_bpf_map() {
     return 0
   fi
 
-  map_id=$(bpftool map show name "$map_name" 2>/dev/null | awk -F: 'NR==1 {gsub(/^[[:space:]]+/, "", $1); print $1}')
+  truncated_name=$(printf '%s' "$map_name" | cut -c1-15)
+  map_id=$(bpftool map show 2>/dev/null | awk -F': ' -v map_name="$map_name" -v truncated_name="$truncated_name" '
+    {
+      id = $1
+      name = $2
+      sub(/^.* name /, "", name)
+      sub(/ .*/, "", name)
+      if (name == map_name || name == truncated_name) {
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", id)
+        print id
+      }
+    }
+  ' | awk 'NF { print $1 }' | sort -n | tail -n 1)
   if [ -z "$map_id" ]; then
     return 0
   fi
@@ -36,10 +48,21 @@ pin_bpf_map() {
   bpftool map pin id "$map_id" "$pin_path" 2>/dev/null || true
 }
 
+attach_ifaces() {
+  if [ -n "${EGRESS_IFACES:-}" ]; then
+    printf '%s\n' "$EGRESS_IFACES" | tr ', ' '\n' | awk 'NF { print }'
+    return
+  fi
+
+  ip -o link show up | awk -F': ' '/: eth[0-9]+:/ { print $2 }'
+}
+
 # Attach the eBPF classifier best-effort; repeated boots should remain harmless.
 ensure_bpffs
-tc qdisc add dev eth0 clsact 2>/dev/null || true
-tc filter add dev eth0 egress bpf da obj /opt/404/ttl_editor.o sec classifier 2>/dev/null || true
+for iface in $(attach_ifaces); do
+  tc qdisc add dev "$iface" clsact 2>/dev/null || true
+  tc filter add dev "$iface" egress bpf da obj /opt/404/ttl_editor.o sec classifier 2>/dev/null || true
+done
 pin_bpf_map fingerprint_profiles "$PACKET_PROFILE_PIN"
 
 exec /opt/404/static \

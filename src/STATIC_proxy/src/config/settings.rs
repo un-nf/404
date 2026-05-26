@@ -26,7 +26,7 @@ use std::{
 use anyhow::{anyhow, Context, Result};
 use directories::ProjectDirs;
 use serde::Deserialize;
-use crate::keystore::KeystoreConfig;
+use crate::keystore::{KeystoreConfig, KeystoreMode};
 
 const APP_QUALIFIER: &str = "io";
 const APP_ORGANIZATION: &str = "404";
@@ -126,10 +126,21 @@ impl StaticConfig {
 
     /// Builds a minimal runtime config for standalone binary usage.
     pub fn default_for_cli(profiles_path: PathBuf) -> Self {
+        let keystore_mode = if cfg!(target_os = "linux") {
+            KeystoreMode::File
+        } else {
+            KeystoreMode::Keychain
+        };
+
         Self {
             listener: ListenerConfig::default(),
             control: ControlConfig::default(),
-            tls: TlsConfig::default(),
+            tls: TlsConfig {
+                keystore: KeystoreConfig {
+                    mode: keystore_mode,
+                    ..KeystoreConfig::default()
+                },
+            },
             pipeline: PipelineConfig {
                 profiles_path,
                 default_profile: None,
@@ -192,12 +203,21 @@ struct RawStaticConfig {
     pub telemetry: TelemetryConfig,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct ControlConfig {
     #[serde(default = "default_bind_address")]
     pub bind_address: String,
     #[serde(default)]
     pub token_path: Option<PathBuf>,
+}
+
+impl Default for ControlConfig {
+    fn default() -> Self {
+        Self {
+            bind_address: default_bind_address(),
+            token_path: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -262,7 +282,7 @@ impl Default for ProxyProtocol {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct TlsConfig {
-    /// Keystore backend selection (file, keychain, etc.). Defaults to file for backward compatibility.
+    /// Keystore backend selection (file, keychain, etc.). Defaults to keychain unless a caller selects file explicitly.
     pub keystore: KeystoreConfig,
 }
 

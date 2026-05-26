@@ -29,7 +29,6 @@ use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use bytes::Bytes;
 use http::header::{HeaderValue, CONTENT_LENGTH, HOST};
-use http_body::Body as _;
 use wreq::{
     Client,
     header::OrigHeaderMap,

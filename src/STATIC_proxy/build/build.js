@@ -4,8 +4,8 @@ const path = require('path')
 
 const root = __dirname
 const entryPoint = path.join(root, '..', 'assets', 'js', 'src', 'runtime.js')
-const outdir = path.join(root, '..', 'assets', 'js', 'dist')
-const outfile = path.join(outdir, 'runtime.bundle.js')
+const outfile = process.env.STATIC_BUNDLE_OUTFILE || path.join(root, '..', 'assets', 'js', 'dist', 'runtime.bundle.js')
+const outdir = path.dirname(outfile)
 const watch = process.argv.includes('--watch')
 
 fs.mkdirSync(outdir, { recursive: true })

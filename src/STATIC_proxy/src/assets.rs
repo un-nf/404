@@ -27,7 +27,7 @@ pub struct ScriptBundle {
 impl ScriptBundle {
     pub fn load() -> Self {
         Self {
-            runtime: Arc::from(include_str!("../assets/js/dist/runtime.bundle.js")),
+            runtime: Arc::from(include_str!(concat!(env!("OUT_DIR"), "/runtime.bundle.js"))),
         }
     }
 }

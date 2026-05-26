@@ -18,7 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
+    collections::{hash_map::DefaultHasher, HashMap, HashSet},
     fs,
     hash::{Hash, Hasher},
     path::{Path, PathBuf},
@@ -27,7 +27,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use http::header::{HeaderName, HeaderValue, ACCEPT, ACCEPT_ENCODING, IF_MODIFIED_SINCE, IF_NONE_MATCH, IF_RANGE, USER_AGENT};
 use parking_lot::RwLock;
@@ -162,9 +162,7 @@ impl ProfileStore {
         if self.inner.path.is_dir() {
             let mut discovered: HashMap<String, Arc<ProfileRecord>> = HashMap::new();
             for path in collect_profile_json_files(&self.inner.path)? {
-                let raw = fs::read_to_string(&path)?;
-                let value: serde_json::Value = serde_json::from_str(&raw)
-                    .with_context(|| format!("invalid profile JSON: {}", path.display()))?;
+                let value = load_profile_config(&path)?;
                 let key = path
                     .file_stem()
                     .and_then(|s| s.to_str())
@@ -189,11 +187,7 @@ impl ProfileStore {
             return Ok(());
         }
 
-        let raw = fs::read_to_string(&self.inner.path)
-            .with_context(|| format!("failed to read profiles: {}", self.inner.path.display()))?;
-
-        let value: serde_json::Value = serde_json::from_str(&raw)
-            .with_context(|| format!("invalid profiles JSON: {}", self.inner.path.display()))?;
+        let value = load_profile_config(&self.inner.path)?;
 
         let key = self
             .inner
@@ -319,6 +313,93 @@ fn normalize_profile_name(value: Option<String>) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+fn load_profile_config(path: &Path) -> Result<Value> {
+    let mut ancestry = HashSet::new();
+    resolve_profile_config(path, &mut ancestry)
+}
+
+fn resolve_profile_config(path: &Path, ancestry: &mut HashSet<PathBuf>) -> Result<Value> {
+    let canonical_path = fs::canonicalize(path)
+        .with_context(|| format!("failed to resolve profile path: {}", path.display()))?;
+
+    if !ancestry.insert(canonical_path.clone()) {
+        return Err(anyhow!(
+            "profile inheritance cycle detected at {}",
+            canonical_path.display()
+        ));
+    }
+
+    let result = (|| {
+        let raw = fs::read_to_string(&canonical_path)
+            .with_context(|| format!("failed to read profile: {}", canonical_path.display()))?;
+        let mut value: Value = serde_json::from_str(&raw)
+            .with_context(|| format!("invalid profile JSON: {}", canonical_path.display()))?;
+
+        let parents = resolve_profile_parents(&value, &canonical_path)?;
+        let mut merged = Value::Object(Map::new());
+
+        for parent in parents {
+            let parent_value = resolve_profile_config(&parent, ancestry)?;
+            deep_merge_value(&mut merged, &parent_value);
+        }
+
+        if let Some(object) = value.as_object_mut() {
+            object.remove("extends");
+        }
+        deep_merge_value(&mut merged, &value);
+
+        Ok(merged)
+    })();
+
+    ancestry.remove(&canonical_path);
+    result
+}
+
+fn resolve_profile_parents(value: &Value, profile_path: &Path) -> Result<Vec<PathBuf>> {
+    let Some(extends_value) = value.get("extends") else {
+        return Ok(Vec::new());
+    };
+
+    let Some(profile_dir) = profile_path.parent() else {
+        return Ok(Vec::new());
+    };
+
+    let entries = match extends_value {
+        Value::String(entry) => vec![entry.as_str()],
+        Value::Array(values) => values
+            .iter()
+            .map(|value| {
+                value.as_str().ok_or_else(|| {
+                    anyhow!(
+                        "profile extends entries must be strings: {}",
+                        profile_path.display()
+                    )
+                })
+            })
+            .collect::<Result<Vec<_>>>()?,
+        _ => {
+            return Err(anyhow!(
+                "profile extends must be a string or array of strings: {}",
+                profile_path.display()
+            ))
+        }
+    };
+
+    entries
+        .into_iter()
+        .map(|entry| {
+            let resolved = profile_dir.join(entry);
+            fs::canonicalize(&resolved).with_context(|| {
+                format!(
+                    "failed to resolve inherited profile '{}' from {}",
+                    entry,
+                    profile_path.display()
+                )
+            })
+        })
+        .collect()
+}
+
 fn collect_profile_json_files(dir: &Path) -> Result<Vec<PathBuf>> {
     let mut out = Vec::new();
     collect_profile_json_files_recursive(dir, &mut out)?;
@@ -345,6 +426,13 @@ fn collect_profile_json_files_recursive(dir: &Path, out: &mut Vec<PathBuf>) -> R
 
 fn is_runtime_profile_path(path: &Path) -> bool {
     if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+        return false;
+    }
+
+    if path
+        .components()
+        .any(|component| component.as_os_str().to_str().is_some_and(|segment| segment.eq_ignore_ascii_case("primitives")))
+    {
         return false;
     }
 
@@ -1155,6 +1243,93 @@ mod tests {
                 variant: "firefox".to_string(),
                 platform: "windows".to_string(),
             }]
+        );
+    }
+
+
+    #[test]
+    fn profile_store_materializes_inherited_packet_primitive_without_catalog_entry() {
+        let dir = tempdir().expect("tempdir");
+        let primitives_dir = dir.path().join("primitives");
+        fs::create_dir_all(&primitives_dir).expect("create primitives dir");
+
+        fs::write(
+            primitives_dir.join("windows-tcp.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "packet_profile": {
+                    "ttl": 255,
+                    "tos": 16,
+                    "tcp_window": 64240,
+                    "tcp_mss": 1460,
+                    "tcp_window_scale": 8,
+                    "randomize_tcp_timestamp": false,
+                    "randomize_ipv4_id": true,
+                    "randomize_ipv6_flow": true,
+                    "options": [
+                        "mss",
+                        "nop",
+                        "window_scale",
+                        "nop",
+                        "nop",
+                        "sack_permitted"
+                    ]
+                }
+            }))
+            .expect("serialize primitive profile"),
+        )
+        .expect("write primitive profile");
+
+        fs::write(
+            dir.path().join("firefox-windows.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "extends": ["primitives/windows-tcp.json"],
+                "profile_identity": {
+                    "family": "firefox-like",
+                    "variant": "firefox",
+                    "platform": "windows",
+                    "selection_weight": 1.0
+                },
+                "fingerprint": {
+                    "name": "Firefox Windows",
+                    "browser_type": "firefox",
+                    "browser_family": "firefox-like",
+                    "browser_variant": "firefox",
+                    "user_agent": "Mozilla/5.0"
+                }
+            }))
+            .expect("serialize runtime profile"),
+        )
+        .expect("write runtime profile");
+
+        let store = ProfileStore::load(dir.path().to_path_buf(), Some("firefox-windows".to_string()))
+            .expect("load profile store");
+
+        assert_eq!(
+            store.catalog(),
+            vec![ProfileCatalogEntry {
+                key: "firefox-windows".to_string(),
+                display_name: "Firefox Windows".to_string(),
+                family: "firefox-like".to_string(),
+                variant: "firefox".to_string(),
+                platform: "windows".to_string(),
+            }]
+        );
+
+        let config = store.active_profile_config().expect("active profile config");
+        assert_eq!(
+            config
+                .get("packet_profile")
+                .and_then(|value| value.get("ttl"))
+                .and_then(Value::as_u64),
+            Some(255)
+        );
+        assert_eq!(
+            config
+                .get("packet_profile")
+                .and_then(|value| value.get("options"))
+                .and_then(Value::as_array)
+                .map(|entries| entries.len()),
+            Some(6)
         );
     }
 

@@ -29,7 +29,9 @@ The path can be overridden for testing with:
 
 `STATIC_EBPF_MAP_PATH`
 
-The Linux distro bootstrap mounts `bpffs`, attaches `ttl_editor.o` to `eth0`, and pins the map so the userspace STATIC process can update it at boot and whenever `/profiles/select` changes the active persona.
+The Linux distro bootstrap mounts `bpffs`, attaches `ttl_editor.o` to the live `eth*` interfaces, and pins the map so the userspace STATIC process can update it at boot and whenever `/profiles/select` changes the active persona.
+
+The eBPF classifier also has a compiled fallback profile in `ttl_editor.c`, but that fallback is only used when the map lookup is unavailable. On a correctly booted runtime, the pinned map entry at key `0` is the real source of truth.
 
 ## Default fingerprints
 
@@ -55,7 +57,7 @@ $ make
 Manual compilation:
 
 ```bash
-$ clang -O2 -g -target bpf -D__TARGET_ARCH_x86 -I/usr/include -I/usr/include/x86-linux-gnu -c ttl_editor.c -o ttl_editor.o
+$ make -C src/ebpf clean all
 ```
 
 Dependencies:
@@ -64,11 +66,12 @@ Dependencies:
 - `llvm`
 - `libbpf-dev`
 - `linux-headers-$(uname -r)`
+- `linux-libc-dev`
 - `iproute2`
 
 ## Attach and remove
 
-Attach to an interface such as `eth0` or `wlan0`:
+Attach to an interface such as `eth1`, `wlan0`, or another live mirrored WSL adapter:
 
 ```bash
 $ sudo tc qdisc add dev <interface> clsact
@@ -116,6 +119,30 @@ Confirm the pinned map exists:
 $ sudo bpftool map show pinned /sys/fs/bpf/404/fingerprint_profiles
 ```
 
+Decode the active packet profile and the protocol counters with the repo helper:
+
+```bash
+$ bash ./scripts/inspect-ebpf-state.sh
+```
+
+That helper prints:
+
+- the routed egress path
+- the live `eth*` interfaces that have the classifier attached
+- the decoded pinned `fingerprint_profiles` entry at key `0`
+- the `protocol_counter` map using a valid map id lookup and dump flow
+
+For local WSL or Linux development, `cargo run` by itself may still fail to sync the pinned packet profile map with `BPF_OBJ_GET failed: Permission denied` even after the map has been pinned and chowned back to your user. In practice, the kernel still requires BPF-related capabilities on the `STATIC` process.
+
+Use the repo helper instead:
+
+```bash
+$ bash ./scripts/verify-ebpf-attach.sh
+$ bash ./scripts/run-static-with-ebpf-caps.sh --profile firefox-windows
+```
+
+That helper builds `src/STATIC_proxy`, applies the required file capabilities to the built binary, and then runs it as your normal user so the pinned map sync path can succeed.
+
 Inspect outbound SYN packets with `tcpdump`:
 
 ```bash
@@ -123,6 +150,8 @@ $ tcpdump -i <interface> -vvv -c 20 -Q out 'tcp[tcpflags] & tcp-syn != 0'
 $ tcpdump -i <interface> -vvv -nn -Q out | grep -E 'ttl|win|mss|wscale'
 $ tcpdump -i <interface> -vvv -XX -Q out port 443
 ```
+
+On a live path, that is how you prove parity between the selected runtime profile and the packet layer. Compare the decoded map values from `inspect-ebpf-state.sh` with the SYN packets seen on the live routed interface.
 
 ![tcpdump output](https://raw.githubusercontent.com/un-nf/404/refs/heads/main/.github/IMAGES/tcpdump_output.png "tcpdump output")
 
@@ -159,6 +188,14 @@ The `options` field is an ordered array of symbolic TCP option tokens. Supported
 - `eol`
 
 Packet overlays can be merged through `seeded_overlays`, which allows a profile family to keep a stable platform fingerprint while varying secondary device-like transport traits across process lifetimes.
+
+In practice, profile verification has three layers:
+
+1. The desktop app or `/profiles/active` tells you which runtime profile is selected.
+2. `/sys/fs/bpf/404/fingerprint_profiles` tells you which packet profile STATIC actually wrote into the kernel.
+3. `tcpdump` on the live routed interface tells you what left the host.
+
+If those three disagree, the bug is in the profile sync or packet mutation path rather than in interface discovery.
 
 ## References
 

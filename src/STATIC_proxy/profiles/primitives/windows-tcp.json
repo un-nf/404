@@ -1,0 +1,20 @@
+{
+  "packet_profile": {
+    "ttl": 255,
+    "tos": 16,
+    "tcp_window": 64240,
+    "tcp_mss": 1460,
+    "tcp_window_scale": 8,
+    "randomize_tcp_timestamp": false,
+    "randomize_ipv4_id": true,
+    "randomize_ipv6_flow": true,
+    "options": [
+      "mss",
+      "nop",
+      "window_scale",
+      "nop",
+      "nop",
+      "sack_permitted"
+    ]
+  }
+}

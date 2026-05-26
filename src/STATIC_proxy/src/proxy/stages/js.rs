@@ -219,17 +219,6 @@ impl JsInjectionStage {
         Ok(decoded)
     }
 
-    fn ensure_decompressed_limit(&self, data: &[u8]) -> Result<()> {
-        if data.len() > self.max_decompressed_html_bytes {
-            anyhow::bail!(
-                "decompressed HTML response body exceeds configured limit of {} bytes",
-                self.max_decompressed_html_bytes
-            );
-        }
-
-        Ok(())
-    }
-
     fn mark_injected_response(response: &mut ResponseParts) {
         response.headers.insert(
             HeaderName::from_static(INJECTION_MARKER_HEADER),

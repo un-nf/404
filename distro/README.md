@@ -6,6 +6,8 @@
 - release workflow that builds the musl STATIC binary, compiles the eBPF object, packages the distro, signs the manifest, and publishes to the public update origin
 - stable manifest contract
 
+For a step-by-step local WSL2 builder setup, fast eBPF iteration loop, and disposable runtime-distro import flow, see `docs/local-distro-build.md`.
+
 Files:
 - `build.sh`: packages the WSL distro tarball from prebuilt artifacts
 - `Dockerfile.build`: pinned Alpine 3.19 filesystem used for the exported rootfs
@@ -134,7 +136,7 @@ using:
 - `clang -target bpf`
 - `llvm-strip`
 
-The current Makefile checks for:
+The Makefile checks for:
 
 - `clang`
 - `llvm-strip`
@@ -152,7 +154,7 @@ This object is architecture-independent BPF bytecode, but it still needs a Linux
 
 ## Rootfs Contents And Boot Behavior
 
-The distro is currently built from Alpine:
+The distro is built from Alpine:
 
 - `Dockerfile.build` starts from `alpine:3.19`
 - it installs `iproute2` and `libgcc`

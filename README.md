@@ -101,6 +101,8 @@ The eBPF module leverages powerful, fast, well documented, low-level Linux kerne
 
 The supported Windows path is the WSL2 distro bundle.
 
+For local WSL2 builder setup, tarball packaging, and eBPF validation, see [docs/local-distro-build.md](docs/local-distro-build.md).
+
 ### Release paths
 
 - **Windows:** use the `404-windows-x64.zip` WSL2 operator bundle
@@ -208,6 +210,7 @@ If you are building locally, use the [developers guide](https://docs.404privacy.
 Start here:
 
 - [Developer build guide](https://docs.404privacy.com/dev/developers/)
+- [Local WSL2 distro build guide](docs/local-distro-build.md)
 
 ### CA trust and routing
 

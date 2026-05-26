@@ -25,14 +25,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <linux/pkt_cls.h>
 #include <linux/types.h>
 #include <stddef.h>
-#include <stdint.h>
 
 #include <bpf/bpf_endian.h>
 #include <bpf/bpf_helpers.h>
 
 /* Compile with:
 
-    clang -O2 -g -target bpf -D__TARGET_ARCH_x86 -I/usr/include/ -I/usr/include/linux -c TTLEDIT-STABLE.c -o <output>.o
+    make -C src/ebpf clean all
 
 */
 
@@ -299,8 +298,6 @@ static __always_inline int sync_ipv4_total_length(
 
 static __always_inline int resize_tcp_header_for_syn(
     struct __sk_buff *skb,
-    void *data,
-    void *data_end,
     __u16 h_proto,
     __u32 network_header_offset,
     __u32 tcp_offset,
@@ -309,19 +306,21 @@ static __always_inline int resize_tcp_header_for_syn(
 )
 {
     __s32 delta = (__s32)target_options_len - (__s32)current_options_len;
+    void *packet_data = (void *)(long)skb->data;
+    void *packet_data_end = (void *)(long)skb->data_end;
 
     if (delta == 0) {
         return 0;
     }
 
     if (h_proto == __constant_htons(ETH_P_IP)) {
-        struct iphdr *ip_header = data + network_header_offset;
+        struct iphdr *ip_header = packet_data + network_header_offset;
         __u8 ihl;
         __u16 total_length;
         __u32 tcp_header_len;
         __u32 payload_len;
 
-        if ((void *)&ip_header[1] > data_end) {
+        if ((void *)&ip_header[1] > packet_data_end) {
             return -1;
         }
 
@@ -345,10 +344,10 @@ static __always_inline int resize_tcp_header_for_syn(
             return -1;
         }
 
-        data = (void *)(long)skb->data;
-        data_end = (void *)(long)skb->data_end;
-        ip_header = data + network_header_offset;
-        if ((void *)&ip_header[1] > data_end) {
+        packet_data = (void *)(long)skb->data;
+        packet_data_end = (void *)(long)skb->data_end;
+        ip_header = packet_data + network_header_offset;
+        if ((void *)&ip_header[1] > packet_data_end) {
             return -1;
         }
 
@@ -360,13 +359,13 @@ static __always_inline int resize_tcp_header_for_syn(
     }
 
     if (h_proto == __constant_htons(ETH_P_IPV6)) {
-        struct ipv6hdr *ip6_header = data + network_header_offset;
+        struct ipv6hdr *ip6_header = packet_data + network_header_offset;
         __u16 payload_length;
         __u32 tcp_header_len;
         __u32 payload_len;
         __be16 new_payload_length;
 
-        if ((void *)&ip6_header[1] > data_end) {
+        if ((void *)&ip6_header[1] > packet_data_end) {
             return -1;
         }
 
@@ -385,10 +384,10 @@ static __always_inline int resize_tcp_header_for_syn(
             return -1;
         }
 
-        data = (void *)(long)skb->data;
-        data_end = (void *)(long)skb->data_end;
-        ip6_header = data + network_header_offset;
-        if ((void *)&ip6_header[1] > data_end) {
+        packet_data = (void *)(long)skb->data;
+        packet_data_end = (void *)(long)skb->data_end;
+        ip6_header = packet_data + network_header_offset;
+        if ((void *)&ip6_header[1] > packet_data_end) {
             return -1;
         }
 
@@ -425,6 +424,8 @@ static __always_inline int rewrite_syn_options(
     __u8 old_flags;
     __u32 options_offset;
     __u32 options_len;
+    __u32 final_options_len;
+    __u32 final_option_word_offset;
     __u16 old_tcp_length;
     __u8 new_doff_res;
     __be16 old_doff_flags;
@@ -436,12 +437,12 @@ static __always_inline int rewrite_syn_options(
     }
 
     doff = (tcp->doff_res >> 4) & 0x0F;
-    if (doff < 5) {
+    if (doff <= 5) {
         return 0;
     }
 
     options_len = (doff * 4) - TCP_HEADER_BYTES;
-    if (options_len == 0 || options_len > TCP_MAX_OPTIONS_BYTES) {
+    if (options_len > TCP_MAX_OPTIONS_BYTES || (options_len & 0x3) != 0) {
         return 0;
     }
 
@@ -460,8 +461,6 @@ static __always_inline int rewrite_syn_options(
     if (profile->options_len != options_len) {
         if (resize_tcp_header_for_syn(
             skb,
-            data,
-            data_end,
             h_proto,
             network_header_offset,
             tcp_offset,
@@ -501,25 +500,36 @@ static __always_inline int rewrite_syn_options(
         } else {
             rewritten[i] = TCPOPT_NOP;
         }
-    }
 
-    if (profile->mss_value_offset != INVALID_OPTION_OFFSET && profile->mss_value_offset + 2 <= options_len) {
-        __be16 mss_be = bpf_htons(profile->tcp_mss);
-        __builtin_memcpy(&rewritten[profile->mss_value_offset], &mss_be, sizeof(mss_be));
-    }
+        if (
+            profile->mss_value_offset != INVALID_OPTION_OFFSET &&
+            i == profile->mss_value_offset &&
+            i + 1 < options_len
+        ) {
+            rewritten[i] = (__u8)(profile->tcp_mss >> 8);
+            rewritten[i + 1] = (__u8)(profile->tcp_mss & 0xFF);
+        }
 
-    if (profile->window_scale_value_offset != INVALID_OPTION_OFFSET && profile->window_scale_value_offset < options_len) {
-        rewritten[profile->window_scale_value_offset] = profile->tcp_window_scale;
-    }
+        if (
+            profile->window_scale_value_offset != INVALID_OPTION_OFFSET &&
+            i == profile->window_scale_value_offset
+        ) {
+            rewritten[i] = profile->tcp_window_scale;
+        }
 
-    if (
-        profile->randomize_tcp_timestamp &&
-        profile->tsval_value_offset != INVALID_OPTION_OFFSET &&
-        profile->tsval_value_offset + 3 < options_len
-    ) {
-        __u32 tsval = (__u32)(bpf_ktime_get_ns() >> 10);
-        __be32 tsval_be = bpf_htonl(tsval);
-        __builtin_memcpy(&rewritten[profile->tsval_value_offset], &tsval_be, sizeof(tsval_be));
+        if (
+            profile->randomize_tcp_timestamp &&
+            profile->tsval_value_offset != INVALID_OPTION_OFFSET &&
+            i == profile->tsval_value_offset &&
+            i + 3 < options_len
+        ) {
+            __u32 tsval = (__u32)(bpf_ktime_get_ns() >> 10);
+
+            rewritten[i] = (__u8)(tsval >> 24);
+            rewritten[i + 1] = (__u8)(tsval >> 16);
+            rewritten[i + 2] = (__u8)(tsval >> 8);
+            rewritten[i + 3] = (__u8)tsval;
+        }
     }
 
     options_offset = tcp_offset + TCP_HEADER_BYTES;
@@ -545,13 +555,41 @@ static __always_inline int rewrite_syn_options(
         }
     }
 
-    if (store_bytes_plain(skb, options_offset, rewritten, options_len) != 0) {
+    final_options_len = options_len;
+    if (final_options_len == 0 || final_options_len > TCP_MAX_OPTIONS_BYTES) {
         return 0;
     }
 
-    options_diff = bpf_csum_diff((__be32 *)old_options, old_tcp_length - TCP_HEADER_BYTES, (__be32 *)rewritten, options_len, 0);
-    if (options_diff < 0) {
-        return 0;
+    options_diff = 0;
+
+    #pragma unroll
+    for (__u32 word_index = 0; word_index < (TCP_MAX_OPTIONS_BYTES / sizeof(__u32)); word_index++) {
+        final_option_word_offset = word_index * sizeof(__u32);
+        if (final_option_word_offset >= final_options_len) {
+            break;
+        }
+
+        if (
+            store_bytes_plain(
+                skb,
+                options_offset + final_option_word_offset,
+                &rewritten_words[word_index],
+                sizeof(rewritten_words[word_index])
+            ) != 0
+        ) {
+            return 0;
+        }
+
+        options_diff = bpf_csum_diff(
+            (__be32 *)&old_option_words[word_index],
+            sizeof(old_option_words[word_index]),
+            (__be32 *)&rewritten_words[word_index],
+            sizeof(rewritten_words[word_index]),
+            options_diff
+        );
+        if (options_diff < 0) {
+            return 0;
+        }
     }
 
     return apply_tcp_checksum_diff(skb, tcp_offset, options_diff, 0);

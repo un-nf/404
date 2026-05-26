@@ -15,20 +15,18 @@
 
 ---
 
-## What STATIC Is
+## STATIC
 
-STATIC is a profile-driven MITM proxy that shapes two layers at the same time:
+A profile-driven MITM proxy that shapes two layers of your connection:
 
 - outbound transport behavior such as headers, ALPN, TLS hello variants, and HTTP/2 behavior
 - injected browser behavior such as navigator identity, canvas, WebGL, audio, iframe propagation, and worker bootstrap state
 
-The current architecture is centered on browser families rather than cross-engine impersonation. In practical terms, that means the injected script layer is designed around Chromium-family variants such as Chrome, Edge, and Brave, and Firefox-family variants such as Firefox and future Mullvad-style profiles.
+The architecture is centered on browser families. The injected script layer is designed around Chromium-family variants such as Chrome, Edge, and Brave, and Firefox-family variants such as Firefox and future Mullvad-style profiles.
 
-STATIC itself does not enforce native-browser correctness. If an operator manually chooses the wrong family, the proxy will not stop them. Best practice is to stay within the native rendering-engine family and only vary the branded identity inside that family. External wrappers such as 404-APP can apply stricter selection policy on top of STATIC, but that policy is intentionally outside this repository.
+STATIC itself does not enforce native-browser parity. If an operator manually chooses the wrong family, the proxy will not stop them. Best practice is to stay within the native rendering-engine family and only vary the branded identity inside that family. External wrappers such as [404-APP](https://404privacy.com/pricing/) can apply stricter selection policy on top of STATIC.
 
-## Core Model
-
-The current codebase is built around four ideas.
+## Core Elements
 
 ### 1. Shared profile state
 
@@ -45,7 +43,7 @@ Proxy mode does not start in an ambiguous identity state. A profile must be sele
 
 ### 3. Family-aware browser shaping
 
-Profiles now describe family and variant explicitly. STATIC uses that contract in:
+Profiles describe family and variant explicitly. STATIC uses that contract in:
 
 - profile validation
 - injected-script config
@@ -85,12 +83,28 @@ cd src/STATIC_proxy
 cargo run -- --list-profiles
 ```
 
+On Linux, host `cargo run` depends on a shared `libclang` installation because
+native TLS dependencies use `bindgen`. If you see `Unable to find libclang`,
+install `libclang-dev` and export:
+
+```bash
+export LIBCLANG_PATH="$(bash ../../scripts/resolve-libclang-path.sh)"
+```
+
+When you run without a config file on Linux, the CLI defaults use the file-backed
+keystore because Linux/WSL hosts often do not have a usable desktop keychain
+service. The explicit sample configs below still keep `keychain` as the general
+native-desktop default.
+
 Run with the sample config and an explicit profile:
 
 ```bash
 cd src/STATIC_proxy
 cargo run -- --config config/static.example.toml --profile chrome-windows
 ```
+
+For local WSL/Linux runs that need a config file, switch the sample keystore mode
+to `file` or use the WSL/runtime config emitted by the desktop app.
 
 ### Standalone binary usage
 
@@ -155,7 +169,7 @@ Behavior:
 - the control plane can be configured explicitly with an optional `[control]` section
 - if `control.token_path` is set, control endpoints require the `X-404-Control-Token` header
 - managed CA material is owned by STATIC and stored under the OS app-data directory
-- legacy `tls.ca_cert_path`, `tls.ca_key_path`, and `tls.cache_dir` are not general override points anymore
+- legacy `tls.ca_cert_path`, `tls.ca_key_path`, and `tls.cache_dir` are not general override points
 
 Optional control-plane config:
 
@@ -169,7 +183,7 @@ token_path = "./control-token"
 
 ## Profiles
 
-Current bundled browser profiles live in [profiles](profiles):
+Bundled browser profiles live in [profiles](profiles):
 
 - `chrome-windows.json`
 - `edge-windows.json`
@@ -197,7 +211,7 @@ Best practice:
 
 - Use Chromium-family profiles on Blink-family browsers
 - Use Firefox-family profiles on Gecko-family browsers
-- Vary the branded identity inside that family rather than pretending to be a different engine
+- Vary the branded identity inside that family
 
 > STATIC does not hard-enforce this policy. Manual operators are responsible for selecting the right profile.
 ---
@@ -205,8 +219,6 @@ Best practice:
 ## Architecture
 
 ### Repository structure
-
-Current high-value paths:
 
 ```text
 src/STATIC_proxy/
@@ -261,7 +273,7 @@ STATIC can run in two modes:
 
 ### Data plane
 
-The proxy path is currently split into explicit protocol classes:
+The proxy path is split into explicit protocol classes:
 
 - direct TLS interception
 - HTTP CONNECT proxy tunneling
@@ -277,7 +289,7 @@ The proxy path is currently split into explicit protocol classes:
 
 ### Stage pipeline
 
-The current request/response stage order is deterministic:
+Deterministic request/response stage:
 
 1. `HeaderProfileStage`
 2. `BehavioralNoiseStage`
@@ -289,9 +301,9 @@ That order matters. Profile state has to exist before the injected script is con
 
 ### Transport layer
 
-`fetcher.rs` is the boundary between STATIC's profile model and what the current `wreq` backend can actually express.
+`fetcher.rs` is the boundary between STATIC's profile model and what the `wreq` backend can express.
 
-The transport plan currently passes through:
+The transport plan passes through:
 
 - cipher-suite ordering
 - signature-algorithm ordering
@@ -324,7 +336,7 @@ The profile loader in `header_profile.rs` recursively discovers profile JSON, bu
 
 ## Injected Script Layer
 
-The current browser-side script bundle is built from [assets/js/src/runtime.js](assets/js/src/runtime.js) into `assets/js/dist/runtime.bundle.js`.
+The browser-side script bundle is built from [assets/js/src/runtime.js](assets/js/src/runtime.js) into `assets/js/dist/runtime.bundle.js`.
 
 Bootstrap order:
 
@@ -377,8 +389,6 @@ The injected script mirrors:
 
 ### High-entropy surfaces
 
-Current high-entropy browser-surface modules include:
-
 - canvas
 - WebGL
 - audio
@@ -387,7 +397,7 @@ Current high-entropy browser-surface modules include:
 - speech
 - WebRTC
 
-These modules now rely on shared entropy and materialized profile state rather than completely unrelated per-surface randomness.
+These modules rely on shared entropy and materialized profile state.
 
 ---
 
@@ -400,13 +410,6 @@ STATIC is responsible for:
 - loading and applying browser profiles
 - shaping transport behavior and browser-side behavior from those profiles
 - exposing catalog/selection state over the localhost control plane
-- documenting current implementation limits truthfully
-
-### What does not belong in STATIC
-
-STATIC is not the policy layer that decides what a user should be allowed to select.
-
-If a proprietary wrapper wants to auto-detect the native browser family and force compatible profile choices, that belongs in the wrapper. STATIC intentionally stays lower-level.
 
 ---
 

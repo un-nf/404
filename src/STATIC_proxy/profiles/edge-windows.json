@@ -6,6 +6,9 @@
     "channel": "stable",
     "selection_weight": 0.3
   },
+  "extends": [
+    "primitives/windows-tcp.json"
+  ],
   "set": [],
   "replace": [
     [
@@ -260,24 +263,6 @@
       "Impact"
     ],
     "debug": false
-  },
-  "packet_profile": {
-    "ttl": 128,
-    "tos": 16,
-    "tcp_window": 64240,
-    "tcp_mss": 1460,
-    "tcp_window_scale": 8,
-    "randomize_tcp_timestamp": false,
-    "randomize_ipv4_id": true,
-    "randomize_ipv6_flow": true,
-    "options": [
-      "mss",
-      "nop",
-      "window_scale",
-      "nop",
-      "nop",
-      "sack_permitted"
-    ]
   },
   "seeded_overlays": {
     "packet_device_profiles": [

@@ -17,7 +17,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 */
 
-use std::{env, ffi::OsString, io::{self, Write}, path::{Path, PathBuf}};
+use std::{env, ffi::OsString, path::{Path, PathBuf}};
+
+#[cfg(windows)]
+use std::io::{self, Write};
 
 use anyhow::{Context, Result};
 use clap::{ArgAction, Parser, ValueEnum};
@@ -84,6 +87,12 @@ struct Cli {
     /// Runtime mode: full proxy runtime or localhost control-only sidecar.
     #[arg(long, value_enum, default_value_t = CliMode::Proxy)]
     mode: CliMode,
+}
+
+enum ConfigSource {
+    Explicit(PathBuf),
+    ImplicitExample(PathBuf),
+    BuiltInDefaults,
 }
 
 /// Application entry point: parse CLI, initialize logging, load config, run server.
@@ -160,12 +169,15 @@ fn launched_in_standalone_console() -> bool {
 }
 
 fn load_effective_config(cli: &Cli) -> Result<StaticConfig> {
-    let config_path = resolve_config_path(cli);
-    let mut config = if let Some(path) = config_path.as_ref() {
-        StaticConfig::load(path)?
-    } else {
-        StaticConfig::default_for_cli(default_profiles_path()?)
+    let config_source = resolve_config_source(cli);
+    let mut config = match &config_source {
+        ConfigSource::Explicit(path) | ConfigSource::ImplicitExample(path) => StaticConfig::load(path)?,
+        ConfigSource::BuiltInDefaults => StaticConfig::default_for_cli(default_profiles_path()?),
     };
+
+    if cfg!(target_os = "linux") && matches!(config_source, ConfigSource::ImplicitExample(_)) {
+        config.tls.keystore.mode = static_proxy::keystore::KeystoreMode::File;
+    }
 
     if let Some(profiles_path) = cli.profiles_path.clone() {
         config.pipeline.profiles_path = absolutize_runtime_path(profiles_path)?;
@@ -189,11 +201,17 @@ fn load_effective_config(cli: &Cli) -> Result<StaticConfig> {
     Ok(config)
 }
 
-fn resolve_config_path(cli: &Cli) -> Option<PathBuf> {
-    cli.config.clone().or_else(|| {
-        let default_path = PathBuf::from("config/static.example.toml");
-        default_path.exists().then_some(default_path)
-    })
+fn resolve_config_source(cli: &Cli) -> ConfigSource {
+    if let Some(path) = cli.config.clone() {
+        return ConfigSource::Explicit(path);
+    }
+
+    let default_path = PathBuf::from("config/static.example.toml");
+    if default_path.exists() {
+        ConfigSource::ImplicitExample(default_path)
+    } else {
+        ConfigSource::BuiltInDefaults
+    }
 }
 
 fn default_profiles_path() -> Result<PathBuf> {

@@ -231,3 +231,5 @@ certs/
 *.key
 
 tmp/
+scripts/build-local-distro.sh
+scripts/tcpdump-syn-fingerprint.sh

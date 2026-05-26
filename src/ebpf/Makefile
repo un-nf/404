@@ -3,8 +3,9 @@ LLVM_STRIP ?= llvm-strip
 ARCH := x86
 OUTPUT := ttl_editor.o
 SRC := ttl_editor.c
+MULTIARCH_INCLUDE ?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null || gcc -dumpmachine 2>/dev/null || echo x86_64-linux-gnu)
 
-INCLUDES := -I/usr/include -I/usr/include/$(ARCH)-linux-gnu
+INCLUDES := -I/usr/include -I/usr/include/$(MULTIARCH_INCLUDE)
 
 CFLAGS := -O2 -g -target bpf -D__TARGET_ARCH_$(ARCH) -Wall
 
@@ -39,4 +40,4 @@ uninstall:
 
 deps-install:
 	@echo "Installing build dependencies..."
-	@echo "Run: sudo apt update && sudo apt install -y clang llvm libbpf-dev linux-headers-$$(uname -r) iproute2"
+	@echo "Run: sudo apt update && sudo apt install -y clang llvm libbpf-dev linux-libc-dev linux-headers-$$(uname -r) iproute2"

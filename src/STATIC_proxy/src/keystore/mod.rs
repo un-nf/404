@@ -1,12 +1,11 @@
 use anyhow::{anyhow, Result};
 use serde::Deserialize;
+use std::fs;
 use std::path::PathBuf;
 
 #[cfg(not(target_os = "windows"))]
 use keyring::{Entry, Error as KeyringError};
 
-#[cfg(target_os = "windows")]
-use std::fs;
 #[cfg(target_os = "windows")]
 use std::ptr;
 #[cfg(target_os = "windows")]
@@ -19,6 +18,7 @@ use windows_sys::Win32::{
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum KeystoreMode {
+    File,
     Keychain,
 }
 
@@ -66,12 +66,13 @@ pub trait KeyStore: Send + Sync {
 }
 
 /// Factory to build a keystore from config.
-pub fn build_keystore(cfg: &KeystoreConfig, _protected_storage_path: PathBuf) -> Box<dyn KeyStore> {
+pub fn build_keystore(cfg: &KeystoreConfig, protected_storage_path: PathBuf) -> Box<dyn KeyStore> {
     match cfg.mode {
+        KeystoreMode::File => Box::new(FileKeyStore::new(protected_storage_path)),
         KeystoreMode::Keychain => {
             #[cfg(target_os = "windows")]
             {
-                Box::new(WindowsDpapiKeyStore::new(_protected_storage_path))
+                Box::new(WindowsDpapiKeyStore::new(protected_storage_path))
             }
 
             #[cfg(not(target_os = "windows"))]
@@ -82,6 +83,41 @@ pub fn build_keystore(cfg: &KeystoreConfig, _protected_storage_path: PathBuf) ->
                 })
             }
         }
+    }
+}
+
+struct FileKeyStore {
+    path: PathBuf,
+}
+
+impl FileKeyStore {
+    fn new(path: PathBuf) -> Self {
+        Self { path }
+    }
+}
+
+impl KeyStore for FileKeyStore {
+    fn get_secret(&self, _key: &str) -> Result<Option<Vec<u8>>> {
+        if !self.path.exists() {
+            return Ok(None);
+        }
+
+        Ok(Some(fs::read(&self.path)?))
+    }
+
+    fn set_secret(&self, _key: &str, value: &[u8]) -> Result<()> {
+        if let Some(parent) = self.path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&self.path, value)?;
+        Ok(())
+    }
+
+    fn delete_secret(&self, _key: &str) -> Result<()> {
+        if self.path.exists() {
+            let _ = fs::remove_file(&self.path);
+        }
+        Ok(())
     }
 }
 
