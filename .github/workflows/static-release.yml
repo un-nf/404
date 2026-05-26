@@ -232,29 +232,29 @@ jobs:
             cp src/STATIC_proxy/profiles/firefox-windows.json "$bundle_dir/404-runtime/profiles/"
 
             cat > "$bundle_dir/404-runtime/config/static.example.toml" <<'EOF'
-            [listener]
-            bind_address = "127.0.0.1"
-            bind_port = 4040
-            proxy_protocol = "tls"
+[listener]
+bind_address = "127.0.0.1"
+bind_port = 4040
+proxy_protocol = "tls"
 
-            [tls]
-            keystore = { mode = "keychain", service = "404.static_proxy", account = "ca_key" }
+[tls]
+keystore = { mode = "keychain", service = "404.static_proxy", account = "ca_key" }
 
-            [pipeline]
-            profiles_path = "../profiles"
-            default_profile = "firefox-windows"
-            js_debug = false
-            alt_svc_strategy = "normalize"
-            body_limits = { max_request_body_bytes = 16777216, max_response_body_bytes = 33554432, max_decompressed_html_bytes = 16777216 }
+[pipeline]
+profiles_path = "../profiles"
+default_profile = "firefox-windows"
+js_debug = false
+alt_svc_strategy = "normalize"
+body_limits = { max_request_body_bytes = 16777216, max_response_body_bytes = 33554432, max_decompressed_html_bytes = 16777216 }
 
-            [http3]
-            enabled = false
-            bind_address = "127.0.0.1"
-            bind_port = 4041
+[http3]
+enabled = false
+bind_address = "127.0.0.1"
+bind_port = 4041
 
-            [telemetry]
-            mode = "stdout"
-            EOF
+[telemetry]
+mode = "stdout"
+EOF
 
             (
               cd "$bundle_dir"
