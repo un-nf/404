@@ -275,48 +275,6 @@ jobs:
             dist/404-windows-x64.zip
             src/ebpf/ttl_editor.o
 
-      - name: Upload distro assets to R2
-        if: startsWith(github.ref, 'refs/tags/')
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          AWS_REGION: auto
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
-          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if [[ -z "${R2_BUCKET:-}" || -z "${R2_ENDPOINT:-}" ]]; then
-            echo "R2_BUCKET and R2_ENDPOINT are required to publish distro assets to the public origin" >&2
-            exit 1
-          fi
-
-          aws s3 cp "dist/distro/manifest.json" "s3://${R2_BUCKET}/distro/manifest.json" \
-            --endpoint-url "${R2_ENDPOINT}" \
-            --cache-control "no-store" \
-            --content-type "application/json"
-
-          aws s3 cp "dist/distro/manifest.json.sig" "s3://${R2_BUCKET}/distro/manifest.json.sig" \
-            --endpoint-url "${R2_ENDPOINT}" \
-            --cache-control "no-store" \
-            --content-type "text/plain"
-
-          aws s3 cp "dist/404-distro.tar.gz" "s3://${R2_BUCKET}/distro/${DISTRO_VERSION}/404-distro.tar.gz" \
-            --endpoint-url "${R2_ENDPOINT}" \
-            --cache-control "public, max-age=31536000, immutable" \
-            --content-type "application/gzip"
-
-          aws s3 cp "dist/distro/manifest.json" "s3://${R2_BUCKET}/distro/${DISTRO_VERSION}/manifest.json" \
-            --endpoint-url "${R2_ENDPOINT}" \
-            --cache-control "public, max-age=31536000, immutable" \
-            --content-type "application/json"
-
-          aws s3 cp "dist/distro/manifest.json.sig" "s3://${R2_BUCKET}/distro/${DISTRO_VERSION}/manifest.json.sig" \
-            --endpoint-url "${R2_ENDPOINT}" \
-            --cache-control "public, max-age=31536000, immutable" \
-            --content-type "text/plain"
-
       - name: Publish release assets
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
