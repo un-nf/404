@@ -226,10 +226,7 @@ jobs:
             cp dist-release/manifest/static_proxy-release-manifest.json.sig "$bundle_dir/404-runtime/"
             cp dist-release/manifest/static_proxy-release-manifest.json.pem "$bundle_dir/404-runtime/"
 
-            cp src/STATIC_proxy/profiles/manifest.json "$bundle_dir/404-runtime/profiles/"
-            cp src/STATIC_proxy/profiles/chrome-windows.json "$bundle_dir/404-runtime/profiles/"
-            cp src/STATIC_proxy/profiles/edge-windows.json "$bundle_dir/404-runtime/profiles/"
-            cp src/STATIC_proxy/profiles/firefox-windows.json "$bundle_dir/404-runtime/profiles/"
+            cp -R src/STATIC_proxy/profiles/. "$bundle_dir/404-runtime/profiles/"
 
             cat > "$bundle_dir/404-runtime/config/static.example.toml" <<'EOF'
           [listener]

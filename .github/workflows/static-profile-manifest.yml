@@ -3,7 +3,7 @@ name: Sync STATIC Profile Manifest
 on:
   pull_request:
     paths:
-      - "src/STATIC_proxy/profiles/*.json"
+      - "src/STATIC_proxy/profiles/**/*.json"
       - "!src/STATIC_proxy/profiles/manifest.json"
       - "scripts/update-static-profile-manifest.ps1"
       - ".github/workflows/static-profile-manifest.yml"
@@ -11,7 +11,7 @@ on:
     branches:
       - main
     paths:
-      - "src/STATIC_proxy/profiles/*.json"
+      - "src/STATIC_proxy/profiles/**/*.json"
       - "!src/STATIC_proxy/profiles/manifest.json"
       - "scripts/update-static-profile-manifest.ps1"
       - ".github/workflows/static-profile-manifest.yml"

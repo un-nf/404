@@ -222,10 +222,7 @@ jobs:
           cp dist/404-distro-manifest.json "$bundle_dir/"
           cp dist/404-distro-manifest.json.sig "$bundle_dir/"
 
-          cp src/STATIC_proxy/profiles/manifest.json "$bundle_dir/AppData/Roaming/404/static/profiles/"
-          cp src/STATIC_proxy/profiles/chrome-windows.json "$bundle_dir/AppData/Roaming/404/static/profiles/"
-          cp src/STATIC_proxy/profiles/edge-windows.json "$bundle_dir/AppData/Roaming/404/static/profiles/"
-          cp src/STATIC_proxy/profiles/firefox-windows.json "$bundle_dir/AppData/Roaming/404/static/profiles/"
+          cp -R src/STATIC_proxy/profiles/. "$bundle_dir/AppData/Roaming/404/static/profiles/"
 
           cat > "$bundle_dir/AppData/Roaming/404/static/static.runtime.toml" <<'EOF'
           [listener]

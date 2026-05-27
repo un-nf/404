@@ -2,12 +2,21 @@
 set -eu
 
 WIN_USER=$(cat /opt/404/win-user)
-CONFIG_PATH="/mnt/c/Users/${WIN_USER}/AppData/Roaming/404/static/static.runtime.toml"
+CONFIG_PATH=""
+for candidate in \
+  "/mnt/c/Users/${WIN_USER}/AppData/Roaming/com.404.app/static/static.runtime.toml" \
+  "/mnt/c/Users/${WIN_USER}/AppData/Roaming/404/static/static.runtime.toml"
+do
+  if [ -f "$candidate" ]; then
+    CONFIG_PATH="$candidate"
+    break
+  fi
+done
 PIN_ROOT="/sys/fs/bpf/404"
 PACKET_PROFILE_PIN="${PIN_ROOT}/fingerprint_profiles"
 
-if [ ! -f "$CONFIG_PATH" ]; then
-  echo "missing runtime config: $CONFIG_PATH" >&2
+if [ -z "$CONFIG_PATH" ]; then
+  echo "missing runtime config under /mnt/c/Users/${WIN_USER}/AppData/Roaming/{com.404.app,404}/static" >&2
   exit 1
 fi
 

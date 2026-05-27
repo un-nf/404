@@ -8,13 +8,14 @@ $profilesPath = Resolve-Path (Join-Path $repoRoot $ProfilesDir)
 $manifestFullPath = Join-Path $repoRoot $ManifestPath
 $repoRootPath = $repoRoot.ProviderPath.TrimEnd('\\')
 
-$profileEntries = Get-ChildItem -Path $profilesPath -Filter *.json |
+$profileEntries = Get-ChildItem -Path $profilesPath -Filter *.json -Recurse |
     Where-Object { $_.Name -ne "manifest.json" } |
-    Sort-Object Name |
+    Sort-Object FullName |
     ForEach-Object {
         $relativePath = $_.FullName.Substring($repoRootPath.Length).TrimStart('\\').Replace("\", "/")
+        $relativeProfilePath = $_.FullName.Substring($profilesPath.ProviderPath.Length).TrimStart('\\').Replace("\", "/")
         [ordered]@{
-            file_name = $_.Name
+            file_name = $relativeProfilePath
             path = $relativePath
             sha256 = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
         }
