@@ -212,6 +212,21 @@ impl CertificateAuthority {
             params.key_pair = Some(key_pair);
 
             let cert = Certificate::from_params(params)?;
+
+            // Keep the exported CA certificate aligned with the secure-store key material.
+            // If the disk cert drifted from the DPAPI-backed private key, clients will trust the
+            // wrong root and reject proxied leaf certificates as untrusted.
+            let expected_pem = cert.serialize_pem()?;
+            let needs_rewrite = match fs::read_to_string(&ca_cert_path) {
+                Ok(existing_pem) => existing_pem.trim() != expected_pem.trim(),
+                Err(_) => true,
+            };
+
+            if needs_rewrite {
+                fs::write(&ca_cert_path, expected_pem)?;
+                tracing::warn!(path = %ca_cert_path.display(), "rewrote managed CA certificate to match stored signing key");
+            }
+
             Ok(Self { cert })
         } else {
             // Generate a new CA and persist to disk
