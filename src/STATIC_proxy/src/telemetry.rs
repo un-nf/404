@@ -24,7 +24,7 @@ use uuid::Uuid;
 
 use crate::config::{TelemetryConfig, TelemetryMode};
 
-const TELEMETRY_BUFFER_CAP: usize = 300;
+const TELEMETRY_BUFFER_CAP: usize = 5000;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TelemetryEvent {

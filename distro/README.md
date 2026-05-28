@@ -11,9 +11,9 @@ For a step-by-step local WSL2 builder setup, fast eBPF iteration loop, and dispo
 Files:
 - `build.sh`: packages the WSL distro tarball from prebuilt artifacts
 - `Dockerfile.build`: pinned Alpine 3.19 filesystem used for the exported rootfs
-- `rootfs/etc/wsl.conf`: WSL boot configuration that starts `/opt/404/404-init.sh`
+- `rootfs/etc/wsl.conf`: WSL user and automount defaults for the imported distro
 - `rootfs/etc/resolv.conf`: fallback DNS config baked into the rootfs
-- `rootfs/opt/404/404-init.sh`: Linux-side startup entrypoint inside the distro
+- `rootfs/opt/404/404-init.sh`: Linux-side fallback startup entrypoint inside the distro
 
 ## Current Status
 
@@ -152,7 +152,7 @@ make -C src/ebpf clean all
 
 This object is architecture-independent BPF bytecode, but it still needs a Linux build environment with the expected headers and tooling.
 
-## Rootfs Contents And Boot Behavior
+## Rootfs Contents And Startup Behavior
 
 The distro is built from Alpine:
 
@@ -160,12 +160,9 @@ The distro is built from Alpine:
 - it installs `iproute2` and `libgcc`
 - it copies in the staged STATIC binary and `ttl_editor.o`
 
-The rootfs boot configuration is:
+The rootfs WSL configuration is:
 
 ```ini
-[boot]
-command=/opt/404/404-init.sh
-
 [user]
 default=root
 
@@ -174,18 +171,18 @@ enabled=true
 mountFsTab=false
 ```
 
-At boot, `404-init.sh` does the following:
+The desktop app starts `STATIC` explicitly after it has written the Windows-side runtime config, refreshed `/opt/404/win-user`, and attached eBPF state. The bundled `404-init.sh` remains available as a fallback/manual entrypoint and does the following:
 
 1. Reads the Windows username from `/opt/404/win-user`
-2. Resolves the STATIC config at `/mnt/c/Users/<WIN_USER>/AppData/Roaming/404/static/static.runtime.toml`
+2. Resolves the STATIC config at `/mnt/c/Users/<WIN_USER>/AppData/Roaming/com.404.app/static/static.runtime.toml` and falls back to the legacy `/mnt/c/Users/<WIN_USER>/AppData/Roaming/404/static/static.runtime.toml` path
 3. Best-effort attaches the eBPF classifier to `eth0` with `tc`
 4. Starts `/opt/404/static --config <path> --mode proxy`
 
-Boot assumptions:
+Startup assumptions:
 
 - the desktop app has already written `/opt/404/win-user`
-- the STATIC TOML exists at the Windows-side roaming path mounted inside WSL
-- repeated boots should remain harmless because the `tc` attach path is best-effort and idempotent enough for repeated startup attempts
+- the STATIC TOML exists at the Windows-side roaming path mounted inside WSL, preferably under `com.404.app` with legacy `404` fallback support
+- repeated launches should remain harmless because the `tc` attach path is best-effort and idempotent enough for repeated startup attempts
 
 ## Versioning
 
