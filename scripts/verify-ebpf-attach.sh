@@ -75,15 +75,11 @@ fi
 
 printf 'Using attach interfaces: %s\n' "${ATTACH_IFACES[*]}"
 
-cd /home/Rose/src/404_REL
-make -C src/ebpf clean all
-ensure_bpffs
-
 for iface in "${ATTACH_IFACES[@]}"; do
-    sudo tc qdisc del dev "${iface}" clsact >/dev/null 2>&1 || true
-    sudo tc qdisc add dev "${iface}" clsact
-    sudo tc filter add dev "${iface}" egress bpf da obj src/ebpf/ttl_editor.o sec classifier
-    sudo tc -s filter show dev "${iface}" egress
+    tc qdisc del dev "${iface}" clsact >/dev/null 2>&1 || true
+    tc qdisc add dev "${iface}" clsact
+    tc filter add dev "${iface}" egress bpf da obj /opt/404/ttl_editor.o sec classifier
+    tc -s filter show dev "${iface}" egress
 done
 
 pin_bpf_map fingerprint_profiles "$PACKET_PROFILE_PIN"

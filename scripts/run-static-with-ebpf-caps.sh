@@ -6,6 +6,7 @@ REPO_ROOT=$(cd -- "${SCRIPT_DIR}/.." && pwd)
 STATIC_DIR="${REPO_ROOT}/src/STATIC_proxy"
 BUILD_MODE=${BUILD_MODE:-debug}
 RUN_MODE=${STATIC_EBPF_RUN_MODE:-auto}
+RESOLVE_LIBCLANG_SCRIPT="${REPO_ROOT}/scripts/resolve-libclang-path.sh"
 
 case "${BUILD_MODE}" in
     debug)
@@ -42,6 +43,11 @@ esac
 if ! command -v cargo >/dev/null 2>&1; then
     echo "Missing required command: cargo" >&2
     exit 1
+fi
+
+if [[ -z "${LIBCLANG_PATH:-}" ]]; then
+    LIBCLANG_PATH=$(bash "${RESOLVE_LIBCLANG_SCRIPT}")
+    export LIBCLANG_PATH
 fi
 
 cd "${STATIC_DIR}"
