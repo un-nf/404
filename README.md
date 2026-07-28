@@ -187,6 +187,7 @@ chmod +x "$HOME/404-runtime/static_proxy"
 git clone --depth 1 https://github.com/un-nf/404.git "$HOME/404-source"
 cp -R "$HOME/404-source/src/STATIC_proxy/profiles" "$HOME/404-runtime/profiles"
 
+```
 cd "$HOME/404-runtime"
 ./static_proxy --profiles-path ./profiles --list-profiles
 ./static_proxy --profiles-path ./profiles --profile edge-windows
