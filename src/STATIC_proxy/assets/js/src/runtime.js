@@ -1,17 +1,11 @@
 /*
- * STATIC Runtime v5.0.0 — Known Limitations
- *
- * 1. Worker and SharedWorker construction is intercepted through constructor
- *    wrapping, but service workers and pre-existing workers remain outside
- *    this bundle's reach and can still expose host-native values.
- *
- * 2. The high-entropy spoofing modules are being ported separately from
- *    the identity and capability baseline. This bundle currently focuses
- *    on prototype-correct identity ownership and compatibility-sensitive
- *    surfaces first.
+ * STATIC Runtime v5.0.0
+ * Eligible network worker responses bootstrap selected realm-local surfaces.
+ * Cached, pre-existing, blob/data workers and worklet processors remain gaps.
+ * Frame fallback can run after child code and requires CSP-allowed compilation.
  */
 
-import { initRuntime } from './core/guard.js'
+import { finishRuntime, getRuntime, initRuntime } from './core/guard.js'
 import { captureNativeRefs } from './core/native-refs.js'
 import { installToStringProxy } from './core/toString.js'
 import { captureNonce } from './core/nonce.js'
@@ -46,88 +40,116 @@ import { installGeolocationDenial } from './evasion/geolocation.js'
 import { installBeaconBlackhole } from './privacy/beacon-blackhole.js'
 import { installIframePropagation } from './contexts/iframe.js'
 
-;(function staticRuntime() {
+export function startRuntime(rawConfig, initializeChild) {
   'use strict'
 
   if (!initRuntime()) {
-    return
+    return getRuntime().state
   }
 
-  captureNativeRefs()
-  installToStringProxy()
-  captureNonce()
-  loadConfig()
-  initEntropy()
-  initPolicy()
+  try {
+    loadConfig(rawConfig)
+    captureNativeRefs()
+    captureNonce()
+    initEntropy()
+    initPolicy()
+    installToStringProxy()
 
-  const policy = getPolicy()
+    const policy = getPolicy()
+    getRuntime().coverage = Object.freeze({
+      window: 'partial', sameOriginFrames: 'partial', srcdoc: 'partial',
+      crossOriginFrames: 'unverified: own proxy response required',
+      networkWorkers: 'unverified: own proxy response required; selected identity/clock/metadata surfaces',
+      blobDataWorkers: 'unsupported', preexistingWorkers: 'unsupported', audioWorklet: 'unsupported',
+    })
 
-  installNavigator()
-  installScreen()
+    installNavigator()
+    installScreen()
 
-  if (policy.fontMetricsEnabled) {
-    installFontMetrics()
-  }
+    if (policy.fontMetricsEnabled) {
+      installFontMetrics()
+    }
 
-  if (policy.pluginEnabled) {
-    installPlugins()
-  }
-  if (policy.performanceEnabled) {
-    installPerformance()
-  }
-  if (policy.timezoneEnabled) {
-    installTimezone()
-  }
+    if (policy.pluginEnabled) {
+      installPlugins()
+    }
+    if (policy.performanceEnabled) {
+      installPerformance()
+    }
+    if (policy.timezoneEnabled) {
+      installTimezone()
+    }
 
-  installPermissions()
-  installNotifications()
-  installBattery()
+    installPermissions()
+    installNotifications()
+    installBattery()
 
-  if (policy.storageEnabled) {
-    installStorage()
-  }
-  if (policy.networkEnabled) {
-    installNetwork()
-  }
-  if (policy.mediaCapabilitiesEnabled) {
-    installMediaCapabilities()
-  }
+    if (policy.storageEnabled) {
+      installStorage()
+    }
+    if (policy.networkEnabled) {
+      installNetwork()
+    }
+    if (policy.mediaCapabilitiesEnabled) {
+      installMediaCapabilities()
+    }
 
-  if (policy.canvasEnabled) {
-    installCanvasSpoof()
-  }
-  if (policy.webglEnabled) {
-    installWebGLSpoof()
-  }
-  if (policy.audioEnabled) {
-    installAudioSpoof()
-  }
-  if (policy.webrtcEnabled) {
-    installWebRTCSpoof()
-  }
-  if (policy.mediaDevicesEnabled) {
-    installMediaDevicesSpoof()
-  }
-  if (policy.gamepadEnabled) {
-    installGamepadSpoof()
-  }
-  if (policy.speechEnabled) {
-    installSpeechSpoof()
-  }
-  if (policy.eventTimingEnabled) {
-    installEventTimingSpoof()
-  }
+    if (policy.canvasEnabled) {
+      installCanvasSpoof()
+    }
+    if (policy.webglEnabled) {
+      installWebGLSpoof()
+    }
+    if (policy.audioEnabled) {
+      installAudioSpoof()
+    }
+    if (policy.webrtcEnabled) {
+      installWebRTCSpoof()
+    }
+    if (policy.mediaDevicesEnabled) {
+      installMediaDevicesSpoof()
+    }
+    if (policy.gamepadEnabled) {
+      installGamepadSpoof()
+    }
+    if (policy.speechEnabled) {
+      installSpeechSpoof()
+    }
+    if (policy.eventTimingEnabled) {
+      installEventTimingSpoof()
+    }
 
-  if (policy.automationEvasionEnabled) {
-    installAutomationEvasion()
+    if (policy.automationEvasionEnabled) {
+      installAutomationEvasion()
+    }
+    if (policy.geolocationEnabled) {
+      installGeolocationDenial()
+    }
+    if (policy.privacyBlackholeEnabled) {
+      installBeaconBlackhole()
+    }
+    if (policy.iframePropagationEnabled) {
+      installIframePropagation(initializeChild)
+    }
+    const optional = {
+      fontMetrics: policy.fontMetricsEnabled, plugins: policy.pluginEnabled,
+      performance: policy.performanceEnabled, timezone: policy.timezoneEnabled,
+      storage: policy.storageEnabled, network: policy.networkEnabled,
+      mediaCapabilities: policy.mediaCapabilitiesEnabled, canvas: policy.canvasEnabled,
+      webgl: policy.webglEnabled, audio: policy.audioEnabled, webrtc: policy.webrtcEnabled,
+      mediaDevices: policy.mediaDevicesEnabled, gamepad: policy.gamepadEnabled,
+      speech: policy.speechEnabled, eventTiming: policy.eventTimingEnabled,
+      automation: policy.automationEvasionEnabled, geolocation: policy.geolocationEnabled,
+      privacyBlackhole: policy.privacyBlackholeEnabled, iframePropagation: policy.iframePropagationEnabled,
+    }
+    for (const [name, enabled] of Object.entries(optional)) {
+      if (!enabled) getRuntime().outcomes[name] = Object.freeze({ status: 'disabled' })
+    }
+    finishRuntime()
+    return 'ready'
+  } catch (error) {
+    finishRuntime(error)
+    console.error('[STATIC] runtime initialization failed:', error.message)
+    return 'failed'
   }
-  if (policy.geolocationEnabled) {
-    installGeolocationDenial()
-  }
-  if (policy.privacyBlackholeEnabled) {
-    installBeaconBlackhole()
-  }
-  if (policy.iframePropagationEnabled) {
-    installIframePropagation()
-  }
-})()
+}

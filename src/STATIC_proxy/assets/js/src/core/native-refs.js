@@ -18,7 +18,7 @@ export function captureNativeRefs() {
   const mediaStreamTrackPrototype = window.MediaStreamTrack?.prototype || null
   const speechSynthesisPrototype = window.speechSynthesis ? Object.getPrototypeOf(window.speechSynthesis) : null
   const htmlElementPrototype = window.HTMLElement?.prototype || null
-  runtime.nativeRefs = {
+  runtime.nativeRefs = Object.freeze({
     defineProperty: Object.defineProperty.bind(Object),
     getOwnPropertyDescriptor: Object.getOwnPropertyDescriptor.bind(Object),
     getOwnPropertyNames: Object.getOwnPropertyNames.bind(Object),
@@ -114,5 +114,5 @@ export function captureNativeRefs() {
     Event: window.Event || null,
     eventPrototype,
     eventTimeStampDescriptor: eventPrototype ? Object.getOwnPropertyDescriptor(eventPrototype, 'timeStamp') : null,
-  }
+  })
 }

@@ -1,5 +1,5 @@
 import { getRuntime, markModule } from '../core/guard.js'
-import { markNativeCode } from '../core/toString.js'
+import { replaceGetter } from '../core/descriptors.js'
 
 const widthDeltaCache = new WeakMap()
 const heightDeltaCache = new WeakMap()
@@ -47,23 +47,10 @@ export function installFontMetrics() {
 
   const rng = runtime.entropy?.sessionRng ?? Math.random.bind(Math)
 
-  defineProperty(htmlElementPrototype, 'offsetWidth', {
-    get: markNativeCode(function offsetWidth() {
-      const value = offsetWidthDescriptor.get.call(this)
-      return perturbMetric(value, getDelta(widthDeltaCache, this, rng))
-    }, 'offsetWidth'),
-    configurable: true,
-    enumerable: offsetWidthDescriptor.enumerable ?? false,
-  })
-
-  defineProperty(htmlElementPrototype, 'offsetHeight', {
-    get: markNativeCode(function offsetHeight() {
-      const value = offsetHeightDescriptor.get.call(this)
-      return perturbMetric(value, getDelta(heightDeltaCache, this, rng))
-    }, 'offsetHeight'),
-    configurable: true,
-    enumerable: offsetHeightDescriptor.enumerable ?? false,
-  })
+  replaceGetter(htmlElementPrototype, 'offsetWidth', (value, element) =>
+    perturbMetric(value, getDelta(widthDeltaCache, element, rng)))
+  replaceGetter(htmlElementPrototype, 'offsetHeight', (value, element) =>
+    perturbMetric(value, getDelta(heightDeltaCache, element, rng)))
 
   markModule('fontMetrics')
 }

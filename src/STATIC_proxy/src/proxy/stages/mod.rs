@@ -77,6 +77,11 @@ impl StagePipeline {
     }
 
     pub async fn process_response_headers(&self, flow: &mut Flow) -> Result<()> {
+        // A retry has a new upstream response, not the previous injected body.
+        flow.metadata.script_injected = false;
+        flow.metadata.worker_injected = false;
+        flow.metadata.worker_coverage = None;
+        flow.metadata.csp_nonce = None;
         for stage in &self.inner.stages {
             stage.on_response_headers(flow).await?;
         }

@@ -14,6 +14,42 @@ const config = {
   entryPoints: [entryPoint],
   bundle: true,
   format: 'iife',
+  globalName: 'staticRuntimeModule',
+  banner: { js: '(function () {\nfunction createStaticRealmRuntime() {' },
+  footer: { js: `
+return staticRuntimeModule.startRuntime
+}
+const nativeToString = Function.prototype.toString
+const factorySource = nativeToString.call(createStaticRealmRuntime)
+const documents = new WeakMap()
+const realms = new WeakMap()
+function initializeChild(child, doc, rawConfig) {
+  if (documents.has(doc)) return documents.get(doc)
+  documents.set(doc, 'initializing')
+  try {
+    const realmKey = child.Object
+    if (typeof realmKey !== 'function') return 'unsupported'
+    if (realms.has(realmKey)) {
+      const outcome = realms.get(realmKey)
+      documents.set(doc, outcome)
+      return outcome
+    }
+    const start = child.Function('return (' + factorySource + ')()')()
+    const outcome = start(rawConfig, initializeChild)
+    realms.set(realmKey, outcome)
+    documents.set(doc, outcome)
+    return outcome
+  } catch {
+    documents.set(doc, 'unsupported')
+    return 'unsupported'
+  }
+}
+documents.set(document, 'initializing')
+const rootOutcome = createStaticRealmRuntime()(undefined, initializeChild)
+documents.set(document, rootOutcome)
+realms.set(Object, rootOutcome)
+})()
+` },
   outfile,
   minify: false,
   sourcemap: false,
@@ -24,17 +60,35 @@ const config = {
   logLevel: 'info',
 }
 
+const workerClassicConfig = {
+  ...config, entryPoints: [path.join(root, '..', 'assets/js/src/contexts/worker.js')],
+  outfile: path.join(outdir, 'worker-classic.bundle.js'), globalName: 'workerRuntimeModule',
+  banner: { js: '(function (fingerprint) {' },
+  footer: { js: 'workerRuntimeModule.startWorker(fingerprint)\n})' },
+}
+const workerModuleConfig = {
+  ...config, entryPoints: [path.join(root, '..', 'assets/js/src/contexts/worker-module.js')],
+  outfile: path.join(outdir, 'worker-module.bundle.js'), format: 'esm', globalName: undefined,
+  banner: undefined, footer: undefined,
+}
+
 async function main() {
   if (watch) {
-    const ctx = await esbuild.context(config)
-    await ctx.watch()
+    for (const settings of [config, workerClassicConfig, workerModuleConfig]) {
+      const ctx = await esbuild.context(settings)
+      await ctx.watch()
+    }
     return
   }
 
-  await esbuild.build(config)
+  await Promise.all([config, workerClassicConfig, workerModuleConfig].map((settings) => esbuild.build(settings)))
 }
 
-main().catch((error) => {
-  console.error(error)
-  process.exit(1)
-})
+module.exports = config
+
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error)
+    process.exit(1)
+  })
+}

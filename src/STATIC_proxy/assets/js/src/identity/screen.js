@@ -1,15 +1,9 @@
 import { getFingerprint } from '../core/config.js'
 import { markModule } from '../core/guard.js'
-import { markNativeCode } from '../core/toString.js'
+import { replaceGetter } from '../core/descriptors.js'
 
 function defineScreenGetter(name, fn) {
-  const namedGetter = { [name]: function getter() { return fn() } }[name]
-  markNativeCode(namedGetter, name)
-  Object.defineProperty(Screen.prototype, name, {
-    get: namedGetter,
-    configurable: true,
-    enumerable: true,
-  })
+  return replaceGetter(Screen.prototype, name, () => fn())
 }
 
 function parseResolution(value) {
@@ -35,29 +29,11 @@ export function installScreen() {
   defineScreenGetter('isExtended', () => fingerprint.screen_is_extended ?? false)
 
   if (screen.orientation) {
-    Object.defineProperty(Object.getPrototypeOf(screen.orientation), 'type', {
-      get: markNativeCode(function type() {
-        return fingerprint.screen_orientation_type || 'landscape-primary'
-      }, 'type'),
-      configurable: true,
-      enumerable: true,
-    })
-    Object.defineProperty(Object.getPrototypeOf(screen.orientation), 'angle', {
-      get: markNativeCode(function angle() {
-        return fingerprint.screen_orientation_angle ?? 0
-      }, 'angle'),
-      configurable: true,
-      enumerable: true,
-    })
+    const proto = Object.getPrototypeOf(screen.orientation)
+    replaceGetter(proto, 'type', () => fingerprint.screen_orientation_type || 'landscape-primary')
+    replaceGetter(proto, 'angle', () => fingerprint.screen_orientation_angle ?? 0)
   }
-
-  Object.defineProperty(window, 'devicePixelRatio', {
-    get: markNativeCode(function devicePixelRatio() {
-      return fingerprint.device_pixel_ratio ?? 1
-    }, 'devicePixelRatio'),
-    configurable: true,
-    enumerable: true,
-  })
+  replaceGetter(window, 'devicePixelRatio', () => fingerprint.device_pixel_ratio ?? 1)
 
   markModule('screen')
 }

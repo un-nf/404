@@ -181,24 +181,6 @@ function withCanvasExportNoise(canvasLike, runtime, fingerprint, noiseConfig, op
   }
 }
 
-function exposeLegacyFingerprint(runtime, fingerprint) {
-  if ('__404_canvas_fingerprint' in window) {
-    return
-  }
-
-  const value = `${fingerprint.canvas_hash || 'static'}:${runtime.entropy.sessionId}`
-  try {
-    Object.defineProperty(window, '__404_canvas_fingerprint', {
-      value: `${value}:${resolveOriginKey(runtime)}`,
-      writable: false,
-      enumerable: false,
-      configurable: false,
-    })
-  } catch {
-    // ignore
-  }
-}
-
 export function installCanvasSpoof() {
   const runtime = getRuntime()
   const fingerprint = getFingerprint()
@@ -207,8 +189,6 @@ export function installCanvasSpoof() {
   if (runtime.modules.canvas) {
     return
   }
-
-  exposeLegacyFingerprint(runtime, fingerprint)
 
   if (runtime.nativeRefs.canvasGetImageData) {
     defineMethod(runtime.nativeRefs.canvas2dPrototype, 'getImageData', markNativeCode(function getImageData(sx, sy, sw, sh) {

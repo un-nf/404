@@ -24,14 +24,14 @@ export function initPolicy() {
   const fingerprint = getFingerprint()
   const host = (() => {
     try {
-      return location.hostname
+      return location.hostname || new URL(globalThis.origin).hostname
     } catch {
       return ''
     }
   })()
   const stabilityMode = hostMatches(host, STABILITY_HOSTS)
 
-  runtime.policy = {
+  runtime.policy = Object.freeze({
     host,
     stabilityMode,
     timezoneEnabled: fingerprint.enable_timezone_spoof !== false,
@@ -53,7 +53,7 @@ export function initPolicy() {
     geolocationEnabled: fingerprint.enable_geolocation_spoof !== false,
     privacyBlackholeEnabled: true,
     iframePropagationEnabled: fingerprint.enable_iframe_protection !== false,
-  }
+  })
 }
 
 export function getPolicy() {

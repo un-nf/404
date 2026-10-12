@@ -22,12 +22,16 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct ScriptBundle {
     pub runtime: Arc<str>,
+    pub worker_classic: Arc<str>,
+    pub worker_module: Arc<str>,
 }
 
 impl ScriptBundle {
     pub fn load() -> Self {
         Self {
             runtime: Arc::from(include_str!(concat!(env!("OUT_DIR"), "/runtime.bundle.js"))),
+            worker_classic: Arc::from(include_str!(concat!(env!("OUT_DIR"), "/worker-classic.bundle.js"))),
+            worker_module: Arc::from(include_str!(concat!(env!("OUT_DIR"), "/worker-module.bundle.js"))),
         }
     }
 }

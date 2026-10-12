@@ -1,158 +1,67 @@
-import { isChromiumLike } from '../core/browser.js'
-import { getFingerprint } from '../core/config.js'
+import { getConfig } from '../core/config.js'
 import { getRuntime, markModule } from '../core/guard.js'
+import { findDescriptor, replaceGetter } from '../core/descriptors.js'
 
-const BASE_WINDOW_GLOBALS = [
-  '__STATIC_RUNTIME__',
-  '__STATIC_CSP_NONCE',
-  'fetch',
-  'createImageBitmap',
-  'Notification',
-]
+export function installIframePropagation(initializeChild) {
+  const runtime = getRuntime()
+  const watched = new WeakSet()
+  const busy = new WeakSet()
+  const prototype = globalThis.HTMLIFrameElement?.prototype
+  const windowGetter = findDescriptor(prototype, 'contentWindow')?.descriptor.get
+  const documentGetter = findDescriptor(prototype, 'contentDocument')?.descriptor.get
+  runtime.frames = new WeakMap()
 
-function getWindowGlobals(fingerprint) {
-  const globals = BASE_WINDOW_GLOBALS.slice()
-  if (isChromiumLike(fingerprint)) {
-    globals.push('chrome')
-  }
-  return globals
-}
-
-function isSafeFrame(frame) {
-  try {
-    const src = frame.getAttribute('src') || frame.src || ''
-    if (!src || src === 'about:blank' || src === 'about:srcdoc') {
-      return true
-    }
-    return new URL(src, location.href).origin === location.origin
-  } catch {
-    return true
-  }
-}
-
-function copyPrototypeDescriptors(source, target) {
-  if (!source || !target || source === target) {
-    return
-  }
-  for (const key of Object.getOwnPropertyNames(source)) {
-    if (key === 'constructor') {
-      continue
-    }
-    const descriptor = Object.getOwnPropertyDescriptor(source, key)
-    if (!descriptor) {
-      continue
-    }
+  function propagate(frame) {
+    if (busy.has(frame)) return
+    busy.add(frame)
+    let outcome = 'unavailable'
     try {
-      Object.defineProperty(target, key, descriptor)
+      const child = windowGetter ? Reflect.apply(windowGetter, frame, []) : frame.contentWindow
+      const doc = documentGetter ? Reflect.apply(documentGetter, frame, []) : frame.contentDocument
+      if (child && child !== window && doc) {
+        // Proxied documents own their parser-inserted bootstrap. Avoid
+        // installing a second set of wrappers over that document.
+        const hasBootstrap = Array.from(doc.scripts).some((script) => {
+          try {
+            return new URL(script.src, doc.baseURI).pathname === '/__static/runtime.js'
+          } catch {
+            return false
+          }
+        })
+        outcome = hasBootstrap ? 'document-bootstrap-unverified' :
+          typeof initializeChild === 'function' ? initializeChild(child, doc, getConfig().raw) : 'unsupported'
+      }
     } catch {
-      // ignore
+      outcome = 'unavailable'
     }
+    runtime.frames.set(frame, outcome)
+    busy.delete(frame)
   }
-}
 
-function copyOwnDescriptor(source, target, key) {
-  if (!source || !target) {
-    return
-  }
-  const descriptor = Object.getOwnPropertyDescriptor(source, key)
-  if (!descriptor) {
-    return
-  }
-  try {
-    Object.defineProperty(target, key, descriptor)
-  } catch {
-    // ignore
-  }
-}
-
-function copyWindowGlobals(parentWindow, childWindow, fingerprint) {
-  for (const key of getWindowGlobals(fingerprint)) {
-    copyOwnDescriptor(parentWindow, childWindow, key)
-  }
-}
-
-function copyPrototypeFromInstance(parentValue, childValue) {
-  if (!parentValue || !childValue) {
-    return
-  }
-  copyPrototypeDescriptors(Object.getPrototypeOf(parentValue), Object.getPrototypeOf(childValue))
-}
-
-function copyPrototypeDirect(parentPrototype, childPrototype) {
-  if (!parentPrototype || !childPrototype) {
-    return
-  }
-  copyPrototypeDescriptors(parentPrototype, childPrototype)
-}
-
-function propagate(frame) {
-  try {
-    if (!isSafeFrame(frame)) {
-      return
+  function watch(frame) {
+    if (!watched.has(frame)) {
+      watched.add(frame)
+      frame.addEventListener('load', () => propagate(frame))
     }
-
-    const childWindow = frame.contentWindow
-    if (!childWindow || childWindow === window) {
-      return
-    }
-
-    const runtime = getRuntime()
-    const fingerprint = getFingerprint()
-    Object.defineProperty(childWindow, '__STATIC_RUNTIME__', {
-      value: runtime,
-      configurable: true,
-      enumerable: false,
-      writable: true,
-    })
-    Object.defineProperty(childWindow, '__STATIC_CSP_NONCE', {
-      value: runtime.nonce,
-      configurable: true,
-      enumerable: false,
-      writable: true,
-    })
-
-    copyWindowGlobals(window, childWindow, fingerprint)
-
-    copyPrototypeFromInstance(window.navigator, childWindow.navigator)
-    copyPrototypeFromInstance(window.screen, childWindow.screen)
-    copyPrototypeFromInstance(window.document, childWindow.document)
-    copyPrototypeDirect(window.HTMLElement?.prototype, childWindow.HTMLElement?.prototype)
-    copyPrototypeDirect(window.HTMLCanvasElement?.prototype, childWindow.HTMLCanvasElement?.prototype)
-    copyPrototypeDirect(window.CanvasRenderingContext2D?.prototype, childWindow.CanvasRenderingContext2D?.prototype)
-    copyPrototypeDirect(window.OffscreenCanvas?.prototype, childWindow.OffscreenCanvas?.prototype)
-    copyPrototypeDirect(window.Event?.prototype, childWindow.Event?.prototype)
-    copyPrototypeDirect(window.RTCPeerConnection?.prototype || window.webkitRTCPeerConnection?.prototype, childWindow.RTCPeerConnection?.prototype || childWindow.webkitRTCPeerConnection?.prototype)
-    copyPrototypeDirect(window.MediaStream?.prototype, childWindow.MediaStream?.prototype)
-    copyPrototypeDirect(window.MediaStreamTrack?.prototype, childWindow.MediaStreamTrack?.prototype)
-    copyPrototypeDirect(window.AnalyserNode?.prototype, childWindow.AnalyserNode?.prototype)
-    copyPrototypeDirect(window.BaseAudioContext?.prototype || window.AudioContext?.prototype || window.webkitAudioContext?.prototype, childWindow.BaseAudioContext?.prototype || childWindow.AudioContext?.prototype || childWindow.webkitAudioContext?.prototype)
-    copyPrototypeDirect(window.OfflineAudioContext?.prototype || window.webkitOfflineAudioContext?.prototype, childWindow.OfflineAudioContext?.prototype || childWindow.webkitOfflineAudioContext?.prototype)
-    copyPrototypeDirect(window.AudioWorkletNode?.prototype, childWindow.AudioWorkletNode?.prototype)
-    copyPrototypeFromInstance(window.navigator?.mediaDevices, childWindow.navigator?.mediaDevices)
-    copyPrototypeFromInstance(window.speechSynthesis, childWindow.speechSynthesis)
-  } catch {
-    // ignore
+    propagate(frame)
   }
-}
 
-export function installIframePropagation() {
-  document.querySelectorAll('iframe').forEach((frame) => {
-    frame.addEventListener('load', () => propagate(frame), { once: true })
-    if (frame.contentDocument?.readyState === 'complete') {
+  for (const name of ['contentWindow', 'contentDocument']) {
+    replaceGetter(prototype, name, (value, frame) => {
       propagate(frame)
-    }
-  })
-
+      return value
+    })
+  }
+  document.querySelectorAll('iframe').forEach(watch)
   const observer = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
       for (const node of mutation.addedNodes) {
-        if (node instanceof HTMLIFrameElement) {
-          node.addEventListener('load', () => propagate(node), { once: true })
-        }
+        if (node.nodeType !== 1) continue
+        if (node.localName === 'iframe') watch(node)
+        node.querySelectorAll?.('iframe').forEach(watch)
       }
     }
   })
   observer.observe(document.documentElement, { childList: true, subtree: true })
-
-  markModule('iframePropagation')
+  markModule('iframePropagation', { status: 'partial', detail: 'synchronous accessible-frame getters and observer/load fallback; early child code and CSP gaps remain' })
 }

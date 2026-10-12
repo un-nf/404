@@ -6,7 +6,7 @@ function xorshift32(seed) {
     state ^= state << 13
     state ^= state >>> 17
     state ^= state << 5
-    return (state >>> 0) / 0xFFFFFFFF
+    return (state >>> 0) / 0x100000000
   }
 }
 
@@ -36,7 +36,7 @@ export function initEntropy() {
     : 'static'
   const origin = (() => {
     try {
-      return location.origin
+      return typeof globalThis.origin === 'string' ? globalThis.origin : location.origin
     } catch {
       return 'opaque'
     }
@@ -44,7 +44,7 @@ export function initEntropy() {
   const sessionSeed = hashString(`${sessionId}:${origin}:${fingerprint.canvas_hash || ''}`)
   const originSeed = hashString(`${sessionId}:${origin}`)
 
-  runtime.entropy = {
+  runtime.entropy = Object.freeze({
     sessionId,
     origin,
     startupSalt,
@@ -54,16 +54,6 @@ export function initEntropy() {
     originRng: xorshift32(originSeed),
     hash: hashString,
     rng: xorshift32,
-  }
+  })
 
-  Object.defineProperty(window, '__static_rng', {
-    get: () => runtime.entropy.sessionRng,
-    configurable: true,
-    enumerable: false,
-  })
-  Object.defineProperty(window, '__static_hash', {
-    get: () => runtime.entropy.hash,
-    configurable: true,
-    enumerable: false,
-  })
 }

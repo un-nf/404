@@ -1,18 +1,20 @@
 const RUNTIME_VERSION = '5.0.0'
-const REGISTRY_KEY = '__STATIC_RUNTIME__'
+let runtime = null
 
 export function initRuntime() {
-  const existing = window[REGISTRY_KEY]
-  if (existing && existing.version === RUNTIME_VERSION) {
+  if (runtime) {
     return false
   }
 
-  window[REGISTRY_KEY] = {
+  runtime = {
     version: RUNTIME_VERSION,
+    state: 'initializing',
     config: null,
     policy: null,
     entropy: null,
     modules: {},
+    outcomes: {},
+    coverage: {},
     nativeRefs: {},
     nonce: null,
   }
@@ -21,12 +23,18 @@ export function initRuntime() {
 }
 
 export function getRuntime() {
-  return window[REGISTRY_KEY]
+  return runtime
 }
 
-export function markModule(name) {
+export function finishRuntime(error = null) {
+  runtime.state = error ? 'failed' : 'ready'
+  runtime.failure = error ? String(error.message || error) : null
+}
+
+export function markModule(name, outcome = { status: 'installed' }) {
   const runtime = getRuntime()
   if (runtime) {
     runtime.modules[name] = true
+    runtime.outcomes[name] = Object.freeze({ ...outcome })
   }
 }

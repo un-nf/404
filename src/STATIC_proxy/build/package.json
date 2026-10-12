@@ -3,7 +3,8 @@
   "private": true,
   "scripts": {
     "build": "node build.js",
-    "watch": "node build.js --watch"
+    "watch": "node build.js --watch",
+    "test": "node --test ../tests/*.test.cjs"
   },
   "devDependencies": {
     "esbuild": "^0.25.2"

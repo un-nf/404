@@ -30,7 +30,7 @@ export function resolveBrowserFamily(fingerprint = {}) {
     return explicitFamily
   }
 
-  const variant = String(fingerprint.browser_type || '').trim().toLowerCase()
+  const variant = String(fingerprint.browser_variant || fingerprint.profile_variant || fingerprint.browser_type || '').trim().toLowerCase()
   if (FIREFOX_VARIANTS.has(variant)) {
     return FIREFOX_LIKE
   }

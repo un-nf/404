@@ -294,7 +294,7 @@ async fn handle_http1_session(
         flow.metadata.request_protocol = Some("proxy-runtime-asset".to_string());
         flow.metadata.upstream_protocol = Some("local".to_string());
         flow.metadata.buffering_mode = Some("local-asset".to_string());
-        flow.response = Some(build_proxy_runtime_asset_response(flow.request.version, &flow.request.method)?);
+        flow.response = Some(build_proxy_runtime_asset_response(flow.request.version, &flow.request.method, flow.request.uri.path())?);
         emit_flow_telemetry(&telemetry, &flow, &sni, peer);
         let response = flow.response.as_ref().context("runtime asset response missing")?;
         send_response_to_client(&mut client_stream, response).await?;
@@ -385,7 +385,7 @@ async fn handle_plain_http_session(
     if is_proxy_runtime_asset_request(&flow.request) {
         flow.metadata.upstream_protocol = Some("local".to_string());
         flow.metadata.buffering_mode = Some("local-asset".to_string());
-        flow.response = Some(build_proxy_runtime_asset_response(flow.request.version, &flow.request.method)?);
+        flow.response = Some(build_proxy_runtime_asset_response(flow.request.version, &flow.request.method, flow.request.uri.path())?);
         emit_flow_telemetry(&telemetry, &flow, &None, peer);
         let response = flow.response.as_ref().context("runtime asset response missing")?;
         send_response_to_client(&mut client_stream, response).await?;
@@ -638,7 +638,7 @@ async fn process_http2_stream(
         flow.metadata.request_protocol = Some("proxy-runtime-asset".to_string());
         flow.metadata.upstream_protocol = Some("local".to_string());
         flow.metadata.buffering_mode = Some("local-asset".to_string());
-        flow.response = Some(build_proxy_runtime_asset_response(http::Version::HTTP_2, &flow.request.method)?);
+        flow.response = Some(build_proxy_runtime_asset_response(http::Version::HTTP_2, &flow.request.method, flow.request.uri.path())?);
 
         let response = flow.response.as_mut().context("runtime asset response missing")?;
         sanitize_response_headers_for_h2(response)?;
@@ -1826,12 +1826,13 @@ fn is_proxy_runtime_asset_request(request: &RequestParts) -> bool {
 }
 
 fn is_proxy_runtime_asset_method_path(method: &http::Method, path: &str) -> bool {
-    (*method == http::Method::GET || *method == http::Method::HEAD) && path == RUNTIME_ASSET_PATH
+    (*method == http::Method::GET || *method == http::Method::HEAD) && (path == RUNTIME_ASSET_PATH || path == "/__static/worker-module.js")
 }
 
 fn build_proxy_runtime_asset_response(
     version: http::Version,
     method: &http::Method,
+    path: &str,
 ) -> Result<ResponseParts> {
     let bundle = ScriptBundle::load();
     let mut headers = http::HeaderMap::new();
@@ -1846,7 +1847,11 @@ fn build_proxy_runtime_asset_response(
 
     let mut body = BodyBuffer::default();
     if *method != http::Method::HEAD {
-        body.replace(bundle.runtime.as_bytes());
+        body.replace(if path == "/__static/worker-module.js" {
+            bundle.worker_module.as_bytes()
+        } else {
+            bundle.runtime.as_bytes()
+        });
     }
 
     let mut response = ResponseParts {
@@ -1877,6 +1882,7 @@ fn emit_flow_telemetry(
             "request_protocol": flow.metadata.request_protocol,
             "upstream_protocol": flow.metadata.upstream_protocol,
             "buffering_mode": flow.metadata.buffering_mode,
+            "worker_coverage": flow.metadata.worker_coverage,
             "websocket_tunnel": flow.metadata.websocket_tunnel,
             "transport_notes": flow.metadata.transport_notes,
             "tls_variant_id": flow.metadata.tls_variant_id,
@@ -2064,6 +2070,18 @@ mod tests {
             Some("no-cache")
         );
         assert!(response.headers.get(ETAG).is_none());
+    }
+
+    #[test]
+    fn module_worker_runtime_asset_is_served_locally_without_shadowing_other_methods() {
+        let path = "/__static/worker-module.js";
+        assert!(super::is_proxy_runtime_asset_method_path(&Method::GET, path));
+        assert!(super::is_proxy_runtime_asset_method_path(&Method::HEAD, path));
+        assert!(!super::is_proxy_runtime_asset_method_path(&Method::POST, path));
+        assert!(!super::is_proxy_runtime_asset_method_path(&Method::GET, "/__static/not-runtime.js"));
+        let response = super::build_proxy_runtime_asset_response(Version::HTTP_11, &Method::GET, path).unwrap();
+        assert_eq!(response.body.as_bytes(), super::ScriptBundle::load().worker_module.as_bytes());
+        assert!(std::str::from_utf8(response.body.as_bytes()).unwrap().contains("import.meta.url"));
     }
 
     #[test]

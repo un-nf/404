@@ -11,20 +11,6 @@ export function captureNonce() {
     }
   }
 
-  const script = document.querySelector('script[nonce]')
-  if (script) {
-    const nonce = script.nonce || script.getAttribute('nonce')
-    if (nonce) {
-      runtime.nonce = nonce
-      return nonce
-    }
-  }
-
-  if (window.__STATIC_CSP_NONCE) {
-    runtime.nonce = window.__STATIC_CSP_NONCE
-    return runtime.nonce
-  }
-
   runtime.nonce = null
   return null
 }

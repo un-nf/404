@@ -50,7 +50,67 @@ impl JsInjectionStage {
         }
     }
 
+    fn inject_worker(&self, flow: &mut Flow) -> Result<bool> {
+        let destination = flow.request.headers.get("sec-fetch-dest")
+            .and_then(|v| v.to_str().ok()).unwrap_or("").to_ascii_lowercase();
+        if !matches!(destination.as_str(), "worker" | "sharedworker" | "serviceworker") {
+            return Ok(false);
+        }
+        if flow.metadata.worker_injected { return Ok(true); }
+        flow.metadata.worker_coverage = Some("unavailable: response prerequisites".into());
+        let mode = flow.request.headers.get("sec-fetch-mode").and_then(|v| v.to_str().ok()).unwrap_or("");
+        if !matches!(mode, "cors" | "same-origin") { return Ok(true); }
+        let fingerprint = flow.metadata.js_runtime_config.get("fingerprint").unwrap_or(&flow.metadata.js_runtime_config);
+        if !fingerprint.get("user_agent").is_some_and(|v| v.is_string()) { return Ok(true); }
+        let profile_json = serde_json::to_string(&worker_profile(fingerprint))?;
+        let Some(response) = flow.response.as_mut() else { return Ok(true); };
+        if response.status != http::StatusCode::OK { return Ok(true); }
+        let mime = response.headers.get(CONTENT_TYPE).and_then(|x| x.to_str().ok())
+            .unwrap_or("").split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+        if !matches!(mime.as_str(), "text/javascript" | "application/javascript" | "application/ecmascript" | "text/ecmascript") {
+            return Ok(true);
+        }
+        if !self.ensure_plain_body(response)? { return Ok(true); }
+        let Ok(source) = std::str::from_utf8(response.body.as_bytes()) else { return Ok(true); };
+        if source.len() > 2 * 1024 * 1024 {
+            flow.metadata.worker_coverage = Some("unsupported: worker parser size budget".into());
+            return Ok(true);
+        }
+        let Some((index, module)) = worker_prelude(source) else {
+            flow.metadata.worker_coverage = Some("unsupported: source syntax not supported by parser".into());
+            return Ok(true);
+        };
+        if module && !permits_worker_bootstrap_import(&response.headers) {
+            flow.metadata.worker_coverage = Some("unsupported: worker CSP disallows bootstrap import".into());
+            return Ok(true);
+        }
+        let bootstrap = if module {
+            let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(profile_json.as_bytes());
+            let url = format!("/__static/worker-module.js?profile={encoded}");
+            format!("import {};\n", serde_json::to_string(&url)?)
+        } else {
+            format!(";{}({});\n", crate::assets::ScriptBundle::load().worker_classic, profile_json)
+        };
+        let mut rewritten = String::with_capacity(source.len() + bootstrap.len());
+        rewritten.push_str(&source[..index]);
+        rewritten.push_str("\n");
+        rewritten.push_str(&bootstrap);
+        rewritten.push_str(&source[index..]);
+        response.body.replace_limited(rewritten.as_bytes(), self.max_decompressed_html_bytes, "rewritten worker body")?;
+        for key in ["etag", "last-modified", "content-md5", "digest", "content-digest", "repr-digest"] {
+            response.headers.remove(key);
+        }
+        response.headers.insert(CONTENT_LENGTH, HeaderValue::from_str(&response.body.len().to_string())?);
+        flow.metadata.worker_injected = true;
+        flow.metadata.worker_coverage = Some(format!("{destination}: selected surfaces bootstrap inserted; execution unverified"));
+        Ok(true)
+    }
+
     fn should_inject(&self, flow: &mut Flow) -> Result<bool> {
+        if flow.metadata.script_injected {
+            return Ok(false);
+        }
+
         let response = match flow.response.as_mut() {
             Some(resp) => resp,
             None => return Ok(false),
@@ -68,14 +128,7 @@ impl JsInjectionStage {
             return Ok(false);
         }
 
-        if let Ok(body_str) = std::str::from_utf8(response.body.as_bytes()) {
-            if body_str.contains("__404_bootstrap_version")
-                || body_str.contains("__STATIC_RUNTIME__")
-                || body_str.contains("__static_profile")
-            {
-                return Ok(false);
-            }
-        } else {
+        if std::str::from_utf8(response.body.as_bytes()).is_err() {
             return Ok(false);
         }
 
@@ -512,6 +565,52 @@ enum InsertionStrategy {
     PrependHead,
 }
 
+fn permits_worker_bootstrap_import(headers: &http::HeaderMap) -> bool {
+    headers.get_all(http::header::CONTENT_SECURITY_POLICY).iter().all(|policy| {
+        let Ok(policy) = policy.to_str() else { return false; };
+        let mut script = None;
+        let mut default = None;
+        for directive in policy.split(';') {
+            let mut parts = directive.split_whitespace();
+            match parts.next().unwrap_or("").to_ascii_lowercase().as_str() {
+                "script-src" if script.is_none() => script = Some(parts.collect::<Vec<_>>()),
+                "default-src" if default.is_none() => default = Some(parts.collect::<Vec<_>>()),
+                _ => {}
+            }
+        }
+        let Some(tokens) = script.or(default) else { return true; };
+        !tokens.contains(&"'strict-dynamic'") &&
+            tokens.iter().any(|token| *token == "'self'" || *token == "*")
+    })
+}
+
+fn worker_profile(fingerprint: &serde_json::Value) -> serde_json::Value {
+    let mut profile = serde_json::Map::new();
+    for key in ["user_agent", "platform", "vendor", "vendorSub", "productSub", "browser_family",
+        "browser_variant", "profile_variant", "browser_type", "browser_version", "oscpu", "buildID",
+        "hardware_concurrency", "device_memory", "max_touch_points", "languages", "language",
+        "do_not_track", "pdf_viewer_enabled", "ua_data", "sec_ch_ua_platform", "enable_network_spoof",
+        "downlink", "rtt", "effective_type", "connection_type", "timezone", "enable_timezone_spoof",
+        "enable_performance_spoof", "enable_webgl_spoof", "webgl_vendor", "webgl_renderer",
+        "webgl_parameters", "webgl_standard_vendor", "webgl_standard_renderer"] {
+        if let Some(value) = fingerprint.get(key) { profile.insert(key.into(), value.clone()); }
+    }
+    serde_json::Value::Object(profile)
+}
+
+fn worker_prelude(source: &str) -> Option<(usize, bool)> {
+    let allocator = oxc_allocator::Allocator::default();
+    let parsed = oxc_parser::Parser::new(&allocator, source, oxc_span::SourceType::unambiguous()).parse();
+    if !parsed.errors.is_empty() || parsed.panicked { return None; }
+    let program = parsed.program;
+    let module = program.source_type.is_module();
+    let index = program.directives.last().map(|directive| directive.span.end as usize)
+        .or_else(|| program.hashbang.as_ref().map(|hashbang| hashbang.span.end as usize))
+        .unwrap_or(if source.starts_with('\u{feff}') { 3 } else { 0 });
+    // The separator protects a hashbang or an ASI-terminated directive.
+    Some((index, module))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -521,6 +620,110 @@ mod tests {
     use serde_json::json;
     use std::io::Write;
     use zstd::stream::encode_all as zstd_encode_all;
+
+    fn worker_flow(destination: &str, mode: &str, source: &str) -> Flow {
+        let mut request = RequestParts::default();
+        request.uri = "https://fixture.test/worker.js".parse().unwrap();
+        request.headers.insert("sec-fetch-dest", HeaderValue::from_str(destination).unwrap());
+        request.headers.insert("sec-fetch-mode", HeaderValue::from_str(mode).unwrap());
+        let mut flow = Flow::new(request);
+        let profile_source = match std::env::var("STATIC_BROWSER_PROFILE").as_deref() {
+            Ok("firefox") => include_str!("../../../profiles/firefox-windows.json"),
+            Ok("edge") => include_str!("../../../profiles/edge-windows.json"),
+            _ => include_str!("../../../profiles/chrome-windows.json"),
+        };
+        let profile: serde_json::Value = serde_json::from_str(profile_source).unwrap();
+        flow.metadata.js_runtime_config = json!({ "fingerprint": profile["fingerprint"], "startup_salt": "must-not-be-published" });
+        let mut response = ResponseParts::default();
+        response.headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/javascript"));
+        response.body.replace(source.as_bytes());
+        flow.response = Some(response);
+        flow
+    }
+
+    #[tokio::test]
+    async fn workers_preserve_directives_and_deduplicate_trusted_flow() {
+        for destination in ["worker", "sharedworker", "serviceworker"] {
+            let mut flow = worker_flow(destination, "same-origin", "/* leading */ 'use strict';\npostMessage(location.href);");
+            let stage = JsInjectionStage::new(false, 16 * 1024 * 1024);
+            stage.on_response_body(&mut flow).await.unwrap();
+            let first = flow.response.as_ref().unwrap().body.as_bytes().to_vec();
+            let source = std::str::from_utf8(&first).unwrap();
+            assert!(source.starts_with("/* leading */ 'use strict';"));
+            assert!(!source.contains("must-not-be-published"));
+            assert!(!source.contains("chrome_win10_canvas_v1"));
+            assert!(flow.metadata.worker_injected);
+            assert!(!flow.metadata.script_injected);
+            stage.on_response_body(&mut flow).await.unwrap();
+            assert_eq!(flow.response.as_ref().unwrap().body.as_bytes(), first.as_slice());
+        }
+    }
+
+    #[tokio::test]
+    async fn module_worker_bootstrap_import_precedes_application_imports() {
+        let mut flow = worker_flow("worker", "same-origin", "import './dependency.js';\npostMessage(navigator.userAgent);");
+        JsInjectionStage::new(false, 16 * 1024 * 1024).on_response_body(&mut flow).await.unwrap();
+        let source = std::str::from_utf8(flow.response.as_ref().unwrap().body.as_bytes()).unwrap();
+        assert!(source.starts_with("\nimport \"/__static/worker-module.js?profile="));
+        assert!(source.ends_with("import './dependency.js';\npostMessage(navigator.userAgent);"));
+    }
+
+    #[test]
+    fn worker_parser_preserves_directives_and_distinguishes_module_syntax() {
+        let source = "#!worker\n'use strict'; doWork()";
+        let (index, module) = worker_prelude(source).unwrap();
+        assert!(source[..index].contains("'use strict'"));
+        assert!(!module);
+        assert!(worker_prelude("'use strict'\ndoWork()").is_some());
+        assert!(worker_prelude("import './dependency.js';").unwrap().1);
+        assert!(!worker_prelude("const text = 'import ./dependency.js';").unwrap().1);
+        assert!(worker_prelude("/* unterminated").is_none());
+        assert!(worker_prelude("'unterminated").is_none());
+    }
+
+    #[tokio::test]
+    async fn worker_skip_cases_report_unavailable_without_changing_source() {
+        for (mode, mime) in [("no-cors", "text/javascript"), ("same-origin", "text/plain")] {
+            let mut flow = worker_flow("worker", mode, "postMessage('native')");
+            flow.response.as_mut().unwrap().headers.insert(CONTENT_TYPE, HeaderValue::from_str(mime).unwrap());
+            JsInjectionStage::new(false, 16 * 1024 * 1024).on_response_body(&mut flow).await.unwrap();
+            assert!(!flow.metadata.worker_injected);
+            assert_eq!(flow.response.as_ref().unwrap().body.as_bytes(), b"postMessage('native')");
+            assert!(flow.metadata.worker_coverage.is_some());
+        }
+    }
+
+    #[tokio::test]
+    async fn module_worker_csp_is_not_weakened_or_given_a_forbidden_import() {
+        let mut flow = worker_flow("worker", "same-origin", "import './dependency.js';");
+        flow.response.as_mut().unwrap().headers.insert(http::header::CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static("script-src https://cdn.example; worker-src 'none'"));
+        JsInjectionStage::new(false, 16 * 1024 * 1024).on_response_body(&mut flow).await.unwrap();
+        assert!(!flow.metadata.worker_injected);
+        assert_eq!(flow.response.as_ref().unwrap().body.as_bytes(), b"import './dependency.js';");
+        assert!(flow.metadata.worker_coverage.as_deref().unwrap().contains("CSP"));
+    }
+
+    #[tokio::test]
+    async fn export_worker_browser_fixtures() {
+        let Some(directory) = std::env::var_os("STATIC_BROWSER_FIXTURE_DIR") else { return; };
+        let directory = std::path::PathBuf::from(directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let fixtures = [
+            ("classic.js", "worker", "same-origin", "'use strict';\nimportScripts('./helper.js'); postMessage({ua:navigator.userAgent, helper, href:location.href, strict:(function(){return this===undefined})()});"),
+            ("module.js", "worker", "cors", "import {snapshot} from './dependency.js'; postMessage({ua:navigator.userAgent, dependency:snapshot, href:import.meta.url});"),
+            ("shared.js", "sharedworker", "same-origin", "let count=0; onconnect=e=>e.ports[0].postMessage({ua:navigator.userAgent,count:++count,href:location.href});"),
+            ("service.js", "serviceworker", "same-origin", "const initial=navigator.userAgent; onmessage=e=>e.ports[0].postMessage({ua:initial,href:location.href});"),
+            ("service-module.js", "serviceworker", "cors", "import {snapshot} from './dependency.js'; onmessage=e=>e.ports[0].postMessage({ua:navigator.userAgent,dependency:snapshot,href:import.meta.url});"),
+        ];
+        for (name, destination, mode, source) in fixtures {
+            let mut flow = worker_flow(destination, mode, source);
+            JsInjectionStage::new(false, 16 * 1024 * 1024).on_response_body(&mut flow).await.unwrap();
+            assert!(flow.metadata.worker_injected);
+            std::fs::write(directory.join(name), flow.response.as_ref().unwrap().body.as_bytes()).unwrap();
+        }
+        std::fs::write(directory.join("worker-module.bundle.js"), crate::assets::ScriptBundle::load().worker_module.as_bytes()).unwrap();
+    }
 
     fn gzip_encode(data: &[u8]) -> Vec<u8> {
         let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
@@ -573,6 +776,26 @@ mod tests {
         assert!(block.contains("<script src=\"/__static/runtime.js\""));
         assert!(block.contains("data-static-config-b64=\""));
         assert!(block.contains(" nonce=\"nonce-123\""));
+    }
+
+    #[tokio::test]
+    async fn origin_markers_do_not_suppress_injection_and_flow_injects_once() {
+        let stage = JsInjectionStage::new(false, 16 * 1024 * 1024);
+        for marker in ["__404_bootstrap_version", "__STATIC_RUNTIME__", "__static_profile"] {
+            let mut flow = Flow::new(RequestParts::default());
+            let mut response = ResponseParts::default();
+            response.headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/html"));
+            response.body.replace(format!("<html><head></head><body>{marker}</body></html>").as_bytes());
+            flow.response = Some(response);
+
+            stage.on_response_body(&mut flow).await.unwrap();
+            assert!(flow.metadata.script_injected);
+            let first = flow.response.as_ref().unwrap().body.as_bytes().to_vec();
+            assert!(std::str::from_utf8(&first).unwrap().contains("data-static-config-b64"));
+
+            stage.on_response_body(&mut flow).await.unwrap();
+            assert_eq!(flow.response.as_ref().unwrap().body.as_bytes(), first.as_slice());
+        }
     }
 
     #[tokio::test]
@@ -675,7 +898,7 @@ mod tests {
 
         let body = std::str::from_utf8(flow.response.as_ref().unwrap().body.as_bytes()).unwrap();
         assert!(body.contains("nonce=\"origin123\""));
-        assert!(body.contains("worker-src 'self' blob:"));
+        assert!(body.contains("worker-src 'self'"));
         assert_eq!(flow.metadata.csp_nonce.as_deref(), Some("origin123"));
     }
 
@@ -698,7 +921,7 @@ mod tests {
         let body = std::str::from_utf8(flow.response.as_ref().unwrap().body.as_bytes()).unwrap();
         assert!(body.contains(&format!("nonce=\"{nonce}\"")));
         assert!(body.contains(&format!("script-src 'self' 'nonce-{nonce}'")));
-        assert!(body.contains("worker-src 'self' blob:"));
+        assert!(body.contains("worker-src 'self'"));
     }
 
     #[tokio::test]
@@ -776,6 +999,7 @@ mod tests {
 impl FlowStage for JsInjectionStage {
 
     async fn on_response_body(&self, flow: &mut Flow) -> Result<()> {
+        if self.inject_worker(flow)? { return Ok(()); }
         if !self.should_inject(flow)? {
             return Ok(());
         }

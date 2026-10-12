@@ -3,7 +3,13 @@ import { getRuntime } from './guard.js'
 const nativeCodeRegistry = new WeakMap()
 
 export function markNativeCode(fn, name) {
-  nativeCodeRegistry.set(fn, name || fn.name || 'anonymous')
+  nativeCodeRegistry.set(fn, `function ${name || fn.name || 'anonymous'}() { [native code] }`)
+  return fn
+}
+
+export function markNativeLike(fn, original) {
+  const toString = getRuntime()?.nativeRefs.functionToString || Function.prototype.toString
+  nativeCodeRegistry.set(fn, nativeCodeRegistry.get(original) || Reflect.apply(toString, original, []))
   return fn
 }
 
@@ -17,13 +23,13 @@ export function installToStringProxy() {
         return 'function toString() { [native code] }'
       }
       if (nativeCodeRegistry.has(thisArg)) {
-        return `function ${nativeCodeRegistry.get(thisArg)}() { [native code] }`
+        return nativeCodeRegistry.get(thisArg)
       }
       return Reflect.apply(target, thisArg, args)
     },
   })
 
-  nativeCodeRegistry.set(toStringProxy, 'toString')
+  nativeCodeRegistry.set(toStringProxy, Reflect.apply(nativeToString, nativeToString, []))
 
   Object.defineProperty(Function.prototype, 'toString', {
     value: toStringProxy,

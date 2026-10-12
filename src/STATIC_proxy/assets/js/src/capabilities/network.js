@@ -1,34 +1,17 @@
 import { getFingerprint } from '../core/config.js'
-import { isFirefoxLike } from '../core/browser.js'
 import { markModule } from '../core/guard.js'
-import { markNativeCode } from '../core/toString.js'
+import { replaceGetter } from '../core/descriptors.js'
 
 export function installNetwork() {
-  const fingerprint = getFingerprint()
-  if (isFirefoxLike(fingerprint)) {
-    markModule('network')
-    return
+  const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection
+  if (!connection) { markModule('network', { status: 'unavailable' }); return }
+  const fp = getFingerprint()
+  const proto = Object.getPrototypeOf(connection)
+  let requested = 0, changed = 0
+  for (const [key, value] of Object.entries({ downlink: fp.downlink ?? 10, effectiveType: fp.effective_type || '4g', rtt: fp.rtt ?? 50, type: fp.connection_type })) {
+    if (value !== undefined) { requested++; changed += Number(replaceGetter(proto, key, () => value)) }
   }
-
-  const connection = Object.freeze({
-    downlink: fingerprint.downlink ?? 10,
-    effectiveType: fingerprint.effective_type || '4g',
-    onchange: null,
-    rtt: fingerprint.rtt ?? 50,
-    saveData: false,
-    type: fingerprint.connection_type || 'wifi',
-    addEventListener: markNativeCode(function addEventListener() {}, 'addEventListener'),
-    removeEventListener: markNativeCode(function removeEventListener() {}, 'removeEventListener'),
-    dispatchEvent: markNativeCode(function dispatchEvent() { return true }, 'dispatchEvent'),
-  })
-
-  Object.defineProperty(Navigator.prototype, 'connection', {
-    get: markNativeCode(function connectionGetter() {
-      return connection
-    }, 'connection'),
-    configurable: true,
-    enumerable: true,
-  })
-
-  markModule('network')
+  // saveData is an operational user preference, not persona metadata.
+  markModule('network', { status: changed === requested ? 'installed' : changed ? 'partial' : 'native',
+    detail: 'native event target and aliases; saveData preserved' })
 }

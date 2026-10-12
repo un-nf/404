@@ -11,10 +11,17 @@ const REQUIRED_FIELDS = [
 
 const BROWSER_VARIANT_FIELDS = ['browser_variant', 'profile_variant', 'browser_type']
 
-export function loadConfig() {
+export function loadConfig(input) {
   const runtime = getRuntime()
-  const raw = parseRawConfig()
+  // Clone inputs before freezing so another realm never shares mutable persona state.
+  const raw = JSON.parse(JSON.stringify(input === undefined ? parseRawConfig() : input))
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new TypeError('STATIC profile must be an object')
+  }
   const fingerprint = raw && typeof raw.fingerprint === 'object' ? raw.fingerprint : raw
+  if (!fingerprint || Array.isArray(fingerprint)) {
+    throw new TypeError('STATIC fingerprint must be an object')
+  }
   const missing = REQUIRED_FIELDS.filter((key) => !fingerprint?.[key])
 
   if (!BROWSER_VARIANT_FIELDS.some((key) => fingerprint?.[key])) {
@@ -22,32 +29,107 @@ export function loadConfig() {
   }
 
   if (missing.length > 0) {
-    console.warn('[STATIC] profile missing required fields:', missing)
+    throw new TypeError(`STATIC profile missing required fields: ${missing.join(', ')}`)
   }
 
+  for (const field of REQUIRED_FIELDS) {
+    if (typeof fingerprint[field] !== 'string' || !fingerprint[field].trim()) {
+      throw new TypeError(`STATIC profile field ${field} must be a nonempty string`)
+    }
+  }
+  const variantValues = BROWSER_VARIANT_FIELDS.filter((key) => fingerprint[key] !== undefined)
+    .map((key) => String(fingerprint[key]).trim().toLowerCase())
+  const firefoxVariants = ['firefox', 'gecko', 'tor', 'mullvad']
+  const chromiumVariants = ['chrome', 'chromium', 'edge', 'brave', 'vivaldi', 'opera']
+  if (variantValues.some((value) => ![...firefoxVariants, ...chromiumVariants].includes(value)) ||
+      new Set(variantValues).size !== 1) {
+    throw new TypeError('STATIC browser variant is unsupported or conflicting')
+  }
+  const expectedFamily = firefoxVariants.includes(variantValues[0]) ? 'firefox-like' : 'chromium-like'
+  for (const key of ['browser_family', 'profile_family']) {
+    if (fingerprint[key] !== undefined && fingerprint[key] !== expectedFamily) {
+      throw new TypeError('STATIC browser family conflicts with variant')
+    }
+  }
+  for (const [key, value] of Object.entries(fingerprint)) {
+    if (key.startsWith('enable_') && typeof value !== 'boolean') {
+      throw new TypeError(`STATIC profile flag ${key} must be boolean`)
+    }
+  }
+  for (const key of ['default_stride', 'small_canvas_stride']) {
+    const value = fingerprint.canvas_noise?.[key]
+    if (value !== undefined && (!Number.isSafeInteger(value) || value <= 0)) {
+      throw new TypeError(`STATIC canvas_noise.${key} must be a positive integer`)
+    }
+  }
+
+  for (const key of ['vendor', 'vendorSub', 'productSub', 'oscpu', 'buildID', 'language', 'effective_type', 'connection_type']) {
+    if (fingerprint[key] !== undefined && typeof fingerprint[key] !== 'string') {
+      throw new TypeError(`STATIC ${key} must be a string`)
+    }
+  }
+  if (fingerprint.do_not_track !== undefined && fingerprint.do_not_track !== null && typeof fingerprint.do_not_track !== 'string') {
+    throw new TypeError('STATIC do_not_track must be a string or null')
+  }
+  if (fingerprint.languages !== undefined && !(typeof fingerprint.languages === 'string' ||
+      Array.isArray(fingerprint.languages) && fingerprint.languages.every((value) => typeof value === 'string' && value.length))) {
+    throw new TypeError('STATIC languages must contain strings')
+  }
+  for (const key of ['hardware_concurrency', 'max_touch_points']) {
+    const value = fingerprint[key]
+    if (value !== undefined && (!Number.isSafeInteger(value) || value > 0xffffffff || value < (key === 'hardware_concurrency' ? 1 : 0))) {
+      throw new TypeError(`STATIC ${key} has an invalid integer range`)
+    }
+  }
+  if (fingerprint.rtt !== undefined && (!Number.isInteger(fingerprint.rtt) || fingerprint.rtt > 0xffffffff)) {
+    throw new TypeError('STATIC rtt must fit an unsigned long')
+  }
+  for (const key of ['device_memory', 'device_pixel_ratio', 'downlink', 'rtt']) {
+    const value = fingerprint[key]
+    if (value !== undefined && (!Number.isFinite(value) || value < 0 ||
+        ['device_memory', 'device_pixel_ratio'].includes(key) && value === 0)) {
+      throw new TypeError(`STATIC ${key} has an invalid numeric range`)
+    }
+  }
+  const uaData = fingerprint.ua_data
+  if (uaData !== undefined) {
+    if (!uaData || typeof uaData !== 'object' || Array.isArray(uaData)) throw new TypeError('STATIC ua_data must be an object')
+    for (const key of ['brands', 'full_version_list']) {
+      if (uaData[key] !== undefined && !(Array.isArray(uaData[key]) && uaData[key].every((entry) =>
+          entry && typeof entry.brand === 'string' && typeof entry.version === 'string'))) {
+        throw new TypeError(`STATIC ua_data.${key} must contain brand/version strings`)
+      }
+    }
+    if (uaData.mobile !== undefined && typeof uaData.mobile !== 'boolean') throw new TypeError('STATIC ua_data.mobile must be boolean')
+    for (const key of ['platform', 'platform_version', 'architecture', 'bitness', 'model', 'ua_full_version']) {
+      if (uaData[key] !== undefined && typeof uaData[key] !== 'string') throw new TypeError(`STATIC ua_data.${key} must be a string`)
+    }
+  }
+  if (fingerprint.media_devices !== undefined && !(Array.isArray(fingerprint.media_devices) &&
+      fingerprint.media_devices.every((entry) => entry && ['audioinput', 'audiooutput', 'videoinput'].includes(entry.kind) &&
+        (entry.label === undefined || typeof entry.label === 'string')))) {
+    throw new TypeError('STATIC media_devices must contain valid kinds and string labels')
+  }
+
+  if (fingerprint.timezone !== undefined) {
+    if (typeof fingerprint.timezone !== 'string') throw new TypeError('STATIC timezone must be a string')
+    new Intl.DateTimeFormat('en-US', { timeZone: fingerprint.timezone })
+  }
   validateCoherence(fingerprint || {})
 
-  runtime.config = {
+  runtime.config = deepFreeze({
     raw,
     fingerprint: fingerprint || {},
     ready: true,
-  }
+  })
+}
 
-  Object.defineProperty(window, '__STATIC_CONFIG__', {
-    get: () => runtime.config.raw,
-    configurable: true,
-    enumerable: false,
-  })
-  Object.defineProperty(window, '__STATIC_FINGERPRINT__', {
-    get: () => runtime.config.fingerprint,
-    configurable: true,
-    enumerable: false,
-  })
-  Object.defineProperty(window, '__fpConfig', {
-    get: () => runtime.config.fingerprint,
-    configurable: true,
-    enumerable: false,
-  })
+function deepFreeze(value) {
+  if (value && typeof value === 'object') {
+    for (const child of Object.values(value)) deepFreeze(child)
+    Object.freeze(value)
+  }
+  return value
 }
 
 function parseRawConfig() {
@@ -55,10 +137,12 @@ function parseRawConfig() {
   const encoded = currentScript?.getAttribute('data-static-config-b64')
 
   if (encoded) {
+    currentScript.removeAttribute('data-static-config-b64')
     try {
-      return JSON.parse(window.atob(encoded))
+      const bytes = Uint8Array.from(window.atob(encoded), (char) => char.charCodeAt(0))
+      return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
     } catch (error) {
-      console.error('[STATIC] failed to parse encoded profile JSON:', error)
+      throw new TypeError('STATIC encoded profile is invalid', { cause: error })
     }
   }
 
@@ -69,10 +153,11 @@ function parseRawConfig() {
   }
 
   try {
-    return JSON.parse(node.textContent || '{}')
+    const text = node.textContent
+    node.remove()
+    return JSON.parse(text || '{}')
   } catch (error) {
-    console.error('[STATIC] failed to parse profile JSON:', error)
-    return {}
+    throw new TypeError('STATIC profile JSON is invalid', { cause: error })
   }
 }
 
