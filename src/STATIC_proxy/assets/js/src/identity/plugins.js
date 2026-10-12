@@ -1,8 +1,8 @@
 import { markModule } from '../core/guard.js'
 
 export function installPlugins() {
-  // This interface controls real operations or native exotic collections.
-  // Preserve the browser implementation instead of inventing its capabilities.
+  // HTML standardizes PDF compatibility entries. Keep genuine exotic
+  // PluginArray/MimeTypeArray objects; do not invent installed extensions.
   markModule('plugins', { status: Boolean(navigator.plugins) ? 'native' : 'unavailable',
-    detail: 'native interface retained; synthetic persona model unsupported' })
+    detail: 'standard PDF compatibility collection retained by deliberate policy' })
 }

@@ -8,6 +8,10 @@ import { installTimezone } from '../identity/timezone.js'
 import { installWebGLSpoof } from '../spoofing/webgl.js'
 import { initPolicy, getPolicy } from '../core/policy.js'
 import { installEventTimingSpoof } from '../spoofing/event-timing.js'
+import { installStorage } from '../capabilities/storage.js'
+import { installPermissions } from '../capabilities/permissions.js'
+import { installNotifications } from '../capabilities/notifications.js'
+import { installMediaCapabilities } from '../capabilities/media-capabilities.js'
 
 export function startWorker(fingerprint) {
   if (typeof WorkerGlobalScope !== 'function' || !(globalThis instanceof WorkerGlobalScope)) return 'unavailable'
@@ -20,12 +24,16 @@ export function startWorker(fingerprint) {
     initPolicy()
     const policy = getPolicy()
     installNavigator()
+    installPermissions()
+    installNotifications()
+    if (policy.storageEnabled) installStorage()
+    if (policy.mediaCapabilitiesEnabled) installMediaCapabilities()
     if (policy.networkEnabled) installNetwork()
     if (policy.performanceEnabled) installPerformance()
     if (policy.eventTimingEnabled) installEventTimingSpoof()
     if (policy.timezoneEnabled) installTimezone()
     if (policy.webglEnabled && fingerprint.webgl_vendor && fingerprint.webgl_renderer) installWebGLSpoof()
-    markModule('worker', { status: 'partial', detail: 'identity/network, clock, default timezone and WebGL metadata; canvas pixels/audio uncovered' })
+    markModule('worker', { status: 'partial', detail: 'identity/network, storage/permissions/media/notifications where present, clock, default timezone and WebGL metadata; canvas pixels/audio uncovered' })
     finishRuntime()
     return 'ready'
   } catch (error) {

@@ -592,7 +592,9 @@ fn worker_profile(fingerprint: &serde_json::Value) -> serde_json::Value {
         "do_not_track", "pdf_viewer_enabled", "ua_data", "sec_ch_ua_platform", "enable_network_spoof",
         "downlink", "rtt", "effective_type", "connection_type", "timezone", "enable_timezone_spoof",
         "enable_performance_spoof", "enable_webgl_spoof", "webgl_vendor", "webgl_renderer",
-        "webgl_parameters", "webgl_standard_vendor", "webgl_standard_renderer"] {
+        "webgl_parameters", "webgl_standard_vendor", "webgl_standard_renderer",
+        "storage_quota", "storage_usage", "storage_usage_quantum", "enable_storage_spoof",
+        "permission_states", "enable_geolocation_spoof", "media_capabilities", "cookie_enabled", "save_data"] {
         if let Some(value) = fingerprint.get(key) { profile.insert(key.into(), value.clone()); }
     }
     serde_json::Value::Object(profile)
@@ -710,19 +712,48 @@ mod tests {
         let directory = std::path::PathBuf::from(directory);
         std::fs::create_dir_all(&directory).unwrap();
         let fixtures = [
-            ("classic.js", "worker", "same-origin", "'use strict';\nimportScripts('./helper.js'); postMessage({ua:navigator.userAgent, helper, href:location.href, strict:(function(){return this===undefined})()});"),
-            ("module.js", "worker", "cors", "import {snapshot} from './dependency.js'; postMessage({ua:navigator.userAgent, dependency:snapshot, href:import.meta.url});"),
-            ("shared.js", "sharedworker", "same-origin", "let count=0; onconnect=e=>e.ports[0].postMessage({ua:navigator.userAgent,count:++count,href:location.href});"),
-            ("service.js", "serviceworker", "same-origin", "const initial=navigator.userAgent; onmessage=e=>e.ports[0].postMessage({ua:initial,href:location.href});"),
-            ("service-module.js", "serviceworker", "cors", "import {snapshot} from './dependency.js'; onmessage=e=>e.ports[0].postMessage({ua:navigator.userAgent,dependency:snapshot,href:import.meta.url});"),
+            ("classic.js", "worker", "same-origin", "'use strict';\nimportScripts('./helper.js'); readPrivacy().then(privacy=>postMessage({ua:navigator.userAgent, helper, href:location.href, privacy, strict:(function(){return this===undefined})()}));"),
+            ("module.js", "worker", "cors", "import {snapshot} from './dependency.js'; readPrivacy().then(privacy=>postMessage({ua:navigator.userAgent, dependency:snapshot, href:import.meta.url, privacy}));"),
+            ("shared.js", "sharedworker", "same-origin", "let count=0; onconnect=async e=>e.ports[0].postMessage({ua:navigator.userAgent,count:++count,href:location.href,privacy:await readPrivacy()});"),
+            ("service.js", "serviceworker", "same-origin", "const initial=navigator.userAgent; onmessage=async e=>e.ports[0].postMessage({ua:initial,href:location.href,privacy:await readPrivacy()});"),
+            ("service-module.js", "serviceworker", "cors", "import {snapshot} from './dependency.js'; onmessage=async e=>e.ports[0].postMessage({ua:navigator.userAgent,dependency:snapshot,href:import.meta.url,privacy:await readPrivacy()});"),
         ];
         for (name, destination, mode, source) in fixtures {
-            let mut flow = worker_flow(destination, mode, source);
+            let privacy_probe = r#"
+              async function readPrivacy() {
+                const result = {};
+                if(navigator.storage) result.storage = await navigator.storage.estimate();
+                if(typeof Notification === 'function') result.notification = Notification.permission;
+                if(navigator.permissions) {
+                  try {result.permission = (await navigator.permissions.query({name:'notifications'})).state}
+                  catch(e) {result.permissionUnavailable = e.name}
+                }
+                if(navigator.mediaCapabilities) result.media = await navigator.mediaCapabilities.decodingInfo({
+                  type:'file',audio:{contentType:'audio/webm; codecs="opus"',channels:'2',bitrate:128000,samplerate:48000}});
+                return result;
+              }
+            "#;
+            let source = format!("{source}\n{privacy_probe}");
+            let mut flow = worker_flow(destination, mode, &source);
             JsInjectionStage::new(false, 16 * 1024 * 1024).on_response_body(&mut flow).await.unwrap();
             assert!(flow.metadata.worker_injected);
             std::fs::write(directory.join(name), flow.response.as_ref().unwrap().body.as_bytes()).unwrap();
         }
         std::fs::write(directory.join("worker-module.bundle.js"), crate::assets::ScriptBundle::load().worker_module.as_bytes()).unwrap();
+        std::fs::write(directory.join("runtime.bundle.js"), crate::assets::ScriptBundle::load().runtime.as_bytes()).unwrap();
+    }
+
+    #[test]
+    fn worker_profile_carries_privacy_observations_without_private_material() {
+        let fingerprint = json!({"storage_quota": 107374182400u64,
+            "storage_usage_quantum": 1048576, "enable_storage_spoof": false,
+            "permission_states": {"camera":"denied"}, "media_capabilities":{"smooth":true},
+            "canvas_hash":"private-seed", "startup_salt":"private-salt", "nonce":"private-nonce"});
+        let profile = worker_profile(&fingerprint);
+        for key in ["storage_quota", "storage_usage_quantum", "enable_storage_spoof", "permission_states", "media_capabilities"] {
+            assert_eq!(profile[key], fingerprint[key]);
+        }
+        for key in ["canvas_hash", "startup_salt", "nonce"] { assert!(profile.get(key).is_none()); }
     }
 
     fn gzip_encode(data: &[u8]) -> Vec<u8> {

@@ -11,6 +11,7 @@ const watch = process.argv.includes('--watch')
 fs.mkdirSync(outdir, { recursive: true })
 
 const config = {
+  absWorkingDir: path.resolve(root, '..'),
   entryPoints: [entryPoint],
   bundle: true,
   format: 'iife',

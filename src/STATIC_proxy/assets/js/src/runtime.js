@@ -59,7 +59,7 @@ export function startRuntime(rawConfig, initializeChild) {
     getRuntime().coverage = Object.freeze({
       window: 'partial', sameOriginFrames: 'partial', srcdoc: 'partial',
       crossOriginFrames: 'unverified: own proxy response required',
-      networkWorkers: 'unverified: own proxy response required; selected identity/clock/metadata surfaces',
+      networkWorkers: 'unverified: own proxy response required; selected identity/capability/clock/metadata surfaces',
       blobDataWorkers: 'unsupported', preexistingWorkers: 'unsupported', audioWorklet: 'unsupported',
     })
 

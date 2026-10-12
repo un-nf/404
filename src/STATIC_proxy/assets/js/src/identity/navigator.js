@@ -14,6 +14,7 @@ export function installNavigator() {
     appVersion: fp.user_agent.replace(/^Mozilla\//, ''),
     hardwareConcurrency: fp.hardware_concurrency, maxTouchPoints: fp.max_touch_points,
     language: languages[0], languages, doNotTrack: fp.do_not_track,
+    cookieEnabled: fp.cookie_enabled,
     oscpu: fp.oscpu, buildID: fp.buildID,
   }
   if (fp.device_memory !== undefined) {

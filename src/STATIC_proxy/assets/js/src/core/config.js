@@ -115,6 +115,42 @@ export function loadConfig(input) {
     if (typeof fingerprint.timezone !== 'string') throw new TypeError('STATIC timezone must be a string')
     new Intl.DateTimeFormat('en-US', { timeZone: fingerprint.timezone })
   }
+  for (const key of ['storage_quota', 'storage_usage', 'storage_usage_quantum', 'speech_voice_limit', 'media_devices_per_kind', 'media_device_count']) {
+    const value = fingerprint[key]
+    if (value !== undefined && (!Number.isSafeInteger(value) || value < (key === 'storage_usage' ? 0 : 1))) {
+      throw new TypeError(`STATIC ${key} must be a safe integer in range`)
+    }
+  }
+  for (const key of ['cookie_enabled', 'save_data']) {
+    if (fingerprint[key] !== undefined && typeof fingerprint[key] !== 'boolean') {
+      throw new TypeError(`STATIC ${key} must be boolean`)
+    }
+  }
+  if (fingerprint.storage_usage !== undefined && fingerprint.storage_usage > (fingerprint.storage_quota ?? 107374182400)) {
+    throw new TypeError('STATIC storage_usage exceeds persona quota')
+  }
+  if (fingerprint.speech_languages !== undefined && !(Array.isArray(fingerprint.speech_languages) &&
+      fingerprint.speech_languages.length && fingerprint.speech_languages.every((value) => typeof value === 'string' && value))) {
+    throw new TypeError('STATIC speech_languages must contain language strings')
+  }
+  if (fingerprint.speech_voices !== undefined && !(Array.isArray(fingerprint.speech_voices) &&
+      fingerprint.speech_voices.every((voice) => voice && typeof voice.lang === 'string' && voice.lang &&
+        ['name', 'voiceURI'].every((key) => voice[key] === undefined || typeof voice[key] === 'string')))) {
+    throw new TypeError('STATIC speech_voices must contain language and optional metadata strings')
+  }
+  if (fingerprint.permission_states !== undefined && (!fingerprint.permission_states ||
+      typeof fingerprint.permission_states !== 'object' || Array.isArray(fingerprint.permission_states) ||
+      Object.values(fingerprint.permission_states).some((value) => !['denied', 'prompt', 'native'].includes(value)) ||
+      fingerprint.permission_states.notifications !== undefined &&
+        !['denied', 'native'].includes(fingerprint.permission_states.notifications))) {
+    throw new TypeError('STATIC permission_states must specify denied, prompt or native; notifications denied or native')
+  }
+  if (fingerprint.media_capabilities !== undefined && (!fingerprint.media_capabilities ||
+      typeof fingerprint.media_capabilities !== 'object' || Array.isArray(fingerprint.media_capabilities) ||
+      Object.entries(fingerprint.media_capabilities).some(([key, value]) =>
+        !['smooth', 'power_efficient'].includes(key) || typeof value !== 'boolean'))) {
+    throw new TypeError('STATIC media_capabilities must specify boolean smooth/power_efficient')
+  }
   validateCoherence(fingerprint || {})
 
   runtime.config = deepFreeze({
