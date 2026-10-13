@@ -1,5 +1,5 @@
 import { getRuntime } from './guard.js'
-import { normalizeFingerprint } from './schema.js'
+import { normalizeFingerprint, variantFamilies } from './schema.js'
 import { isChromiumLike, isFirefoxLike, resolveBrowserFamily, resolveBrowserVariant } from './browser.js'
 
 const REQUIRED_FIELDS = [
@@ -40,8 +40,8 @@ export function loadConfig(input) {
   }
   const variantValues = BROWSER_VARIANT_FIELDS.filter((key) => fingerprint[key] !== undefined)
     .map((key) => String(fingerprint[key]).trim().toLowerCase())
-  const firefoxVariants = ['firefox', 'gecko', 'tor', 'mullvad']
-  const chromiumVariants = ['chrome', 'chromium', 'edge', 'brave', 'vivaldi', 'opera']
+  const firefoxVariants = Object.keys(variantFamilies).filter((key) => variantFamilies[key] === 'firefox-like')
+  const chromiumVariants = Object.keys(variantFamilies).filter((key) => variantFamilies[key] === 'chromium-like')
   if (variantValues.some((value) => ![...firefoxVariants, ...chromiumVariants].includes(value)) ||
       new Set(variantValues).size !== 1) {
     throw new TypeError('STATIC browser variant is unsupported or conflicting')
@@ -154,6 +154,19 @@ export function loadConfig(input) {
   }
   validateCoherence(fingerprint || {})
   const contract = normalizeFingerprint(fingerprint)
+  if (raw.privacy_rules !== undefined) {
+    if (!Array.isArray(raw.privacy_rules) || raw.privacy_rules.length > 1024) throw new TypeError('STATIC privacy_rules must be a bounded array')
+    for (const rule of raw.privacy_rules) {
+      if (!rule || Array.isArray(rule) || typeof rule !== 'object' ||
+          Object.keys(rule).some(key => !['hostSuffix','pathPrefix'].includes(key)) ||
+          typeof rule.hostSuffix !== 'string' ||
+          !/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(rule.hostSuffix) ||
+          (rule.pathPrefix !== undefined && (typeof rule.pathPrefix !== 'string' || !rule.pathPrefix.startsWith('/')))) {
+        throw new TypeError('STATIC privacy_rules contains an invalid rule')
+      }
+      rule.hostSuffix = rule.hostSuffix.toLowerCase()
+    }
+  }
 
   runtime.config = deepFreeze({
     raw,

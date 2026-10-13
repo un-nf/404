@@ -597,7 +597,7 @@ fn worker_profile(fingerprint: &serde_json::Value) -> serde_json::Value {
         "storage_quota", "storage_usage", "storage_usage_quantum", "enable_storage_spoof",
         "permission_states", "enable_geolocation_spoof", "media_capabilities", "cookie_enabled", "save_data",
         "enable_permissions_spoof", "enable_notifications_spoof", "enable_battery_spoof",
-        "enable_media_capabilities_spoof", "compatibility_mode"] {
+        "enable_media_capabilities_spoof", "compatibility_mode", "enable_canvas_spoof", "canvas_noise"] {
         if let Some(value) = fingerprint.get(key) { profile.insert(key.into(), value.clone()); }
     }
     serde_json::Value::Object(profile)
@@ -733,6 +733,13 @@ mod tests {
                 }
                 if(navigator.mediaCapabilities) result.media = await navigator.mediaCapabilities.decodingInfo({
                   type:'file',audio:{contentType:'audio/webm; codecs="opus"',channels:'2',bitrate:128000,samplerate:48000}});
+                if(typeof OffscreenCanvas === 'function') {
+                  const canvas=new OffscreenCanvas(32,32),context=canvas.getContext('2d');
+                  context.fillStyle='#4080c0';context.fillRect(0,0,32,32);
+                  const first=context.getImageData(0,0,32,32),second=context.getImageData(0,0,32,32);
+                  result.canvas={changed:Array.from(first.data).some((value,index)=>value!==[64,128,192,255][index%4]),
+                    repeated:Array.from(first.data).every((value,index)=>value===second.data[index]),blob:(await canvas.convertToBlob()).size};
+                }
                 return result;
               }
             "#;
@@ -855,6 +862,26 @@ mod tests {
         assert!(flow.metadata.script_injected);
         let response = flow.response.as_ref().unwrap();
         assert_eq!(response.headers.get(HeaderName::from_static(INJECTION_MARKER_HEADER)).and_then(|value| value.to_str().ok()), Some("1"));
+    }
+
+    #[tokio::test]
+    async fn geolocation_policy_honors_flag_and_preserves_other_directives() {
+        let stage = JsInjectionStage::new(false, 16 * 1024 * 1024);
+        for enabled in [false, true] {
+            let mut flow = Flow::new(RequestParts::default());
+            flow.metadata.js_runtime_config = json!({"fingerprint":{"enable_geolocation_spoof":enabled}});
+            let mut response = ResponseParts::default();
+            response.headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/html"));
+            response.headers.insert("permissions-policy", HeaderValue::from_static("camera=(self), geolocation=(self)"));
+            response.headers.insert("feature-policy", HeaderValue::from_static("camera 'self'; geolocation 'self'"));
+            response.body.replace(b"<html><head></head><body>fixture</body></html>");
+            flow.response = Some(response);
+            stage.on_response_body(&mut flow).await.unwrap();
+            let headers = &flow.response.as_ref().unwrap().headers;
+            assert_eq!(headers["permissions-policy"], if enabled {"camera=(self), geolocation=()"} else {"camera=(self), geolocation=(self)"});
+            assert_eq!(headers["feature-policy"], if enabled {"camera 'self'; geolocation 'none'"} else {"camera 'self'; geolocation 'self'"});
+            assert!(flow.metadata.js_runtime_config.get("geolocation_enforced").is_none());
+        }
     }
 
     #[tokio::test]
@@ -1047,6 +1074,22 @@ impl FlowStage for JsInjectionStage {
         };
 
         Self::prepare_meta_csp_nonce(flow, &body_owned);
+        // Request browser-enforced denial where the host supports this policy.
+        // JS checks actual policy support and retains denial fallback otherwise.
+        let fingerprint = flow.metadata.js_runtime_config.get("fingerprint").unwrap_or(&flow.metadata.js_runtime_config);
+        if fingerprint.get("enable_geolocation_spoof").and_then(serde_json::Value::as_bool).unwrap_or(true) {
+            let response = flow.response.as_mut().expect("response checked");
+            let existing = response.headers.get_all("permissions-policy").iter().filter_map(|v| v.to_str().ok())
+                .flat_map(|value| value.split(',')).filter(|directive| directive.split('=').next().unwrap_or("").trim() != "geolocation")
+                .map(str::trim).filter(|directive| !directive.is_empty()).collect::<Vec<_>>().join(", ");
+            let policy = if existing.is_empty() { "geolocation=()".to_string() } else { format!("{existing}, geolocation=()") };
+            response.headers.insert("permissions-policy", HeaderValue::from_str(&policy)?);
+            let legacy = response.headers.get_all("feature-policy").iter().filter_map(|v| v.to_str().ok())
+                .flat_map(|value| value.split(';')).filter(|directive| directive.split_whitespace().next() != Some("geolocation"))
+                .map(str::trim).filter(|directive| !directive.is_empty()).collect::<Vec<_>>().join("; ");
+            let legacy = if legacy.is_empty() { "geolocation 'none'".to_string() } else { format!("{legacy}; geolocation 'none'") };
+            response.headers.insert("feature-policy", HeaderValue::from_str(&legacy)?);
+        }
 
         let injection_block = self.build_injection_block(flow);
 

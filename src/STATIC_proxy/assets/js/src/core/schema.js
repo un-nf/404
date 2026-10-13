@@ -1,6 +1,10 @@
 import schema from '../../../../schema/runtime-profile.schema.json'
+export const variantFamilies = Object.freeze(schema['x-variant-families'])
 
 export function validateValue(value, rule, path = 'fingerprint') {
+  if (rule.anyOf && !rule.anyOf.some((branch) => { try { validateValue(value, branch, path); return true } catch { return false } })) {
+    throw new TypeError(`STATIC ${path}: no supported variant`)
+  }
   const type = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value
   const expected = Array.isArray(rule.type) ? rule.type : [rule.type]
   if (rule.type && !expected.some((kind) => kind === type || kind === 'integer' && Number.isSafeInteger(value))) {
@@ -10,7 +14,8 @@ export function validateValue(value, rule, path = 'fingerprint') {
     throw new TypeError(`STATIC ${path}: invalid range`)
   }
   if (typeof value === 'string' && value.length < (rule.minLength ?? 0)) throw new TypeError(`STATIC ${path}: empty string`)
-  if (rule.enum && !rule.enum.includes(value)) throw new TypeError(`STATIC ${path}: invalid enum`)
+  if (typeof value === 'string' && rule['x-nonempty'] && !value.trim()) throw new TypeError(`STATIC ${path}: empty string`)
+  if (rule.enum && !rule.enum.includes(rule['x-casefold'] && typeof value === 'string' ? value.trim().toLowerCase() : value)) throw new TypeError(`STATIC ${path}: invalid enum`)
   if (Array.isArray(value) && rule.items) value.forEach((item, index) => validateValue(item, rule.items, `${path}[${index}]`))
   else if (value && typeof value === 'object' && !Array.isArray(value)) {
     for (const key of rule.required || []) if (!(key in value)) throw new TypeError(`STATIC ${path}.${key}: required`)

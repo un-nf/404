@@ -13,19 +13,46 @@
   "properties": {
     "name": {
       "type": "string",
-      "x-runtime": "observation"
+      "x-runtime": "metadata"
     },
     "browser_family": {
       "type": "string",
-      "x-runtime": "observation"
+      "enum": [
+        "chromium-like",
+        "firefox-like"
+      ]
     },
     "browser_variant": {
       "type": "string",
-      "x-runtime": "observation"
+      "enum": [
+        "chrome",
+        "chromium",
+        "edge",
+        "brave",
+        "vivaldi",
+        "opera",
+        "firefox",
+        "gecko",
+        "tor",
+        "mullvad"
+      ],
+      "x-casefold": true
     },
     "browser_type": {
       "type": "string",
-      "x-runtime": "observation"
+      "enum": [
+        "chrome",
+        "chromium",
+        "edge",
+        "brave",
+        "vivaldi",
+        "opera",
+        "firefox",
+        "gecko",
+        "tor",
+        "mullvad"
+      ],
+      "x-casefold": true
     },
     "browser_version": {
       "type": "string",
@@ -33,19 +60,21 @@
     },
     "os": {
       "type": "string",
-      "x-runtime": "observation"
+      "x-runtime": "metadata"
     },
     "os_version": {
       "type": "string",
-      "x-runtime": "observation"
+      "x-runtime": "metadata"
     },
     "user_agent": {
       "type": "string",
-      "x-runtime": "observation"
+      "x-runtime": "observation",
+      "x-nonempty": true
     },
     "platform": {
       "type": "string",
-      "x-runtime": "observation"
+      "x-runtime": "observation",
+      "x-nonempty": true
     },
     "vendor": {
       "type": "string",
@@ -134,7 +163,7 @@
     "hardware_concurrency": {
       "type": "integer",
       "minimum": 1,
-      "maximum": 9007199254740991,
+      "maximum": 4294967295,
       "x-runtime": "observation"
     },
     "device_memory": {
@@ -145,7 +174,7 @@
     "max_touch_points": {
       "type": "integer",
       "minimum": 0,
-      "maximum": 9007199254740991,
+      "maximum": 4294967295,
       "x-runtime": "observation"
     },
     "screen_resolution": {
@@ -221,7 +250,8 @@
     },
     "canvas_hash": {
       "type": "string",
-      "x-runtime": "observation"
+      "x-runtime": "observation",
+      "x-nonempty": true
     },
     "canvas_noise": {
       "type": "object",
@@ -267,11 +297,13 @@
     },
     "webgl_vendor": {
       "type": "string",
-      "x-runtime": "observation"
+      "x-runtime": "observation",
+      "x-nonempty": true
     },
     "webgl_renderer": {
       "type": "string",
-      "x-runtime": "observation"
+      "x-runtime": "observation",
+      "x-nonempty": true
     },
     "webgl_hash": {
       "type": "string",
@@ -295,7 +327,206 @@
     },
     "audio_context": {
       "type": "object",
-      "additionalProperties": true
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "device_label": {
+          "type": "string"
+        },
+        "hardware_class": {
+          "type": "string"
+        },
+        "sample_rate": {
+          "type": "number",
+          "minimum": 3000,
+          "maximum": 384000
+        },
+        "base_frames": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65536
+        },
+        "base_latency": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 384000
+        },
+        "output_latency": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 384000
+        },
+        "channel_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536
+        },
+        "max_channel_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536
+        },
+        "number_of_inputs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536
+        },
+        "number_of_outputs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536
+        },
+        "render": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "gain": {
+              "type": "number",
+              "minimum": -2,
+              "maximum": 2
+            },
+            "bias": {
+              "type": "number",
+              "minimum": -2,
+              "maximum": 2
+            },
+            "feedback": {
+              "type": "number",
+              "minimum": -2,
+              "maximum": 2
+            },
+            "modulation": {
+              "type": "number",
+              "minimum": -2,
+              "maximum": 2
+            },
+            "step_offset": {
+              "type": "number",
+              "minimum": -2,
+              "maximum": 2
+            },
+            "modulation_period": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000000
+            },
+            "step_stride": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000000
+            }
+          }
+        },
+        "hardware_profiles": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "device_label": {
+                "type": "string"
+              },
+              "hardware_class": {
+                "type": "string"
+              },
+              "sample_rate": {
+                "type": "number",
+                "minimum": 3000,
+                "maximum": 384000
+              },
+              "base_frames": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 65536
+              },
+              "base_latency": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 384000
+              },
+              "output_latency": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 384000
+              },
+              "channel_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 65536
+              },
+              "max_channel_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 65536
+              },
+              "number_of_inputs": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 65536
+              },
+              "number_of_outputs": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 65536
+              },
+              "render": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "gain": {
+                    "type": "number",
+                    "minimum": -2,
+                    "maximum": 2
+                  },
+                  "bias": {
+                    "type": "number",
+                    "minimum": -2,
+                    "maximum": 2
+                  },
+                  "feedback": {
+                    "type": "number",
+                    "minimum": -2,
+                    "maximum": 2
+                  },
+                  "modulation": {
+                    "type": "number",
+                    "minimum": -2,
+                    "maximum": 2
+                  },
+                  "step_offset": {
+                    "type": "number",
+                    "minimum": -2,
+                    "maximum": 2
+                  },
+                  "modulation_period": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1000000
+                  },
+                  "step_stride": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1000000
+                  }
+                }
+              },
+              "weight": {
+                "type": "number",
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "weight": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
     },
     "do_not_track": {
       "type": [
@@ -339,19 +570,22 @@
       "type": "integer",
       "minimum": 1,
       "maximum": 9007199254740991,
-      "x-runtime": "observation"
+      "x-runtime": "observation",
+      "default": 107374182400
     },
     "storage_usage": {
       "type": "integer",
       "minimum": 0,
       "maximum": 9007199254740991,
-      "x-runtime": "observation"
+      "x-runtime": "observation",
+      "default": 1048576
     },
     "storage_usage_quantum": {
       "type": "integer",
       "minimum": 1,
       "maximum": 9007199254740991,
-      "x-runtime": "observation"
+      "x-runtime": "observation",
+      "default": 1048576
     },
     "media_capabilities": {
       "type": "object",
@@ -642,11 +876,26 @@
     },
     "profile_variant": {
       "type": "string",
-      "x-runtime": "observation"
+      "enum": [
+        "chrome",
+        "chromium",
+        "edge",
+        "brave",
+        "vivaldi",
+        "opera",
+        "firefox",
+        "gecko",
+        "tor",
+        "mullvad"
+      ],
+      "x-casefold": true
     },
     "profile_family": {
       "type": "string",
-      "x-runtime": "observation"
+      "enum": [
+        "chromium-like",
+        "firefox-like"
+      ]
     },
     "speech_voices": {
       "type": "array",
@@ -746,13 +995,14 @@
     },
     "profile_platform": {
       "type": "string",
-      "x-runtime": "observation"
+      "x-runtime": "metadata"
     },
     "audio_personas": {
       "type": "array",
       "items": {
         "type": "object"
-      }
+      },
+      "x-runtime": "metadata"
     },
     "compatibility_mode": {
       "type": "string",
@@ -762,5 +1012,34 @@
       ],
       "default": "normalization"
     }
+  },
+  "anyOf": [
+    {
+      "required": [
+        "browser_variant"
+      ]
+    },
+    {
+      "required": [
+        "profile_variant"
+      ]
+    },
+    {
+      "required": [
+        "browser_type"
+      ]
+    }
+  ],
+  "x-variant-families": {
+    "chrome": "chromium-like",
+    "chromium": "chromium-like",
+    "edge": "chromium-like",
+    "brave": "chromium-like",
+    "vivaldi": "chromium-like",
+    "opera": "chromium-like",
+    "firefox": "firefox-like",
+    "gecko": "firefox-like",
+    "tor": "firefox-like",
+    "mullvad": "firefox-like"
   }
 }

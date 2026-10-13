@@ -1818,8 +1818,18 @@ impl FlowStage for HeaderProfileStage {
             flow.metadata.browser_profile = Some(key);
             flow.metadata.fingerprint_config = profile.config.clone();
             flow.metadata.js_runtime_config = build_js_runtime_config(&profile.config, self.store.startup_seed());
+            if let Some(fingerprint) = flow.metadata.js_runtime_config.get("fingerprint") {
+                // Profiles containing canvas_hash opt into the full JS contract;
+                // header-only library/test profiles remain transport-only.
+                if fingerprint.get("canvas_hash").is_some() {
+                    let normalized = crate::runtime_schema::apply_defaults(fingerprint)?;
+                    flow.metadata.js_runtime_config["fingerprint"] = normalized;
+                }
+            }
 
-            apply_profile_rules(flow, &profile.rules)?;
+            if profile.config.get("fingerprint").and_then(|fp| fp.get("enable_headers_spoof")).and_then(Value::as_bool).unwrap_or(true) {
+                apply_profile_rules(flow, &profile.rules)?;
+            }
             flow.metadata.user_agent = flow
                 .request
                 .headers
@@ -1841,7 +1851,7 @@ fn profile_display_name(value: &serde_json::Value, fallback: &str) -> String {
         .unwrap_or_else(|| fallback.to_string())
 }
 
-fn build_js_runtime_config(config: &Value, startup_seed: u64) -> Value {
+fn build_js_runtime_config(config: &Value, _startup_seed: u64) -> Value {
     let Some(fingerprint) = config.get("fingerprint") else {
         return config.clone();
     };
@@ -1869,10 +1879,6 @@ fn build_js_runtime_config(config: &Value, startup_seed: u64) -> Value {
         }
     }
     runtime.insert("fingerprint".to_string(), runtime_fingerprint);
-    runtime.insert(
-        "startup_salt".to_string(),
-        Value::String(format!("{startup_seed:016x}")),
-    );
 
     if let Some(profile_identity) = config.get("profile_identity") {
         runtime.insert("profile_identity".to_string(), profile_identity.clone());

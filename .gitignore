@@ -235,4 +235,3 @@ scripts/build-local-distro.sh
 scripts/tcpdump-syn-fingerprint.sh
 
 docs/javascript-overhaul/
-src/STATIC_proxy/tests

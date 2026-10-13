@@ -25,19 +25,21 @@ const factorySource = nativeToString.call(createStaticRealmRuntime)
 const documents = new WeakMap()
 const realms = new WeakMap()
 function initializeChild(child, doc, rawConfig) {
-  if (documents.has(doc)) return documents.get(doc)
+  if (documents.has(doc) && documents.get(doc) !== 'failed') return documents.get(doc)
   documents.set(doc, 'initializing')
   try {
     const realmKey = child.Object
     if (typeof realmKey !== 'function') return 'unsupported'
     if (realms.has(realmKey)) {
-      const outcome = realms.get(realmKey)
+      const instance = realms.get(realmKey)
+      const outcome = instance.outcome === 'failed' ? instance.start(rawConfig, initializeChild) : instance.outcome
+      instance.outcome = outcome
       documents.set(doc, outcome)
       return outcome
     }
     const start = child.Function('return (' + factorySource + ')()')()
     const outcome = start(rawConfig, initializeChild)
-    realms.set(realmKey, outcome)
+    realms.set(realmKey, {start, outcome})
     documents.set(doc, outcome)
     return outcome
   } catch {
@@ -46,9 +48,10 @@ function initializeChild(child, doc, rawConfig) {
   }
 }
 documents.set(document, 'initializing')
-const rootOutcome = createStaticRealmRuntime()(undefined, initializeChild)
+const rootStart = createStaticRealmRuntime()
+const rootOutcome = rootStart(undefined, initializeChild)
 documents.set(document, rootOutcome)
-realms.set(Object, rootOutcome)
+realms.set(Object, {start:rootStart, outcome:rootOutcome})
 })()
 ` },
   outfile,

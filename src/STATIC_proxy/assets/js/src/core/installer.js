@@ -12,8 +12,8 @@ export function installModule(name, enabled, installer) {
   try {
     const result = transaction(installer)
     const reported = runtime.outcomes[name]?.status === 'failed' ? null : runtime.outcomes[name]
-    const status = reported?.status === 'installed' && !result.changed ? 'native' :
-      reported?.status === 'installed' && result.skipped.length ? 'partial' :
+    const status = reported?.status === 'installed' && result.skipped.length ? 'partial' :
+      reported?.status === 'installed' && !result.changed ? 'native' :
       reported?.status || (result.changed ? 'installed' : 'unavailable')
     runtime.modules[name] = true
     runtime.outcomes[name] = Object.freeze({...reported, status, ...result})

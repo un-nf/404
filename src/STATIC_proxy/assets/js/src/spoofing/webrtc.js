@@ -1,3 +1,4 @@
+import { replaceGetter, replaceMethod, mapMethod } from '../core/descriptors.js'
 import { definePatch } from '../core/patches.js'
 import { getFingerprint } from '../core/config.js'
 import { getRuntime, markModule } from '../core/guard.js'
@@ -123,111 +124,48 @@ function sanitizeIceCandidate(runtime, candidate, fingerprint) {
     }
   }
 
-  return { ...candidate, candidate: sanitizedLine }
+  return candidate
 }
 
 export function installWebRTCSpoof() {
-  const runtime = getRuntime()
-  const fingerprint = getFingerprint()
-  const peerPrototype = runtime.nativeRefs.peerPrototype
-  if (!peerPrototype || runtime.modules.webrtc) {
-    return
+  const runtime=getRuntime(),fingerprint=getFingerprint(),proto=runtime.nativeRefs.peerPrototype
+  if(!proto){markModule('webrtc',{status:'unavailable'});return}
+  const descriptions=new Map(),candidates=new Map(),candidateObjects=new WeakMap(),descriptionObjects=new WeakMap()
+  function maskDescription(value){
+    if(!value||typeof value.sdp!=='string')return value
+    const masked=sanitizeSessionDescription(runtime,value,fingerprint).sdp
+    descriptions.set(masked,value.sdp)
+    return {...value,type:value.type,sdp:masked}
   }
-
-  const listenerMap = new WeakMap()
-
-  function processIceCandidate(peer, event) {
-    if (!event?.candidate) {
-      return true
+  replaceGetter(globalThis.RTCPeerConnectionIceEvent?.prototype,'candidate',candidate=>{
+    if(!candidate)return candidate
+    if(!candidateObjects.has(candidate)){
+      const masked=sanitizeIceCandidate(runtime,candidate,fingerprint)
+      if(masked.candidate!==candidate.candidate)candidates.set(masked.candidate,candidate.candidate)
+      candidateObjects.set(candidate,masked)
     }
-    const sanitized = sanitizeIceCandidate(runtime, event.candidate, fingerprint)
-    if (sanitized !== event.candidate) {
-      try {
-        event.candidate = sanitized
-      } catch {
-        try {
-          definePatch(event, 'candidate', {
-            value: sanitized,
-            configurable: true,
-          })
-        } catch {
-          // ignore
-        }
+    return candidateObjects.get(candidate)
+  })
+  for(const name of ['createOffer','createAnswer'])mapMethod(proto,name,promise=>promise.then(maskDescription))
+  for(const name of ['localDescription','remoteDescription','currentLocalDescription','pendingLocalDescription','currentRemoteDescription','pendingRemoteDescription']) {
+    replaceGetter(proto,name,value=>{
+      if(!value)return value
+      if(!descriptionObjects.has(value)){
+        const masked=maskDescription(value)
+        descriptionObjects.set(value,typeof runtime.nativeRefs.RTCSessionDescription==='function'?new runtime.nativeRefs.RTCSessionDescription(masked):value)
       }
-    }
-    return true
-  }
-
-  if (runtime.nativeRefs.peerAddEventListener) {
-    defineMethod(peerPrototype, 'addEventListener', markNativeCode(function addEventListener(type, listener, options) {
-      if (type === 'icecandidate' && typeof listener === 'function') {
-        let wrapped = listenerMap.get(listener)
-        if (!wrapped) {
-          wrapped = function icecandidate(event) {
-            processIceCandidate(this, event)
-            return listener.call(this, event)
-          }
-          listenerMap.set(listener, wrapped)
-        }
-        return runtime.nativeRefs.peerAddEventListener.call(this, type, wrapped, options)
-      }
-      return runtime.nativeRefs.peerAddEventListener.apply(this, arguments)
-    }, 'addEventListener'))
-  }
-
-  if (runtime.nativeRefs.peerRemoveEventListener) {
-    defineMethod(peerPrototype, 'removeEventListener', markNativeCode(function removeEventListener(type, listener, options) {
-      if (type === 'icecandidate' && typeof listener === 'function') {
-        return runtime.nativeRefs.peerRemoveEventListener.call(this, type, listenerMap.get(listener) || listener, options)
-      }
-      return runtime.nativeRefs.peerRemoveEventListener.apply(this, arguments)
-    }, 'removeEventListener'))
-  }
-
-  const onIceDescriptor = Object.getOwnPropertyDescriptor(peerPrototype, 'onicecandidate')
-  if (onIceDescriptor?.set) {
-    definePatch(peerPrototype, 'onicecandidate', {
-      configurable: true,
-      enumerable: onIceDescriptor.enumerable,
-      get: markNativeCode(function onicecandidate() {
-        return originalOnIceCandidateHandlers.get(this) || null
-      }, 'onicecandidate'),
-      set: markNativeCode(function onicecandidate(handler) {
-        originalOnIceCandidateHandlers.set(this, handler)
-        if (typeof handler !== 'function') {
-          wrappedOnIceCandidateHandlers.delete(this)
-          return onIceDescriptor.set.call(this, handler)
-        }
-        const wrapped = (event) => {
-          processIceCandidate(this, event)
-          return handler.call(this, event)
-        }
-        wrappedOnIceCandidateHandlers.set(this, wrapped)
-        return onIceDescriptor.set.call(this, wrapped)
-      }, 'onicecandidate'),
+      return descriptionObjects.get(value)
     })
   }
-
-  if (runtime.nativeRefs.peerSetLocalDescription) {
-    defineMethod(peerPrototype, 'setLocalDescription', markNativeCode(function setLocalDescription(description) {
-      const sanitized = sanitizeSessionDescription(runtime, description || this.localDescription, fingerprint)
-      return runtime.nativeRefs.peerSetLocalDescription.call(this, sanitized)
-    }, 'setLocalDescription'))
+  for(const [name,key,mapping]of [['setLocalDescription','sdp',descriptions],['setRemoteDescription','sdp',descriptions],['addIceCandidate','candidate',candidates]]) {
+    replaceMethod(proto,name,(native,receiver,args)=>{
+      const input=args[0]
+      const translated=input&&typeof input==='object'?new Proxy({}, {get(_target,property){
+        const value=Reflect.get(input,property,input)
+        return property===key&&typeof value==='string'?mapping.get(value)??value:value
+      }}):input
+      return Reflect.apply(native,receiver,args.length?[translated,...args.slice(1)]:args)
+    })
   }
-
-  if (runtime.nativeRefs.peerCreateOffer) {
-    defineMethod(peerPrototype, 'createOffer', markNativeCode(function createOffer(options) {
-      return runtime.nativeRefs.peerCreateOffer.call(this, options)
-        .then((description) => sanitizeSessionDescription(runtime, description, fingerprint))
-    }, 'createOffer'))
-  }
-
-  if (runtime.nativeRefs.peerCreateAnswer) {
-    defineMethod(peerPrototype, 'createAnswer', markNativeCode(function createAnswer(options) {
-      return runtime.nativeRefs.peerCreateAnswer.call(this, options)
-        .then((description) => sanitizeSessionDescription(runtime, description, fingerprint))
-    }, 'createAnswer'))
-  }
-
-  markModule('webrtc')
+  markModule('webrtc',{status:'partial',detail:'native event/handler contracts, all candidate listeners, bidirectional same-realm SDP/candidate mappings; remote wire endpoints/getStats and relay policy remain architectural work'})
 }

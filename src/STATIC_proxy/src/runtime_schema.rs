@@ -8,9 +8,48 @@ fn schema() -> &'static Value {
     SCHEMA.get_or_init(|| serde_json::from_str(include_str!("../schema/runtime-profile.schema.json")).expect("runtime schema"))
 }
 
-pub fn validate_fingerprint(value: &Value) -> Result<()> { validate(value, schema(), "fingerprint") }
+pub fn validate_fingerprint(value: &Value) -> Result<()> {
+    validate(value, schema(), "fingerprint")?;
+    let variants = ["browser_variant", "profile_variant", "browser_type"].iter()
+        .filter_map(|key| value.get(key).and_then(Value::as_str)).map(|text| text.trim().to_ascii_lowercase()).collect::<Vec<_>>();
+    if variants.iter().any(|variant| variant != &variants[0]) { bail!("STATIC conflicting browser variants"); }
+    if let Some(variant) = variants.first() {
+        let family = schema()["x-variant-families"][variant].as_str();
+        for key in ["browser_family", "profile_family"] {
+            if value.get(key).and_then(Value::as_str).is_some_and(|value| Some(value) != family) { bail!("STATIC conflicting browser family"); }
+        }
+    }
+    for (key, rule) in schema()["properties"].as_object().expect("properties") {
+        if let Some(alias) = rule["x-alias"].as_str() {
+            if let (Some(left), Some(right)) = (value.get(key), value.get(alias)) {
+                if left != right { bail!("STATIC conflicting {key}/{alias}"); }
+            }
+        }
+    }
+    Ok(())
+}
+
+pub fn apply_defaults(value: &Value) -> Result<Value> {
+    validate_fingerprint(value)?;
+    let mut normalized = value.clone();
+    let object = normalized.as_object_mut().expect("validated object");
+    for (key, rule) in schema()["properties"].as_object().expect("properties") {
+        if let Some(alias) = rule["x-alias"].as_str() {
+            if let Some(value) = object.get(key).cloned() { object.insert(alias.to_string(), value); }
+        }
+    }
+    for (key, rule) in schema()["properties"].as_object().expect("properties") {
+        if !object.contains_key(key) {
+            if let Some(default) = rule.get("default") { object.insert(key.clone(), default.clone()); }
+        }
+    }
+    Ok(normalized)
+}
 
 fn validate(value: &Value, rule: &Value, path: &str) -> Result<()> {
+    if let Some(branches) = rule["anyOf"].as_array() {
+        if !branches.iter().any(|branch| validate(value, branch, path).is_ok()) { bail!("STATIC {path}: no supported variant"); }
+    }
     let expected: Vec<&str> = match rule.get("type") {
         Some(Value::String(kind)) => vec![kind.as_str()],
         Some(Value::Array(kinds)) => kinds.iter().filter_map(Value::as_str).collect(),
@@ -28,9 +67,16 @@ fn validate(value: &Value, rule: &Value, path: &str) -> Result<()> {
         }
     }
     if let Some(text) = value.as_str() {
+        if rule["x-nonempty"].as_bool().unwrap_or(false) && text.trim().is_empty() { bail!("STATIC {path}: empty string"); }
         if text.chars().count() < rule["minLength"].as_u64().unwrap_or(0) as usize { bail!("STATIC {path}: empty string"); }
     }
-    if let Some(choices) = rule["enum"].as_array() { if !choices.contains(value) { bail!("STATIC {path}: invalid enum"); } }
+    if let Some(choices) = rule["enum"].as_array() {
+        let folded;
+        let compared = if rule["x-casefold"].as_bool().unwrap_or(false) && value.is_string() {
+            folded = Value::String(value.as_str().unwrap().trim().to_ascii_lowercase()); &folded
+        } else { value };
+        if !choices.contains(compared) { bail!("STATIC {path}: invalid enum"); }
+    }
     if let Some(items) = value.as_array() {
         if let Some(item_rule) = rule.get("items") {
             for (index, item) in items.iter().enumerate() { validate(item, item_rule, &format!("{path}[{index}]"))?; }

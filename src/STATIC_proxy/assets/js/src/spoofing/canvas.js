@@ -83,11 +83,13 @@ function injectCanvasNoise(imageData, runtime, fingerprint, noiseConfig, seedLab
   }
 
   const rng = createNoiseRng(runtime, fingerprint, imageData, seedLabel)
-  const stride = imageData.width <= noiseConfig.small_canvas_threshold && imageData.height <= noiseConfig.small_canvas_threshold
+  const configuredStride = imageData.width <= noiseConfig.small_canvas_threshold && imageData.height <= noiseConfig.small_canvas_threshold
     ? noiseConfig.small_canvas_stride
     : noiseConfig.default_stride
+  const stride = Math.max(4, Math.ceil(configuredStride / 4) * 4)
 
   for (let index = 0; index < imageData.data.length; index += stride) {
+    if (!noiseConfig.touch_alpha && imageData.data[index + 3] === 0) continue
     if (rng() >= noiseConfig.noise_probability) {
       continue
     }
@@ -115,9 +117,16 @@ export function installCanvasSpoof() {
   const runtime=getRuntime(), fingerprint=getFingerprint(), noiseConfig=normalizeNoiseConfig(fingerprint)
   const HTML=globalThis.HTMLCanvasElement, Offscreen=globalThis.OffscreenCanvas
   const htmlProto=HTML?.prototype, offProto=Offscreen?.prototype
-  const Context=globalThis.CanvasRenderingContext2D, OffContext=globalThis.OffscreenCanvasRenderingContext2D
-  const nativeRead=Context?.prototype.getImageData, offRead=OffContext?.prototype.getImageData
-  const nativePut=Context?.prototype.putImageData, offPut=OffContext?.prototype.putImageData
+  const Context=globalThis.CanvasRenderingContext2D
+  let offContextProto=globalThis.OffscreenCanvasRenderingContext2D?.prototype
+  if(!offContextProto&&Offscreen) {
+    try {
+      const probe=new Offscreen(1,1).getContext('2d')
+      if(probe)offContextProto=Object.getPrototypeOf(probe)
+    } catch { /* Optional 2D support must not abort the other canvas surfaces. */ }
+  }
+  const nativeRead=Context?.prototype.getImageData, offRead=offContextProto?.getImageData
+  const nativePut=Context?.prototype.putImageData, offPut=offContextProto?.putImageData
   const create=globalThis.Document?.prototype.createElement
   const bitmap=globalThis.createImageBitmap
   const transfer=offProto?.transferToImageBitmap
@@ -144,13 +153,14 @@ export function installCanvasSpoof() {
       throw error
     }
   }
-  for(const prototype of [Context?.prototype,OffContext?.prototype]) {
+  for(const prototype of [Context?.prototype,offContextProto]) {
     mapMethod(prototype,'getImageData',image=>{injectCanvasNoise(image,runtime,fingerprint,noiseConfig,'pixels');return image})
   }
   for(const [prototype,name]of [[htmlProto,'toDataURL'],[htmlProto,'toBlob'],[offProto,'convertToBlob']]) {
+    if(prototype===offProto&&(!offRead||!offPut))continue
     replaceMethod(prototype,name,(native,receiver,args)=>Reflect.apply(native,noisyCopy(receiver,prototype),args))
   }
-  if(transfer)mapMethod(offProto,'transferToImageBitmap',original=>{
+  if(transfer&&offRead&&offPut)mapMethod(offProto,'transferToImageBitmap',original=>{
     // Transfer the original once so its clearing/ownership semantics survive.
     const copy=new Offscreen(original.width,original.height),context=copy.getContext('2d')
     context.drawImage(original,0,0)
@@ -159,7 +169,7 @@ export function installCanvasSpoof() {
     Reflect.apply(offPut,context,[image,0,0])
     const result=Reflect.apply(transfer,copy,[]);original.close();return result
   })
-  if(bitmap&&Offscreen&&offRead)mapMethod(globalThis,'createImageBitmap',promise=>promise.then(original=>{
+  if(bitmap&&Offscreen&&offRead&&offPut)mapMethod(globalThis,'createImageBitmap',promise=>promise.then(original=>{
     const copy=new Offscreen(original.width,original.height),context=copy.getContext('2d')
     context.drawImage(original,0,0)
     const image=Reflect.apply(offRead,context,[0,0,original.width,original.height])

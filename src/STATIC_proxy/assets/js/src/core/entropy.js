@@ -32,7 +32,9 @@ export function initEntropy() {
   const startupSalt = String(runtime.config?.raw?.startup_salt || '')
   const driftEnabled = fingerprint.enable_fingerprint_drift !== false
   const sessionId = driftEnabled
-    ? (startupSalt || (Date.now() ^ secureRandomUint32()).toString(36))
+    // Public bootstrap salts are correlation tokens, not private noise keys.
+    ? (globalThis.crypto?.getRandomValues ? Array.from(crypto.getRandomValues(new Uint32Array(4)), (value) => value.toString(16).padStart(8, '0')).join('') :
+      `${Date.now().toString(36)}:${secureRandomUint32().toString(36)}`)
     : 'static'
   const origin = (() => {
     try {

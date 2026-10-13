@@ -5,7 +5,9 @@ let active = null
 
 export function definePatch(target, key, value) {
   const before = descriptor(target, key)
-  if (active && value.configurable === false && (!before || before.configurable)) {
+  if (active && ((!before && value.configurable !== true) ||
+      (before?.configurable && value.configurable === false) ||
+      (before && !before.configurable && before.writable && value.writable === false))) {
     const error = new TypeError(`Non-reversible installation: ${String(key)}`)
     active.errors.push(error); throw error
   }
@@ -26,6 +28,7 @@ export function skippedPatch(key) {
 export function deletePatch(target, key) {
   const before = descriptor(target, key)
   const deleted = Reflect.deleteProperty(target, key)
+  if (!deleted) skippedPatch(key)
   if (deleted && before && active) active.undo.push(() => define(target, key, before))
   return deleted
 }

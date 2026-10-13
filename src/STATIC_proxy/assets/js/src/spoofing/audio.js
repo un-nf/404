@@ -237,9 +237,9 @@ function buildRenderModel(runtime, fingerprint, profile) {
     bias: withDrift(numericField(configured.bias, 0), 4.0e-8),
     feedback: withDrift(numericField(configured.feedback, 2.2e-7), 7.5e-8),
     modulation: withDrift(numericField(configured.modulation, 2.0e-8), 7.5e-9),
-    modulationPeriod: Math.max(97, Math.round(withDrift(numericField(configured.modulation_period, 431), 41))),
-    stepOffset: withDrift(numericField(configured.step_offset, 5.0e-8), 2.5e-8),
-    stepStride: Math.max(53, Math.round(withDrift(numericField(configured.step_stride, 149), 17))),
+    modulationPeriod: Math.max(97, Math.round(withDrift(numericField(configured.modulation_period ?? configured.modulationPeriod, 431), 41))),
+    stepOffset: withDrift(numericField(configured.step_offset ?? configured.stepOffset, 5.0e-8), 2.5e-8),
+    stepStride: Math.max(53, Math.round(withDrift(numericField(configured.step_stride ?? configured.stepStride, 149), 17))),
   }
 }
 
@@ -293,7 +293,13 @@ function transformAudioEntry(entry, renderModel, clampToUnitRange = false) {
 }
 
 function applyAudioSignature(payload, renderModel, clampToUnitRange = false) {
-  const apply = (entry) => transformAudioEntry(entry, renderModel, clampToUnitRange)
+  const seen = new WeakSet()
+  const apply = (entry) => {
+    if (!entry || typeof entry !== 'object' || seen.has(entry) ||
+        !['Float32Array','Float64Array'].includes(entry.constructor?.name)) return
+    seen.add(entry)
+    transformAudioEntry(entry, renderModel, clampToUnitRange)
+  }
 
   if (ArrayBuffer.isView(payload)) {
     apply(payload)
@@ -331,8 +337,8 @@ function installAudioContextGetters(runtime, fingerprint, persona) {
     const baseLatencyDescriptor = Object.getOwnPropertyDescriptor(prototype, 'baseLatency')
     const outputLatencyDescriptor = Object.getOwnPropertyDescriptor(prototype, 'outputLatency')
 
-    defineGetter(prototype, 'sampleRate', function sampleRateGetter() {
-      return persona.sampleRate
+    defineGetter(prototype, 'sampleRate', function sampleRateGetter(native) {
+      return native
     }, sampleRateDescriptor?.enumerable ?? false)
 
     defineGetter(prototype, 'baseLatency', function baseLatencyGetter() {
@@ -358,20 +364,20 @@ function installAudioDestinationGetters(runtime, persona) {
   const numberOfInputsDescriptor = Object.getOwnPropertyDescriptor(prototype, 'numberOfInputs')
   const numberOfOutputsDescriptor = Object.getOwnPropertyDescriptor(prototype, 'numberOfOutputs')
 
-  defineGetter(prototype, 'channelCount', function channelCountGetter() {
-    return persona.channelCount
+  defineGetter(prototype, 'channelCount', function channelCountGetter(native) {
+    return native
   }, channelCountDescriptor?.enumerable ?? false)
 
-  defineGetter(prototype, 'maxChannelCount', function maxChannelCountGetter() {
-    return persona.maxChannelCount
+  defineGetter(prototype, 'maxChannelCount', function maxChannelCountGetter(native) {
+    return Math.min(native, persona.maxChannelCount)
   }, maxChannelCountDescriptor?.enumerable ?? false)
 
-  defineGetter(prototype, 'numberOfInputs', function numberOfInputsGetter() {
-    return persona.numberOfInputs
+  defineGetter(prototype, 'numberOfInputs', function numberOfInputsGetter(native) {
+    return native
   }, numberOfInputsDescriptor?.enumerable ?? false)
 
-  defineGetter(prototype, 'numberOfOutputs', function numberOfOutputsGetter() {
-    return persona.numberOfOutputs
+  defineGetter(prototype, 'numberOfOutputs', function numberOfOutputsGetter(native) {
+    return native
   }, numberOfOutputsDescriptor?.enumerable ?? false)
 }
 
@@ -438,7 +444,7 @@ export function installAudioSpoof() {
         analyserCounter += 1
         analyserModel.set(this, renderModel)
       }
-      applyAudioSignature(array, renderModel)
+      applyAudioSignature(array.subarray(0, Math.min(array.length, this.frequencyBinCount)), renderModel)
       return result
     }, 'getFloatFrequencyData'))
   }
@@ -446,14 +452,8 @@ export function installAudioSpoof() {
   if (runtime.nativeRefs.audioWorkletPrototype) {
     const portDescriptor = Object.getOwnPropertyDescriptor(runtime.nativeRefs.audioWorkletPrototype, 'port')
     if (portDescriptor?.get) {
-      definePatch(runtime.nativeRefs.audioWorkletPrototype, 'port', {
-        configurable: true,
-        enumerable: portDescriptor.enumerable,
-        get: markNativeCode(function port() {
-          const port = portDescriptor.get.call(this)
-          return wrapWorkletPort(runtime, fingerprint, persona, port, this?.constructor?.name || 'AudioWorkletNode')
-        }, 'port'),
-      })
+      replaceGetter(runtime.nativeRefs.audioWorkletPrototype, 'port', (port, node) =>
+        wrapWorkletPort(runtime, fingerprint, persona, port, node.constructor.name || 'AudioWorkletNode'))
     }
   }
 

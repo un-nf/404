@@ -13,6 +13,8 @@ import { installStorage } from '../capabilities/storage.js'
 import { installPermissions } from '../capabilities/permissions.js'
 import { installNotifications } from '../capabilities/notifications.js'
 import { installMediaCapabilities } from '../capabilities/media-capabilities.js'
+import { initEntropy } from '../core/entropy.js'
+import { installCanvasSpoof } from '../spoofing/canvas.js'
 
 export function startWorker(fingerprint) {
   if (typeof WorkerGlobalScope !== 'function' || !(globalThis instanceof WorkerGlobalScope)) return 'unavailable'
@@ -23,6 +25,7 @@ export function startWorker(fingerprint) {
     if (!getRuntime().nativeRefs.functionToString) getRuntime().nativeRefs = Object.freeze({ functionToString: Function.prototype.toString, intlDateTimeFormat: Intl.DateTimeFormat })
     installModule('toString', true, installToStringProxy)
     initPolicy()
+    if (!getRuntime().entropy) initEntropy()
     const policy = getPolicy()
     installModule('navigator', true, installNavigator)
     installModule('permissions', policy.permissionsEnabled, installPermissions)
@@ -33,6 +36,7 @@ export function startWorker(fingerprint) {
     installModule('performance', policy.performanceEnabled, installPerformance)
     installModule('eventTiming', policy.eventTimingEnabled, installEventTimingSpoof)
     installModule('timezone', policy.timezoneEnabled, installTimezone)
+    installModule('canvas', policy.canvasEnabled && Boolean(globalThis.OffscreenCanvas), installCanvasSpoof)
     installModule('webgl', policy.webglEnabled && Boolean(fingerprint.webgl_vendor && fingerprint.webgl_renderer), installWebGLSpoof)
     markModule('worker', { status: 'partial', detail: 'identity/network, storage/permissions/media/notifications where present, clock, default timezone and WebGL metadata; canvas pixels/audio uncovered' })
     finishRuntime()
