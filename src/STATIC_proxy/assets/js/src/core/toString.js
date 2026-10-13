@@ -1,3 +1,4 @@
+import { definePatch } from './patches.js'
 import { getRuntime } from './guard.js'
 
 const nativeCodeRegistry = new WeakMap()
@@ -31,7 +32,7 @@ export function installToStringProxy() {
 
   nativeCodeRegistry.set(toStringProxy, Reflect.apply(nativeToString, nativeToString, []))
 
-  Object.defineProperty(Function.prototype, 'toString', {
+  definePatch(Function.prototype, 'toString', {
     value: toStringProxy,
     configurable: true,
     writable: true,

@@ -3,6 +3,7 @@ use std::process::Command;
 
 fn main() {
     println!("cargo:rerun-if-changed=assets/js/src");
+    println!("cargo:rerun-if-changed=schema/runtime-profile.schema.json");
     println!("cargo:rerun-if-changed=build/build.js");
     println!("cargo:rerun-if-changed=build/package.json");
     println!("cargo:rerun-if-changed=build/package-lock.json");

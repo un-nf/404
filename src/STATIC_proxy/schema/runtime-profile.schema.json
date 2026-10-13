@@ -1,0 +1,766 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "STATIC runtime fingerprint contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "user_agent",
+    "platform",
+    "canvas_hash",
+    "webgl_vendor",
+    "webgl_renderer"
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "browser_family": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "browser_variant": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "browser_type": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "browser_version": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "os": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "os_version": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "user_agent": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "platform": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "vendor": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "vendor_flavors": {
+      "type": "array",
+      "x-runtime": "unsupported-or-metadata",
+      "items": {
+        "type": "string"
+      }
+    },
+    "ua_data": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "platform": {
+          "type": "string"
+        },
+        "platform_version": {
+          "type": "string"
+        },
+        "architecture": {
+          "type": "string"
+        },
+        "bitness": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "ua_full_version": {
+          "type": "string"
+        },
+        "mobile": {
+          "type": "boolean"
+        },
+        "brands": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "brand",
+              "version"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "brand": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "full_version_list": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "brand",
+              "version"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "brand": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "vendorSub": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "productSub": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "hardware_concurrency": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "x-runtime": "observation"
+    },
+    "device_memory": {
+      "type": "number",
+      "minimum": 0.01,
+      "maximum": 4294967295
+    },
+    "max_touch_points": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "x-runtime": "observation"
+    },
+    "screen_resolution": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "screen_avail_width": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "x-runtime": "observation"
+    },
+    "screen_avail_height": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "x-runtime": "observation"
+    },
+    "screen_avail_top": {
+      "type": "integer",
+      "minimum": -100000,
+      "maximum": 100000
+    },
+    "screen_avail_left": {
+      "type": "integer",
+      "minimum": -100000,
+      "maximum": 100000
+    },
+    "color_depth": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "x-runtime": "observation"
+    },
+    "pixel_depth": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "x-runtime": "observation"
+    },
+    "screen_orientation_type": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "screen_orientation_angle": {
+      "type": "number",
+      "x-runtime": "observation",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "screen_is_extended": {
+      "type": "boolean",
+      "x-runtime": "observation"
+    },
+    "device_pixel_ratio": {
+      "type": "number",
+      "minimum": 0.01,
+      "maximum": 4294967295
+    },
+    "timezone": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "languages": {
+      "type": [
+        "string",
+        "array"
+      ],
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "canvas_hash": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "canvas_noise": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "small_canvas_threshold": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "small_canvas_stride": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "default_stride": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "noise_probability": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "delta_min": {
+          "type": "number",
+          "minimum": -255,
+          "maximum": 255
+        },
+        "delta_max": {
+          "type": "number",
+          "minimum": -255,
+          "maximum": 255
+        },
+        "integer_delta": {
+          "type": "boolean"
+        },
+        "touch_alpha": {
+          "type": "boolean"
+        },
+        "log_activity": {
+          "type": "boolean"
+        }
+      }
+    },
+    "webgl_vendor": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "webgl_renderer": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "webgl_hash": {
+      "type": "string",
+      "x-runtime": "unsupported-or-metadata"
+    },
+    "webgl_parameters": {
+      "type": "object",
+      "additionalProperties": {
+        "type": [
+          "number",
+          "array"
+        ],
+        "items": {
+          "type": "number"
+        }
+      }
+    },
+    "audio_hash": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "audio_context": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "do_not_track": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "x-runtime": "observation"
+    },
+    "cookie_enabled": {
+      "type": "boolean",
+      "x-runtime": "observation"
+    },
+    "webdriver": {
+      "type": "boolean",
+      "x-runtime": "unsupported-or-metadata"
+    },
+    "plugins": {
+      "type": [
+        "string",
+        "array"
+      ],
+      "x-runtime": "unsupported-or-metadata",
+      "items": {
+        "type": [
+          "string",
+          "object"
+        ]
+      }
+    },
+    "mimeTypes": {
+      "type": "array",
+      "x-runtime": "unsupported-or-metadata",
+      "items": {
+        "type": [
+          "string",
+          "object"
+        ]
+      }
+    },
+    "storage_quota": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "x-runtime": "observation"
+    },
+    "storage_usage": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "x-runtime": "observation"
+    },
+    "storage_usage_quantum": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "x-runtime": "observation"
+    },
+    "media_capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "smooth": {
+          "type": "boolean"
+        },
+        "power_efficient": {
+          "type": "boolean"
+        }
+      }
+    },
+    "permission_states": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "enum": [
+          "denied",
+          "prompt",
+          "native"
+        ]
+      }
+    },
+    "speech_languages": {
+      "type": "array",
+      "x-runtime": "observation",
+      "items": {
+        "type": "string"
+      }
+    },
+    "speech_voice_limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "x-runtime": "observation"
+    },
+    "media_devices_per_kind": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "x-runtime": "observation"
+    },
+    "save_data": {
+      "type": "boolean",
+      "x-runtime": "observation"
+    },
+    "sec_ch_ua": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "sec_ch_ua_mobile": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "sec_ch_ua_platform": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "sec_ch_ua_full_version": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "sec_ch_ua_arch": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "sec_ch_ua_platform_version": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "sec_ch_ua_bitness": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "enable_headers_spoof": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "enable_canvas_spoof": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "enable_webgl_spoof": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "enable_audio_spoof": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "enable_timezone_spoof": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "enable_automation_evasion": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "enable_webrtc_spoof": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "enable_performance_spoof": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "enable_plugin_spoof": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "enable_storage_spoof": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "enable_element_spoofing": {
+      "type": "boolean",
+      "x-runtime": "unsupported-or-metadata",
+      "default": true
+    },
+    "enable_dom_evasion": {
+      "type": "boolean",
+      "x-runtime": "unsupported-or-metadata",
+      "default": true
+    },
+    "enable_iframe_protection": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "enable_speech_synthesis_spoof": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "enable_font_spoof": {
+      "type": "boolean",
+      "x-alias": "enable_font_metric_spoof"
+    },
+    "enable_network_spoof": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "enable_fingerprint_drift": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "fonts": {
+      "type": "array",
+      "x-runtime": "unsupported-or-metadata",
+      "items": {
+        "type": "string"
+      }
+    },
+    "debug": {
+      "type": "boolean",
+      "x-runtime": "observation"
+    },
+    "media_device_count": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "x-runtime": "observation"
+    },
+    "media_devices": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "audioinput",
+              "audiooutput",
+              "videoinput"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "deviceId": {
+            "type": "string"
+          },
+          "groupId": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "window_inner_width": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "x-runtime": "observation"
+    },
+    "window_inner_height": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "x-runtime": "observation"
+    },
+    "window_outer_width": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "x-runtime": "observation"
+    },
+    "window_outer_height": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "x-runtime": "observation"
+    },
+    "timezone_offset": {
+      "type": "integer",
+      "minimum": -100000,
+      "maximum": 100000,
+      "x-runtime": "unsupported-or-metadata"
+    },
+    "webrtc_local_ips": {
+      "type": "array",
+      "x-runtime": "observation",
+      "items": {
+        "type": "string"
+      }
+    },
+    "enable_viewport_spoof": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": false
+    },
+    "viewport_rounding": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "x-runtime": "observation"
+    },
+    "oscpu": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "buildID": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "pdf_viewer_enabled": {
+      "type": "boolean",
+      "x-runtime": "unsupported-or-metadata"
+    },
+    "downlink": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "effective_type": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "rtt": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "connection_type": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "enable_geolocation_spoof": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "profile_variant": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "profile_family": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "speech_voices": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "lang"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "lang": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string"
+          },
+          "voiceURI": {
+            "type": "string"
+          },
+          "localService": {
+            "type": "boolean"
+          },
+          "default": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "enable_font_metric_spoof": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "enable_media_capabilities_spoof": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "enable_permissions_spoof": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "enable_notifications_spoof": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "enable_battery_spoof": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "enable_gamepad_spoof": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "enable_privacy_blackhole": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "language": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "webgl_standard_vendor": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "webgl_standard_renderer": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "webrtc_ip": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "ip_address": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "webrtc_ipv6": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "webrtc_udp_only": {
+      "type": "boolean"
+    },
+    "webrtc_candidate_limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "x-runtime": "observation"
+    },
+    "profile_platform": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "audio_personas": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "compatibility_mode": {
+      "type": "string",
+      "enum": [
+        "normalization",
+        "legacy-host-exceptions"
+      ],
+      "default": "normalization"
+    }
+  }
+}

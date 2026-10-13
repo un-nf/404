@@ -1,3 +1,4 @@
+import { installModule } from '../core/installer.js'
 import { initRuntime, finishRuntime, getRuntime, markModule } from '../core/guard.js'
 import { loadConfig } from '../core/config.js'
 import { installToStringProxy } from '../core/toString.js'
@@ -17,25 +18,25 @@ export function startWorker(fingerprint) {
   if (typeof WorkerGlobalScope !== 'function' || !(globalThis instanceof WorkerGlobalScope)) return 'unavailable'
   if (!initRuntime()) return getRuntime().state
   try {
-    loadConfig({ fingerprint: { ...fingerprint, canvas_hash: 'unused-worker',
+    if (!getRuntime().config?.ready) loadConfig({ fingerprint: { ...fingerprint, canvas_hash: 'unused-worker',
       webgl_vendor: fingerprint.webgl_vendor || 'unused-worker', webgl_renderer: fingerprint.webgl_renderer || 'unused-worker' } })
-    getRuntime().nativeRefs = Object.freeze({ functionToString: Function.prototype.toString, intlDateTimeFormat: Intl.DateTimeFormat })
-    installToStringProxy()
+    if (!getRuntime().nativeRefs.functionToString) getRuntime().nativeRefs = Object.freeze({ functionToString: Function.prototype.toString, intlDateTimeFormat: Intl.DateTimeFormat })
+    installModule('toString', true, installToStringProxy)
     initPolicy()
     const policy = getPolicy()
-    installNavigator()
-    installPermissions()
-    installNotifications()
-    if (policy.storageEnabled) installStorage()
-    if (policy.mediaCapabilitiesEnabled) installMediaCapabilities()
-    if (policy.networkEnabled) installNetwork()
-    if (policy.performanceEnabled) installPerformance()
-    if (policy.eventTimingEnabled) installEventTimingSpoof()
-    if (policy.timezoneEnabled) installTimezone()
-    if (policy.webglEnabled && fingerprint.webgl_vendor && fingerprint.webgl_renderer) installWebGLSpoof()
+    installModule('navigator', true, installNavigator)
+    installModule('permissions', policy.permissionsEnabled, installPermissions)
+    installModule('notifications', policy.notificationsEnabled, installNotifications)
+    installModule('storage', policy.storageEnabled, installStorage)
+    installModule('mediaCapabilities', policy.mediaCapabilitiesEnabled, installMediaCapabilities)
+    installModule('network', policy.networkEnabled, installNetwork)
+    installModule('performance', policy.performanceEnabled, installPerformance)
+    installModule('eventTiming', policy.eventTimingEnabled, installEventTimingSpoof)
+    installModule('timezone', policy.timezoneEnabled, installTimezone)
+    installModule('webgl', policy.webglEnabled && Boolean(fingerprint.webgl_vendor && fingerprint.webgl_renderer), installWebGLSpoof)
     markModule('worker', { status: 'partial', detail: 'identity/network, storage/permissions/media/notifications where present, clock, default timezone and WebGL metadata; canvas pixels/audio uncovered' })
     finishRuntime()
-    return 'ready'
+    return getRuntime().state
   } catch (error) {
     finishRuntime(error)
     console.error('[STATIC] worker initialization failed:', error.message)

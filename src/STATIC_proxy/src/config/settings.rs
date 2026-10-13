@@ -45,6 +45,14 @@ static MANAGED_CACHE_DIR: OnceLock<PathBuf> = OnceLock::new();
 
 fn managed_data_dir() -> &'static PathBuf {
     MANAGED_DATA_DIR.get_or_init(|| {
+        // Integration tests isolate CA/cache/control state. Release binaries
+        // always retain the OS-managed directory and ignore this variable.
+        #[cfg(debug_assertions)]
+        if let Some(directory) = std::env::var_os("STATIC_TEST_DATA_DIR") {
+            let directory = PathBuf::from(directory);
+            assert!(directory.is_absolute(), "STATIC_TEST_DATA_DIR must be absolute");
+            return directory;
+        }
         ProjectDirs::from(APP_QUALIFIER, APP_ORGANIZATION, APP_NAME)
             .expect("STATIC requires an OS app-data directory")
             .data_local_dir()

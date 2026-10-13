@@ -1,3 +1,4 @@
+import { definePatch, skippedPatch } from './patches.js'
 import { markNativeLike } from './toString.js'
 
 export function findDescriptor(target, key) {
@@ -12,7 +13,7 @@ export function findDescriptor(target, key) {
 // Preserve ownership, setters and flags; absent host APIs stay absent.
 export function replaceGetter(target, key, transform) {
   const found = findDescriptor(target, key)
-  if (!found?.descriptor.get || !found.descriptor.configurable) return false
+  if (!found?.descriptor.get || !found.descriptor.configurable) { skippedPatch(key); return false }
   const original = found.descriptor.get
   const getter = markNativeLike(new Proxy(original, {
     apply(native, receiver, args) {
@@ -21,19 +22,19 @@ export function replaceGetter(target, key, transform) {
       return value === undefined ? value : transform(value, receiver)
     },
   }), original)
-  Object.defineProperty(found.owner, key, { ...found.descriptor, get: getter })
+  definePatch(found.owner, key, { ...found.descriptor, get: getter })
   return true
 }
 
 export function replaceMethod(target, key, intercept) {
   const found = findDescriptor(target, key)
   if (typeof found?.descriptor.value !== 'function' ||
-      (!found.descriptor.configurable && !found.descriptor.writable)) return false
+      (!found.descriptor.configurable && !found.descriptor.writable)) { skippedPatch(key); return false }
   const original = found.descriptor.value
   const method = markNativeLike(new Proxy(original, {
     apply(native, receiver, args) { return intercept(native, receiver, args) },
   }), original)
-  Object.defineProperty(found.owner, key, { ...found.descriptor, value: method })
+  definePatch(found.owner, key, { ...found.descriptor, value: method })
   return true
 }
 

@@ -1,19 +1,6 @@
 import { getFingerprint } from '../core/config.js'
 import { getRuntime, markModule } from '../core/guard.js'
-import { markNativeCode } from '../core/toString.js'
-
-const canvasSnapshotMap = new WeakMap()
-
-function defineMethod(target, name, fn) {
-  const descriptor = Object.getOwnPropertyDescriptor(target, name)
-  Object.defineProperty(target, name, {
-    value: fn,
-    configurable: descriptor?.configurable ?? true,
-    writable: descriptor?.writable ?? true,
-    enumerable: descriptor?.enumerable ?? false,
-  })
-}
-
+import { findDescriptor, replaceMethod, mapMethod } from '../core/descriptors.js'
 const DEFAULT_NOISE = {
   small_canvas_threshold: 16,
   small_canvas_stride: 20,
@@ -108,133 +95,77 @@ function injectCanvasNoise(imageData, runtime, fingerprint, noiseConfig, seedLab
     const magnitude = noiseConfig.delta_min + ((noiseConfig.delta_max - noiseConfig.delta_min) * rng())
     const signed = (rng() >= 0.5 ? 1 : -1) * magnitude
     const delta = noiseConfig.integer_delta ? Math.round(signed) : signed
+    const adjust = (value) => imageData.data.BYTES_PER_ELEMENT === 1 ? clampByte(value + delta) : value + delta / 255
 
-    imageData.data[index] = clampByte(imageData.data[index] + delta)
+    imageData.data[index] = adjust(imageData.data[index])
     if (index + 1 < imageData.data.length) {
-      imageData.data[index + 1] = clampByte(imageData.data[index + 1] + delta)
+      imageData.data[index + 1] = adjust(imageData.data[index + 1])
     }
     if (index + 2 < imageData.data.length) {
-      imageData.data[index + 2] = clampByte(imageData.data[index + 2] + delta)
+      imageData.data[index + 2] = adjust(imageData.data[index + 2])
     }
     if (noiseConfig.touch_alpha && index + 3 < imageData.data.length) {
-      imageData.data[index + 3] = clampByte(imageData.data[index + 3] + delta)
+      imageData.data[index + 3] = adjust(imageData.data[index + 3])
     }
   }
 }
 
-function cloneSnapshot(imageData) {
-  return {
-    data: new Uint8ClampedArray(imageData.data),
-    width: imageData.width,
-    height: imageData.height,
-  }
-}
-
-function restoreSnapshot(context, snapshot, runtime) {
-  try {
-    const restored = runtime.nativeRefs.canvasGetImageData.call(context, 0, 0, snapshot.width, snapshot.height)
-    restored.data.set(snapshot.data)
-    runtime.nativeRefs.canvasPutImageData.call(context, restored, 0, 0)
-  } catch {
-    // ignore
-  }
-}
-
-function withCanvasExportNoise(canvasLike, runtime, fingerprint, noiseConfig, operation, seedLabel = 'export') {
-  if (!canvasLike || typeof canvasLike.getContext !== 'function') {
-    return operation()
-  }
-
-  try {
-    const context = canvasLike.getContext('2d')
-    if (!context || !runtime.nativeRefs.canvasGetImageData || !runtime.nativeRefs.canvasPutImageData) {
-      return operation()
-    }
-
-    const imageData = runtime.nativeRefs.canvasGetImageData.call(context, 0, 0, canvasLike.width || 0, canvasLike.height || 0)
-    const snapshot = cloneSnapshot(imageData)
-    canvasSnapshotMap.set(canvasLike, snapshot)
-    injectCanvasNoise(imageData, runtime, fingerprint, noiseConfig, seedLabel)
-    runtime.nativeRefs.canvasPutImageData.call(context, imageData, 0, 0)
-
-    let result
-    try {
-      result = operation()
-    } catch (error) {
-      restoreSnapshot(context, snapshot, runtime)
-      canvasSnapshotMap.delete(canvasLike)
-      throw error
-    }
-
-    if (result && typeof result.finally === 'function') {
-      return result.finally(() => {
-        restoreSnapshot(context, snapshot, runtime)
-        canvasSnapshotMap.delete(canvasLike)
-      })
-    }
-
-    restoreSnapshot(context, snapshot, runtime)
-    canvasSnapshotMap.delete(canvasLike)
-    return result
-  } catch {
-    return operation()
-  }
-}
 
 export function installCanvasSpoof() {
-  const runtime = getRuntime()
-  const fingerprint = getFingerprint()
-  const noiseConfig = normalizeNoiseConfig(fingerprint)
-
-  if (runtime.modules.canvas) {
-    return
-  }
-
-  if (runtime.nativeRefs.canvasGetImageData) {
-    defineMethod(runtime.nativeRefs.canvas2dPrototype, 'getImageData', markNativeCode(function getImageData(sx, sy, sw, sh) {
-      const imageData = runtime.nativeRefs.canvasGetImageData.call(this, sx, sy, sw, sh)
-      injectCanvasNoise(imageData, runtime, fingerprint, noiseConfig, `readback:${sx || 0},${sy || 0},${sw || 0},${sh || 0}`)
-      return imageData
-    }, 'getImageData'))
-  }
-
-  if (runtime.nativeRefs.canvasToDataURL) {
-    defineMethod(runtime.nativeRefs.canvasPrototype, 'toDataURL', markNativeCode(function toDataURL() {
-      return withCanvasExportNoise(this, runtime, fingerprint, noiseConfig, () => runtime.nativeRefs.canvasToDataURL.apply(this, arguments), 'toDataURL')
-    }, 'toDataURL'))
-
-    if (runtime.nativeRefs.canvasToBlob) {
-      defineMethod(runtime.nativeRefs.canvasPrototype, 'toBlob', markNativeCode(function toBlob(callback, type, quality) {
-        const args = arguments
-        return withCanvasExportNoise(this, runtime, fingerprint, noiseConfig, () => runtime.nativeRefs.canvasToBlob.call(this, function blobCallback() {
-          return typeof callback === 'function' ? callback.apply(this, arguments) : undefined
-        }, args[1], args[2]), 'toBlob')
-      }, 'toBlob'))
+  const runtime=getRuntime(), fingerprint=getFingerprint(), noiseConfig=normalizeNoiseConfig(fingerprint)
+  const HTML=globalThis.HTMLCanvasElement, Offscreen=globalThis.OffscreenCanvas
+  const htmlProto=HTML?.prototype, offProto=Offscreen?.prototype
+  const Context=globalThis.CanvasRenderingContext2D, OffContext=globalThis.OffscreenCanvasRenderingContext2D
+  const nativeRead=Context?.prototype.getImageData, offRead=OffContext?.prototype.getImageData
+  const nativePut=Context?.prototype.putImageData, offPut=OffContext?.prototype.putImageData
+  const create=globalThis.Document?.prototype.createElement
+  const bitmap=globalThis.createImageBitmap
+  const transfer=offProto?.transferToImageBitmap
+  function noisyCopy(source, prototype) {
+    // Native width/height accessors validate the receiver without calling an
+    // export twice, and without binding the drawing surface to a new context.
+    const width=Reflect.apply(findDescriptor(prototype,'width').descriptor.get,source,[])
+    const height=Reflect.apply(findDescriptor(prototype,'height').descriptor.get,source,[])
+    if(!width||!height)return source
+    const copy=prototype===offProto?new Offscreen(width,height):Reflect.apply(create,document,['canvas'])
+    copy.width=width;copy.height=height
+    const context=copy.getContext('2d')
+    context.drawImage(source,0,0)
+    try {
+      const read=prototype===offProto?offRead:nativeRead,put=prototype===offProto?offPut:nativePut
+      const image=Reflect.apply(read,context,[0,0,width,height])
+      injectCanvasNoise(image,runtime,fingerprint,noiseConfig,'pixels')
+      Reflect.apply(put,context,[image,0,0])
+      return copy
+    } catch(error) {
+      // Tainted data remains tainted: the genuine export supplies its native
+      // error/rejection. Never swallow/repeat the application's export call.
+      if(error.name==='SecurityError')return source
+      throw error
     }
   }
-
-  if (runtime.nativeRefs.offscreenPrototype) {
-    if (runtime.nativeRefs.offscreenConvertToBlob) {
-      defineMethod(runtime.nativeRefs.offscreenPrototype, 'convertToBlob', markNativeCode(function convertToBlob() {
-        return withCanvasExportNoise(this, runtime, fingerprint, noiseConfig, () => runtime.nativeRefs.offscreenConvertToBlob.apply(this, arguments), 'convertToBlob')
-      }, 'convertToBlob'))
-    }
-
-    if (runtime.nativeRefs.offscreenTransferToImageBitmap) {
-      defineMethod(runtime.nativeRefs.offscreenPrototype, 'transferToImageBitmap', markNativeCode(function transferToImageBitmap() {
-        return withCanvasExportNoise(this, runtime, fingerprint, noiseConfig, () => runtime.nativeRefs.offscreenTransferToImageBitmap.apply(this, arguments), 'transferToImageBitmap')
-      }, 'transferToImageBitmap'))
-    }
+  for(const prototype of [Context?.prototype,OffContext?.prototype]) {
+    mapMethod(prototype,'getImageData',image=>{injectCanvasNoise(image,runtime,fingerprint,noiseConfig,'pixels');return image})
   }
-
-  if (runtime.nativeRefs.createImageBitmap) {
-    defineMethod(window, 'createImageBitmap', markNativeCode(function createImageBitmap(source) {
-      if (source && typeof source === 'object' && 'width' in source && 'height' in source) {
-        return withCanvasExportNoise(source, runtime, fingerprint, noiseConfig, () => runtime.nativeRefs.createImageBitmap.apply(window, arguments), 'createImageBitmap')
-      }
-      return runtime.nativeRefs.createImageBitmap.apply(window, arguments)
-    }, 'createImageBitmap'))
+  for(const [prototype,name]of [[htmlProto,'toDataURL'],[htmlProto,'toBlob'],[offProto,'convertToBlob']]) {
+    replaceMethod(prototype,name,(native,receiver,args)=>Reflect.apply(native,noisyCopy(receiver,prototype),args))
   }
-
-  markModule('canvas')
+  if(transfer)mapMethod(offProto,'transferToImageBitmap',original=>{
+    // Transfer the original once so its clearing/ownership semantics survive.
+    const copy=new Offscreen(original.width,original.height),context=copy.getContext('2d')
+    context.drawImage(original,0,0)
+    const image=Reflect.apply(offRead,context,[0,0,original.width,original.height])
+    injectCanvasNoise(image,runtime,fingerprint,noiseConfig,'pixels')
+    Reflect.apply(offPut,context,[image,0,0])
+    const result=Reflect.apply(transfer,copy,[]);original.close();return result
+  })
+  if(bitmap&&Offscreen&&offRead)mapMethod(globalThis,'createImageBitmap',promise=>promise.then(original=>{
+    const copy=new Offscreen(original.width,original.height),context=copy.getContext('2d')
+    context.drawImage(original,0,0)
+    const image=Reflect.apply(offRead,context,[0,0,original.width,original.height])
+    injectCanvasNoise(image,runtime,fingerprint,noiseConfig,'pixels')
+    Reflect.apply(offPut,context,[image,0,0])
+    return Reflect.apply(bitmap,globalThis,[copy]).then(result=>{original.close();return result})
+  }))
+  markModule('canvas',{status:'partial',detail:'native readback and isolated export copies; originals never temporarily painted; color/rectangle and rendering inference require measurement'})
 }

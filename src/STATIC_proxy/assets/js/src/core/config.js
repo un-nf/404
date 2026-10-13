@@ -1,4 +1,5 @@
 import { getRuntime } from './guard.js'
+import { normalizeFingerprint } from './schema.js'
 import { isChromiumLike, isFirefoxLike, resolveBrowserFamily, resolveBrowserVariant } from './browser.js'
 
 const REQUIRED_FIELDS = [
@@ -152,11 +153,13 @@ export function loadConfig(input) {
     throw new TypeError('STATIC media_capabilities must specify boolean smooth/power_efficient')
   }
   validateCoherence(fingerprint || {})
+  const contract = normalizeFingerprint(fingerprint)
 
   runtime.config = deepFreeze({
     raw,
     fingerprint: fingerprint || {},
     ready: true,
+    contract,
   })
 }
 

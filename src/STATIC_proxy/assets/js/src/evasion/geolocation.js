@@ -1,3 +1,4 @@
+import { definePatch } from '../core/patches.js'
 import { markModule } from '../core/guard.js'
 import { markNativeCode } from '../core/toString.js'
 
@@ -16,7 +17,7 @@ export function installGeolocationDenial() {
     return
   }
 
-  Object.defineProperty(navigator.geolocation, 'getCurrentPosition', {
+  definePatch(navigator.geolocation, 'getCurrentPosition', {
     value: markNativeCode(function getCurrentPosition(success, error) {
       if (typeof error === 'function') {
         setTimeout(() => error(buildErrorObject()), 0)
@@ -27,7 +28,7 @@ export function installGeolocationDenial() {
     enumerable: false,
   })
 
-  Object.defineProperty(navigator.geolocation, 'watchPosition', {
+  definePatch(navigator.geolocation, 'watchPosition', {
     value: markNativeCode(function watchPosition(success, error) {
       if (typeof error === 'function') {
         setTimeout(() => error(buildErrorObject()), 0)
@@ -39,7 +40,7 @@ export function installGeolocationDenial() {
     enumerable: false,
   })
 
-  Object.defineProperty(navigator.geolocation, 'clearWatch', {
+  definePatch(navigator.geolocation, 'clearWatch', {
     value: markNativeCode(function clearWatch() {}, 'clearWatch'),
     configurable: true,
     writable: true,

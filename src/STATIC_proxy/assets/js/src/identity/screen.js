@@ -34,6 +34,13 @@ export function installScreen() {
     replaceGetter(proto, 'angle', () => fingerprint.screen_orientation_angle ?? 0)
   }
   replaceGetter(window, 'devicePixelRatio', () => fingerprint.device_pixel_ratio ?? 1)
+  if (fingerprint.enable_viewport_spoof) {
+    for (const [key, field] of Object.entries({innerWidth:'window_inner_width',innerHeight:'window_inner_height',
+      outerWidth:'window_outer_width',outerHeight:'window_outer_height'})) {
+      replaceGetter(window, key, (native) => fingerprint[field] ??
+        Math.round(native / (fingerprint.viewport_rounding || 1)) * (fingerprint.viewport_rounding || 1))
+    }
+  }
 
-  markModule('screen')
+  markModule('screen', {status:'partial',detail:'screen and configured viewport observations; actual CSS/layout/viewport sizing remains browser-controlled'})
 }

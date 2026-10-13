@@ -1,3 +1,4 @@
+import { installModule } from './core/installer.js'
 /*
  * STATIC Runtime v5.0.0
  * Eligible network worker responses bootstrap selected realm-local surfaces.
@@ -56,6 +57,8 @@ export function startRuntime(rawConfig, initializeChild) {
     installToStringProxy()
 
     const policy = getPolicy()
+    getRuntime().outcomes.configuration = Object.freeze({ status:getRuntime().config.contract.unsupported.length?'partial':'installed',
+      unsupported:getRuntime().config.contract.unsupported })
     getRuntime().coverage = Object.freeze({
       window: 'partial', sameOriginFrames: 'partial', srcdoc: 'partial',
       crossOriginFrames: 'unverified: own proxy response required',
@@ -63,90 +66,24 @@ export function startRuntime(rawConfig, initializeChild) {
       blobDataWorkers: 'unsupported', preexistingWorkers: 'unsupported', audioWorklet: 'unsupported',
     })
 
-    installNavigator()
-    installScreen()
-
-    if (policy.fontMetricsEnabled) {
-      installFontMetrics()
-    }
-
-    if (policy.pluginEnabled) {
-      installPlugins()
-    }
-    if (policy.performanceEnabled) {
-      installPerformance()
-    }
-    if (policy.timezoneEnabled) {
-      installTimezone()
-    }
-
-    installPermissions()
-    installNotifications()
-    installBattery()
-
-    if (policy.storageEnabled) {
-      installStorage()
-    }
-    if (policy.networkEnabled) {
-      installNetwork()
-    }
-    if (policy.mediaCapabilitiesEnabled) {
-      installMediaCapabilities()
-    }
-
-    if (policy.canvasEnabled) {
-      installCanvasSpoof()
-    }
-    if (policy.webglEnabled) {
-      installWebGLSpoof()
-    }
-    if (policy.audioEnabled) {
-      installAudioSpoof()
-    }
-    if (policy.webrtcEnabled) {
-      installWebRTCSpoof()
-    }
-    if (policy.mediaDevicesEnabled) {
-      installMediaDevicesSpoof()
-    }
-    if (policy.gamepadEnabled) {
-      installGamepadSpoof()
-    }
-    if (policy.speechEnabled) {
-      installSpeechSpoof()
-    }
-    if (policy.eventTimingEnabled) {
-      installEventTimingSpoof()
-    }
-
-    if (policy.automationEvasionEnabled) {
-      installAutomationEvasion()
-    }
-    if (policy.geolocationEnabled) {
-      installGeolocationDenial()
-    }
-    if (policy.privacyBlackholeEnabled) {
-      installBeaconBlackhole()
-    }
-    if (policy.iframePropagationEnabled) {
-      installIframePropagation(initializeChild)
-    }
-    const optional = {
-      fontMetrics: policy.fontMetricsEnabled, plugins: policy.pluginEnabled,
-      performance: policy.performanceEnabled, timezone: policy.timezoneEnabled,
-      storage: policy.storageEnabled, network: policy.networkEnabled,
-      mediaCapabilities: policy.mediaCapabilitiesEnabled, canvas: policy.canvasEnabled,
-      webgl: policy.webglEnabled, audio: policy.audioEnabled, webrtc: policy.webrtcEnabled,
-      mediaDevices: policy.mediaDevicesEnabled, gamepad: policy.gamepadEnabled,
-      speech: policy.speechEnabled, eventTiming: policy.eventTimingEnabled,
-      automation: policy.automationEvasionEnabled, geolocation: policy.geolocationEnabled,
-      privacyBlackhole: policy.privacyBlackholeEnabled, iframePropagation: policy.iframePropagationEnabled,
-    }
-    for (const [name, enabled] of Object.entries(optional)) {
-      if (!enabled) getRuntime().outcomes[name] = Object.freeze({ status: 'disabled' })
-    }
+    const modules = [
+      ['navigator', true, installNavigator], ['screen', true, installScreen],
+      ['fontMetrics', policy.fontMetricsEnabled, installFontMetrics], ['plugins', policy.pluginEnabled, installPlugins],
+      ['performance', policy.performanceEnabled, installPerformance], ['timezone', policy.timezoneEnabled, installTimezone],
+      ['permissions', policy.permissionsEnabled, installPermissions], ['notifications', policy.notificationsEnabled, installNotifications],
+      ['battery', policy.batteryEnabled, installBattery], ['storage', policy.storageEnabled, installStorage],
+      ['network', policy.networkEnabled, installNetwork], ['mediaCapabilities', policy.mediaCapabilitiesEnabled, installMediaCapabilities],
+      ['canvas', policy.canvasEnabled, installCanvasSpoof], ['webgl', policy.webglEnabled, installWebGLSpoof],
+      ['audio', policy.audioEnabled, installAudioSpoof], ['webrtc', policy.webrtcEnabled, installWebRTCSpoof],
+      ['mediaDevices', policy.mediaDevicesEnabled, installMediaDevicesSpoof], ['gamepad', policy.gamepadEnabled, installGamepadSpoof],
+      ['speech', policy.speechEnabled, installSpeechSpoof], ['eventTiming', policy.eventTimingEnabled, installEventTimingSpoof],
+      ['automation', policy.automationEvasionEnabled, installAutomationEvasion], ['geolocation', policy.geolocationEnabled, installGeolocationDenial],
+      ['beaconBlackhole', policy.privacyBlackholeEnabled, installBeaconBlackhole],
+      ['iframePropagation', policy.iframePropagationEnabled, () => installIframePropagation(initializeChild)],
+    ]
+    for (const [name, enabled, installer] of modules) installModule(name, enabled, installer)
     finishRuntime()
-    return 'ready'
+    return getRuntime().state
   } catch (error) {
     finishRuntime(error)
     console.error('[STATIC] runtime initialization failed:', error.message)

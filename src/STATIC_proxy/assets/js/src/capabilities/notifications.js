@@ -1,3 +1,4 @@
+import { definePatch } from '../core/patches.js'
 import { getFingerprint } from '../core/config.js'
 import { markModule } from '../core/guard.js'
 import { replaceGetter, replaceMethod } from '../core/descriptors.js'
@@ -31,10 +32,10 @@ export function installNotifications() {
   })
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'Notification')
   if (descriptor?.configurable || descriptor?.writable) {
-    Object.defineProperty(globalThis, 'Notification', { ...descriptor, value: wrapped })
+    definePatch(globalThis, 'Notification', { ...descriptor, value: wrapped })
     const constructor = Object.getOwnPropertyDescriptor(Notification.prototype, 'constructor')
     if (constructor?.configurable || constructor?.writable) {
-      Object.defineProperty(Notification.prototype, 'constructor', { ...constructor, value: wrapped })
+      definePatch(Notification.prototype, 'constructor', { ...constructor, value: wrapped })
     }
   }
   const registration = globalThis.ServiceWorkerRegistration?.prototype

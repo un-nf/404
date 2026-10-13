@@ -62,6 +62,7 @@ impl JsInjectionStage {
         if !matches!(mode, "cors" | "same-origin") { return Ok(true); }
         let fingerprint = flow.metadata.js_runtime_config.get("fingerprint").unwrap_or(&flow.metadata.js_runtime_config);
         if !fingerprint.get("user_agent").is_some_and(|v| v.is_string()) { return Ok(true); }
+        crate::runtime_schema::validate_fingerprint(fingerprint)?;
         let profile_json = serde_json::to_string(&worker_profile(fingerprint))?;
         let Some(response) = flow.response.as_mut() else { return Ok(true); };
         if response.status != http::StatusCode::OK { return Ok(true); }
@@ -594,7 +595,9 @@ fn worker_profile(fingerprint: &serde_json::Value) -> serde_json::Value {
         "enable_performance_spoof", "enable_webgl_spoof", "webgl_vendor", "webgl_renderer",
         "webgl_parameters", "webgl_standard_vendor", "webgl_standard_renderer",
         "storage_quota", "storage_usage", "storage_usage_quantum", "enable_storage_spoof",
-        "permission_states", "enable_geolocation_spoof", "media_capabilities", "cookie_enabled", "save_data"] {
+        "permission_states", "enable_geolocation_spoof", "media_capabilities", "cookie_enabled", "save_data",
+        "enable_permissions_spoof", "enable_notifications_spoof", "enable_battery_spoof",
+        "enable_media_capabilities_spoof", "compatibility_mode"] {
         if let Some(value) = fingerprint.get(key) { profile.insert(key.into(), value.clone()); }
     }
     serde_json::Value::Object(profile)

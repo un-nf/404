@@ -29,18 +29,21 @@ export function initPolicy() {
       return ''
     }
   })()
-  const stabilityMode = hostMatches(host, STABILITY_HOSTS)
+  const stabilityMode = fingerprint.compatibility_mode === 'legacy-host-exceptions' && hostMatches(host, STABILITY_HOSTS)
 
   runtime.policy = Object.freeze({
     host,
     stabilityMode,
     timezoneEnabled: fingerprint.enable_timezone_spoof !== false,
     performanceEnabled: fingerprint.enable_performance_spoof !== false,
-    fontMetricsEnabled: fingerprint.enable_font_metric_spoof !== false,
+    fontMetricsEnabled: (fingerprint.enable_font_metric_spoof ?? fingerprint.enable_font_spoof) !== false,
     pluginEnabled: fingerprint.enable_plugin_spoof !== false,
     storageEnabled: fingerprint.enable_storage_spoof !== false,
     networkEnabled: fingerprint.enable_network_spoof !== false,
-    mediaCapabilitiesEnabled: true,
+    mediaCapabilitiesEnabled: fingerprint.enable_media_capabilities_spoof !== false,
+    permissionsEnabled: fingerprint.enable_permissions_spoof !== false,
+    notificationsEnabled: fingerprint.enable_notifications_spoof !== false,
+    batteryEnabled: fingerprint.enable_battery_spoof !== false,
     canvasEnabled: fingerprint.enable_canvas_spoof !== false,
     webglEnabled: fingerprint.enable_webgl_spoof !== false,
     audioEnabled: !stabilityMode && fingerprint.enable_audio_spoof !== false,
@@ -51,7 +54,7 @@ export function initPolicy() {
     eventTimingEnabled: !stabilityMode && fingerprint.enable_performance_spoof !== false,
     automationEvasionEnabled: fingerprint.enable_automation_evasion !== false,
     geolocationEnabled: fingerprint.enable_geolocation_spoof !== false,
-    privacyBlackholeEnabled: true,
+    privacyBlackholeEnabled: fingerprint.enable_privacy_blackhole !== false,
     iframePropagationEnabled: fingerprint.enable_iframe_protection !== false,
   })
 }

@@ -1,3 +1,4 @@
+import { definePatch, deletePatch, onRollback } from '../core/patches.js'
 import { markModule } from '../core/guard.js'
 import { markNativeCode } from '../core/toString.js'
 import { replaceGetter } from '../core/descriptors.js'
@@ -48,7 +49,7 @@ function matchesChromedriverPattern(key) {
 
 function suppressGlobalProperty(target, name) {
   try {
-    Reflect.deleteProperty(target, name)
+    deletePatch(target, name)
   } catch {
     // ignore
   }
@@ -58,7 +59,7 @@ function suppressGlobalProperty(target, name) {
   }
 
   try {
-    Object.defineProperty(target, name, {
+    definePatch(target, name, {
       get: markNativeCode(function propertyGetter() {
         return undefined
       }, name),
@@ -88,7 +89,7 @@ function suppressElementProperty(target, name) {
   }
 
   try {
-    Reflect.deleteProperty(target, name)
+    deletePatch(target, name)
   } catch {
     // ignore
   }
@@ -98,7 +99,7 @@ function suppressElementProperty(target, name) {
   }
 
   try {
-    Object.defineProperty(target, name, {
+    definePatch(target, name, {
       get: markNativeCode(function propertyGetter() {
         return undefined
       }, name),
@@ -124,6 +125,8 @@ function cleanupDocumentAutomationMarkers(doc) {
 
   for (const key of AUTOMATION_ELEMENT_KEYS) {
     try {
+      const value = root.getAttribute(key)
+      if (value !== null) onRollback(() => root.setAttribute(key, value))
       root.removeAttribute(key)
     } catch {
       // ignore
@@ -152,6 +155,7 @@ function installDocumentAutomationObserver(doc) {
     attributes: true,
     attributeFilter: AUTOMATION_ELEMENT_KEYS,
   })
+  onRollback(() => observer.disconnect())
 }
 
 export function installAutomationEvasion() {

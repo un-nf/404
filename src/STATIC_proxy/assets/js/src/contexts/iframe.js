@@ -1,6 +1,7 @@
 import { getConfig } from '../core/config.js'
 import { getRuntime, markModule } from '../core/guard.js'
 import { findDescriptor, replaceGetter } from '../core/descriptors.js'
+import { onRollback } from '../core/patches.js'
 
 export function installIframePropagation(initializeChild) {
   const runtime = getRuntime()
@@ -41,7 +42,9 @@ export function installIframePropagation(initializeChild) {
   function watch(frame) {
     if (!watched.has(frame)) {
       watched.add(frame)
-      frame.addEventListener('load', () => propagate(frame))
+      const loaded = () => propagate(frame)
+      frame.addEventListener('load', loaded)
+      onRollback(() => frame.removeEventListener('load', loaded))
     }
     propagate(frame)
   }
@@ -63,5 +66,6 @@ export function installIframePropagation(initializeChild) {
     }
   })
   observer.observe(document.documentElement, { childList: true, subtree: true })
+  onRollback(() => observer.disconnect())
   markModule('iframePropagation', { status: 'partial', detail: 'synchronous accessible-frame getters and observer/load fallback; early child code and CSP gaps remain' })
 }

@@ -1,3 +1,4 @@
+import { definePatch } from '../core/patches.js'
 import { getFingerprint } from '../core/config.js'
 import { getRuntime, markModule } from '../core/guard.js'
 import { markNativeCode } from '../core/toString.js'
@@ -9,7 +10,7 @@ const wrappedOnIceCandidateHandlers = new WeakMap()
 
 function defineMethod(target, name, fn) {
   const descriptor = Object.getOwnPropertyDescriptor(target, name)
-  Object.defineProperty(target, name, {
+  definePatch(target, name, {
     value: fn,
     configurable: descriptor?.configurable ?? true,
     writable: descriptor?.writable ?? true,
@@ -145,7 +146,7 @@ export function installWebRTCSpoof() {
         event.candidate = sanitized
       } catch {
         try {
-          Object.defineProperty(event, 'candidate', {
+          definePatch(event, 'candidate', {
             value: sanitized,
             configurable: true,
           })
@@ -185,7 +186,7 @@ export function installWebRTCSpoof() {
 
   const onIceDescriptor = Object.getOwnPropertyDescriptor(peerPrototype, 'onicecandidate')
   if (onIceDescriptor?.set) {
-    Object.defineProperty(peerPrototype, 'onicecandidate', {
+    definePatch(peerPrototype, 'onicecandidate', {
       configurable: true,
       enumerable: onIceDescriptor.enumerable,
       get: markNativeCode(function onicecandidate() {

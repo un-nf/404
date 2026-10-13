@@ -1,3 +1,6 @@
+import { replaceGetter, mapMethod, findDescriptor } from '../core/descriptors.js'
+import { markNativeLike } from '../core/toString.js'
+import { definePatch } from '../core/patches.js'
 import { getFingerprint } from '../core/config.js'
 import { getRuntime, markModule } from '../core/guard.js'
 import { markNativeCode } from '../core/toString.js'
@@ -136,17 +139,11 @@ const AUDIO_HARDWARE_CLASS_PATTERNS = [
   { name: 'integrated', pattern: /(realtek|conexant|speakers|microphone array|intel|dell)/i },
 ]
 
-function defineGetter(target, name, getter, enumerable = false) {
-  Object.defineProperty(target, name, {
-    get: markNativeCode(getter, name),
-    configurable: true,
-    enumerable,
-  })
-}
+function defineGetter(target,name,getter) { return replaceGetter(target,name,(value,receiver)=>Reflect.apply(getter,receiver,[value])) }
 
 function defineMethod(target, name, fn) {
   const descriptor = Object.getOwnPropertyDescriptor(target, name)
-  Object.defineProperty(target, name, {
+  definePatch(target, name, {
     value: fn,
     configurable: descriptor?.configurable ?? true,
     writable: descriptor?.writable ?? true,
@@ -311,39 +308,9 @@ function applyAudioSignature(payload, renderModel, clampToUnitRange = false) {
   }
 }
 
-function wrapWorkletPort(runtime, fingerprint, persona, port, label) {
-  if (!port || wrappedPorts.has(port)) {
-    return port
-  }
-
-  wrappedPorts.add(port)
-  const renderModel = buildRenderModel(runtime, fingerprint, {
-    id: `${persona.id}:${label}`,
-    render: persona.renderModel,
-  })
-
-  if (typeof port.postMessage === 'function') {
-    const nativePostMessage = port.postMessage.bind(port)
-    defineMethod(port, 'postMessage', markNativeCode(function postMessage(message, transfer) {
-      applyAudioSignature(message, renderModel)
-      return nativePostMessage(message, transfer)
-    }, 'postMessage'))
-  }
-
-  if (typeof port.addEventListener === 'function') {
-    const nativeAddEventListener = port.addEventListener.bind(port)
-    defineMethod(port, 'addEventListener', markNativeCode(function addEventListener(type, listener, options) {
-      if (type !== 'message' || typeof listener !== 'function') {
-        return nativeAddEventListener(type, listener, options)
-      }
-      const wrapped = function message(event) {
-        applyAudioSignature(event?.data, renderModel)
-        return listener.call(this, event)
-      }
-      return nativeAddEventListener(type, wrapped, options)
-    }, 'addEventListener'))
-  }
-
+const workletModels=new WeakMap(), messageResults=new WeakMap()
+function wrapWorkletPort(runtime,fingerprint,persona,port,label) {
+  if(port&&!workletModels.has(port))workletModels.set(port,buildRenderModel(runtime,fingerprint,{id:persona.id+':'+label,render:persona.renderModel}))
   return port
 }
 
@@ -417,42 +384,44 @@ export function installAudioSpoof() {
 
   const persona = resolveAudioPersona(runtime, fingerprint)
 
+  const rendered=new WeakSet()
+  const maskBuffer=buffer=>{
+    if(buffer&&!rendered.has(buffer)){
+      rendered.add(buffer)
+      for(let channel=0;channel<buffer.numberOfChannels;channel++)applyAudioSignature(buffer.getChannelData(channel),persona.renderModel,true)
+    }
+    return buffer
+  }
+  replaceGetter(globalThis.OfflineAudioCompletionEvent?.prototype,'renderedBuffer',maskBuffer)
+  replaceGetter(globalThis.MessageEvent?.prototype,'data',(payload,event)=>{
+    const model=workletModels.get(event.target)
+    if(!model||!event.isTrusted)return payload
+    if(!messageResults.has(event)){
+      try {const copy=structuredClone(payload);applyAudioSignature(copy,model);messageResults.set(event,copy)}
+      catch {messageResults.set(event,payload)}
+    }
+    return messageResults.get(event)
+  })
+  const Native=globalThis.AudioContext
+  if(typeof Native==='function'){
+    const wrapped=markNativeLike(new Proxy(Native,{construct(native,args,newTarget){
+      const options=args[0]
+      const converted=options&&typeof options==='object'?new Proxy({}, {get(_target,key){
+        const value=Reflect.get(options,key,options)
+        return key==='sampleRate'&&value===undefined?persona.sampleRate:value
+      }}):options===undefined?{sampleRate:persona.sampleRate}:options
+      return Reflect.construct(native,[converted,...args.slice(1)],newTarget)
+    }}),Native)
+    const descriptor=Object.getOwnPropertyDescriptor(globalThis,'AudioContext')
+    definePatch(globalThis,'AudioContext',{...descriptor,value:wrapped})
+    if(globalThis.webkitAudioContext===Native){const alias=Object.getOwnPropertyDescriptor(globalThis,'webkitAudioContext');definePatch(globalThis,'webkitAudioContext',{...alias,value:wrapped})}
+    const constructor=Object.getOwnPropertyDescriptor(Native.prototype,'constructor')
+    definePatch(Native.prototype,'constructor',{...constructor,value:wrapped})
+  }
   if (runtime.nativeRefs.offlineStartRendering) {
     defineMethod(runtime.nativeRefs.offlineAudioPrototype, 'startRendering', markNativeCode(function startRendering() {
-      return runtime.nativeRefs.offlineStartRendering.apply(this, arguments).then((buffer) => {
-        try {
-          for (let channel = 0; channel < (buffer?.numberOfChannels || 0); channel += 1) {
-            applyAudioSignature(buffer.getChannelData(channel), persona.renderModel, true)
-          }
-        } catch {
-          // ignore
-        }
-        return buffer
-      })
+      return runtime.nativeRefs.offlineStartRendering.apply(this, arguments).then(maskBuffer)
     }, 'startRendering'))
-  }
-
-  if (runtime.nativeRefs.baseCreateOscillator) {
-    defineMethod(runtime.nativeRefs.baseAudioPrototype, 'createOscillator', markNativeCode(function createOscillator() {
-      const oscillator = runtime.nativeRefs.baseCreateOscillator.apply(this, arguments)
-      if (!oscillator || typeof oscillator.start !== 'function') {
-        return oscillator
-      }
-      const nativeStart = oscillator.start.bind(oscillator)
-      defineMethod(oscillator, 'start', markNativeCode(function start(when) {
-        try {
-          if (oscillator.frequency && typeof oscillator.frequency.setValueAtTime === 'function') {
-            const baseFrequency = oscillator.frequency.value || 440
-            const drift = (persona.renderModel.modulation * 1.2e6) + (persona.renderModel.feedback * 8.0e5)
-            oscillator.frequency.setValueAtTime(baseFrequency + drift, when || 0)
-          }
-        } catch {
-          // ignore
-        }
-        return nativeStart.apply(this, arguments)
-      }, 'start'))
-      return oscillator
-    }, 'createOscillator'))
   }
 
   if (runtime.nativeRefs.analyserGetFloatFrequencyData) {
@@ -477,7 +446,7 @@ export function installAudioSpoof() {
   if (runtime.nativeRefs.audioWorkletPrototype) {
     const portDescriptor = Object.getOwnPropertyDescriptor(runtime.nativeRefs.audioWorkletPrototype, 'port')
     if (portDescriptor?.get) {
-      Object.defineProperty(runtime.nativeRefs.audioWorkletPrototype, 'port', {
+      definePatch(runtime.nativeRefs.audioWorkletPrototype, 'port', {
         configurable: true,
         enumerable: portDescriptor.enumerable,
         get: markNativeCode(function port() {
@@ -491,5 +460,5 @@ export function installAudioSpoof() {
   installAudioContextGetters(runtime, fingerprint, persona)
   installAudioDestinationGetters(runtime, persona)
 
-  markModule('audio')
+  markModule('audio',{status:'partial',detail:'native receivers/default engine sample rate, explicit rates and oscillator automation retained; shared offline/analyser/worklet-output masking; processor realm and opaque transfer payloads remain partial'})
 }

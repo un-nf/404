@@ -1,3 +1,4 @@
+import { definePatch } from '../core/patches.js'
 import { getRuntime, markModule } from '../core/guard.js'
 import { markNativeCode } from '../core/toString.js'
 
@@ -7,7 +8,7 @@ const DEFAULT_RULES = [
 
 function defineMethod(target, name, fn) {
   const descriptor = Object.getOwnPropertyDescriptor(target, name)
-  Object.defineProperty(target, name, {
+  definePatch(target, name, {
     value: fn,
     configurable: descriptor?.configurable ?? true,
     writable: descriptor?.writable ?? true,
@@ -19,7 +20,7 @@ function matchesRule(url, rules) {
   try {
     const parsed = new URL(url)
     return rules.some((rule) => {
-      const hostMatches = !rule.hostSuffix || parsed.hostname.endsWith(rule.hostSuffix)
+      const hostMatches = !rule.hostSuffix || parsed.hostname === rule.hostSuffix || parsed.hostname.endsWith(`.${rule.hostSuffix}`)
       const pathMatches = !rule.pathPrefix || parsed.pathname.startsWith(rule.pathPrefix)
       return hostMatches && pathMatches
     })
@@ -38,13 +39,6 @@ function dispatchXhrLifecycle(xhr) {
     } catch {
       // ignore
     }
-    try {
-      if (typeof xhr[handlerName] === 'function') {
-        xhr[handlerName].call(xhr)
-      }
-    } catch {
-      // ignore
-    }
   }
 
   fire('readystatechange', 'onreadystatechange')
@@ -54,7 +48,7 @@ function dispatchXhrLifecycle(xhr) {
 
 function finalizeBlockedXhr(xhr, url) {
   try {
-    Object.defineProperty(xhr, 'readyState', {
+    definePatch(xhr, 'readyState', {
       value: 4,
       configurable: true,
     })
@@ -62,7 +56,7 @@ function finalizeBlockedXhr(xhr, url) {
     // ignore
   }
   try {
-    Object.defineProperty(xhr, 'status', {
+    definePatch(xhr, 'status', {
       value: 204,
       configurable: true,
     })
@@ -70,7 +64,7 @@ function finalizeBlockedXhr(xhr, url) {
     // ignore
   }
   try {
-    Object.defineProperty(xhr, 'statusText', {
+    definePatch(xhr, 'statusText', {
       value: 'No Content',
       configurable: true,
     })
@@ -78,7 +72,7 @@ function finalizeBlockedXhr(xhr, url) {
     // ignore
   }
   try {
-    Object.defineProperty(xhr, 'responseURL', {
+    definePatch(xhr, 'responseURL', {
       value: url,
       configurable: true,
     })
@@ -86,7 +80,7 @@ function finalizeBlockedXhr(xhr, url) {
     // ignore
   }
   try {
-    Object.defineProperty(xhr, 'responseText', {
+    definePatch(xhr, 'responseText', {
       value: '',
       configurable: true,
     })
@@ -94,7 +88,7 @@ function finalizeBlockedXhr(xhr, url) {
     // ignore
   }
   try {
-    Object.defineProperty(xhr, 'response', {
+    definePatch(xhr, 'response', {
       value: '',
       configurable: true,
     })
@@ -118,7 +112,7 @@ export function installBeaconBlackhole() {
     defineMethod(window, 'fetch', markNativeCode(function fetch(input, init) {
       const url = typeof input === 'string' ? input : input?.url
       if (url && matchesRule(url, rules)) {
-        return Promise.resolve(new runtime.nativeRefs.response('', { status: 204 }))
+        return Promise.resolve(new runtime.nativeRefs.response(null, { status: 204 }))
       }
       return runtime.nativeRefs.fetch(input, init)
     }, 'fetch'))

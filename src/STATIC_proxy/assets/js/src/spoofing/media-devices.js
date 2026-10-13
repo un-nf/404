@@ -1,3 +1,4 @@
+import { definePatch } from '../core/patches.js'
 import { getFingerprint } from '../core/config.js'
 import { markModule } from '../core/guard.js'
 import { replaceGetter, replaceMethod, mapMethod } from '../core/descriptors.js'
@@ -69,6 +70,9 @@ export function installMediaDevicesSpoof() {
   replaceMethod(devices, 'getUserMedia', (native, receiver, args) =>
     Reflect.apply(native, receiver, [constraints(args[0]), ...args.slice(1)]))
   const observations = (result) => {
+      // MediaTrackConstraints contains nested ConstraintSets in advanced.
+      // Mask recursively on output as well as translating recursively on input.
+      if (Array.isArray(result.advanced)) result.advanced = result.advanced.map(observations)
       for (const property of ['deviceId', 'groupId']) {
         if (typeof result[property] === 'string') result[property] = alias(property, result[property])
         else if (Array.isArray(result[property])) result[property] = result[property].map((value) => alias(property, value))
@@ -110,16 +114,16 @@ export function installMediaDevicesSpoof() {
         } }) : options
         return Reflect.construct(native, args.length ? [converted, ...args.slice(1)] : args, newTarget)
       } }), AudioContext)
-      Object.defineProperty(globalThis, 'AudioContext', { ...descriptor, value: wrapped })
+      definePatch(globalThis, 'AudioContext', { ...descriptor, value: wrapped })
       if (globalThis.webkitAudioContext === AudioContext) {
         const aliasDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'webkitAudioContext')
         if (aliasDescriptor?.writable || aliasDescriptor?.configurable) {
-          Object.defineProperty(globalThis, 'webkitAudioContext', { ...aliasDescriptor, value: wrapped })
+          definePatch(globalThis, 'webkitAudioContext', { ...aliasDescriptor, value: wrapped })
         }
       }
       const constructor = Object.getOwnPropertyDescriptor(audio, 'constructor')
       if (constructor?.writable || constructor?.configurable) {
-        Object.defineProperty(audio, 'constructor', { ...constructor, value: wrapped })
+        definePatch(audio, 'constructor', { ...constructor, value: wrapped })
       }
     }
   }

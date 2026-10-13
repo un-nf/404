@@ -3,6 +3,11 @@ let runtime = null
 
 export function initRuntime() {
   if (runtime) {
+    if (runtime.state === 'failed' && runtime.retryable !== false) {
+      runtime.state = 'initializing'
+      runtime.attempts += 1
+      return true
+    }
     return false
   }
 
@@ -17,6 +22,7 @@ export function initRuntime() {
     coverage: {},
     nativeRefs: {},
     nonce: null,
+    attempts: 1,
   }
 
   return true
@@ -27,7 +33,9 @@ export function getRuntime() {
 }
 
 export function finishRuntime(error = null) {
-  runtime.state = error ? 'failed' : 'ready'
+  const failures = Object.values(runtime.outcomes).filter((outcome) => outcome.status === 'failed')
+  runtime.state = error || failures.length ? 'failed' : 'ready'
+  runtime.retryable = failures.every((outcome) => outcome.rolledBack)
   runtime.failure = error ? String(error.message || error) : null
 }
 

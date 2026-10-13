@@ -1,3 +1,4 @@
+import { definePatch } from '../core/patches.js'
 import { getRuntime, markModule } from '../core/guard.js'
 import { getFingerprint } from '../core/config.js'
 import { replaceMethod } from '../core/descriptors.js'
@@ -36,10 +37,10 @@ export function installTimezone() {
     construct(native, args, newTarget) { return Reflect.construct(native, defaultZone(args), newTarget) },
   }), Native)
   const descriptor = Object.getOwnPropertyDescriptor(Intl, 'DateTimeFormat')
-  Object.defineProperty(Intl, 'DateTimeFormat', { ...descriptor, value: wrapped })
+  definePatch(Intl, 'DateTimeFormat', { ...descriptor, value: wrapped })
   const constructorDescriptor = Object.getOwnPropertyDescriptor(Native.prototype, 'constructor')
   if (constructorDescriptor?.configurable) {
-    Object.defineProperty(Native.prototype, 'constructor', { ...constructorDescriptor, value: wrapped })
+    definePatch(Native.prototype, 'constructor', { ...constructorDescriptor, value: wrapped })
   }
   markModule('timezone', { status: 'partial', detail: 'Date offset/default Intl zone; explicit zones and native constructor preserved; local Date fields remain native' })
 }
