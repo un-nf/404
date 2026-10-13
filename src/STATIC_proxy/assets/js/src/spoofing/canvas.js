@@ -130,6 +130,11 @@ export function installCanvasSpoof() {
   const create=globalThis.Document?.prototype.createElement
   const bitmap=globalThis.createImageBitmap
   const transfer=offProto?.transferToImageBitmap
+  const settings=new WeakMap(), attributes=Context?.prototype.getContextAttributes
+  for(const prototype of [htmlProto,offProto])mapMethod(prototype,'getContext',(context,source)=>{
+    if(context&&attributes)try{settings.set(source,Reflect.apply(attributes,context,[]))}catch{}
+    return context
+  })
   function noisyCopy(source, prototype) {
     // Native width/height accessors validate the receiver without calling an
     // export twice, and without binding the drawing surface to a new context.
@@ -138,11 +143,11 @@ export function installCanvasSpoof() {
     if(!width||!height)return source
     const copy=prototype===offProto?new Offscreen(width,height):Reflect.apply(create,document,['canvas'])
     copy.width=width;copy.height=height
-    const context=copy.getContext('2d')
+    const context=copy.getContext('2d',settings.get(source))
     context.drawImage(source,0,0)
     try {
       const read=prototype===offProto?offRead:nativeRead,put=prototype===offProto?offPut:nativePut
-      const image=Reflect.apply(read,context,[0,0,width,height])
+      const image=Reflect.apply(read,context,[0,0,width,height,{colorSpace:settings.get(source)?.colorSpace||'srgb'}])
       injectCanvasNoise(image,runtime,fingerprint,noiseConfig,'pixels')
       Reflect.apply(put,context,[image,0,0])
       return copy
@@ -160,22 +165,45 @@ export function installCanvasSpoof() {
     if(prototype===offProto&&(!offRead||!offPut))continue
     replaceMethod(prototype,name,(native,receiver,args)=>Reflect.apply(native,noisyCopy(receiver,prototype),args))
   }
-  if(transfer&&offRead&&offPut)mapMethod(offProto,'transferToImageBitmap',original=>{
+  if(transfer&&offRead&&offPut)mapMethod(offProto,'transferToImageBitmap',(original,source)=>{
     // Transfer the original once so its clearing/ownership semantics survive.
-    const copy=new Offscreen(original.width,original.height),context=copy.getContext('2d')
+    try {
+    const copy=new Offscreen(original.width,original.height),context=copy.getContext('2d',settings.get(source))
     context.drawImage(original,0,0)
     const image=Reflect.apply(offRead,context,[0,0,original.width,original.height])
     injectCanvasNoise(image,runtime,fingerprint,noiseConfig,'pixels')
     Reflect.apply(offPut,context,[image,0,0])
     const result=Reflect.apply(transfer,copy,[]);original.close();return result
+    } catch(error) { if(error.name==='SecurityError')return original;original.close();throw error }
   })
-  if(bitmap&&Offscreen&&offRead&&offPut)mapMethod(globalThis,'createImageBitmap',promise=>promise.then(original=>{
-    const copy=new Offscreen(original.width,original.height),context=copy.getContext('2d')
-    context.drawImage(original,0,0)
-    const image=Reflect.apply(offRead,context,[0,0,original.width,original.height])
-    injectCanvasNoise(image,runtime,fingerprint,noiseConfig,'pixels')
-    Reflect.apply(offPut,context,[image,0,0])
-    return Reflect.apply(bitmap,globalThis,[copy]).then(result=>{original.close();return result})
-  }))
+  if(bitmap&&Offscreen&&offRead&&offPut)replaceMethod(globalThis,'createImageBitmap',(native,receiver,args)=>{
+    let canvas=false
+    for(const prototype of [htmlProto,offProto]) {
+      const getter=prototype&&findDescriptor(prototype,'width')?.descriptor.get
+      if(getter)try{Reflect.apply(getter,args[0],[]);canvas=true;break}catch{}
+    }
+    // Ordinary image/Blob/bitmap decoding stays native; later canvas readback
+    // remains masked. Only canvas extraction is a bitmap intervention here.
+    if(!canvas)return Reflect.apply(native,receiver,args)
+    const optionsIndex=args.length<=2?1:5, options=args[optionsIndex],captured={}
+    const forwarded=args.slice()
+    if(options&&(typeof options==='object'||typeof options==='function'))forwarded[optionsIndex]=new Proxy({}, {get(_target,key){
+      const value=Reflect.get(options,key,options)
+      if(['premultiplyAlpha','colorSpaceConversion','imageOrientation','resizeQuality'].includes(key)&&value!==undefined) {
+        captured[key]=`${value}`;return captured[key]
+      }
+      return value
+    }})
+    return Reflect.apply(native,receiver,forwarded).then(async original=>{
+      try {
+        const copy=new Offscreen(original.width,original.height),attrs=settings.get(args[0]),context=copy.getContext('2d',attrs)
+        context.drawImage(original,0,0)
+        const image=Reflect.apply(offRead,context,[0,0,original.width,original.height,{colorSpace:attrs?.colorSpace||'srgb'}])
+        injectCanvasNoise(image,runtime,fingerprint,noiseConfig,'pixels');Reflect.apply(offPut,context,[image,0,0])
+        const result=await Reflect.apply(bitmap,receiver,[copy,{colorSpaceConversion:'none',premultiplyAlpha:captured.premultiplyAlpha||'default'}])
+        original.close();return result
+      } catch(error) {if(error.name==='SecurityError')return original;original.close();throw error}
+    })
+  })
   markModule('canvas',{status:'partial',detail:'native readback and isolated export copies; originals never temporarily painted; color/rectangle and rendering inference require measurement'})
 }

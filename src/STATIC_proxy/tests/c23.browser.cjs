@@ -13,6 +13,9 @@ execFileSync('cargo', ['test', '--locked', '--offline', 'export_worker_browser_f
 })
 const raw = JSON.parse(fs.readFileSync(path.join(root, `profiles/${profileName}-windows.json`), 'utf8'))
 raw.startup_salt = 'browser-fixture-salt'
+// Explicit fixture-only native transport exercises local operation/alias reversal.
+// Shipped profiles remain relay-only; test that enforcement separately.
+raw.fingerprint.webrtc_transport_policy='native'
 raw.privacy_rules=[{hostSuffix:'localhost',pathPrefix:'/blocked'}]
 // Test-only access to the existing private outcome snapshot, without handles.
 const bundle = fs.readFileSync(path.join(directory, 'runtime.bundle.js'), 'utf8').replace(
@@ -31,6 +34,7 @@ const server = http.createServer((request, response) => {
     response.setHeader('Content-Type', 'text/html')
     response.end(`<!doctype html><html><head><script>
       window.expectedOffsets = ${JSON.stringify(raw.fingerprint.timezone === 'America/Denver' ? [420,360] : [300,240])};
+      window.expectedProfile = ${JSON.stringify(raw.fingerprint)};
       window.before = {storage:navigator.storage,permissions:navigator.permissions,
         mediaCapabilities:navigator.mediaCapabilities,plugins:navigator.plugins,mimes:navigator.mimeTypes,
         ua:navigator.userAgentData,uaStable:navigator.userAgentData===navigator.userAgentData,
@@ -45,6 +49,7 @@ const server = http.createServer((request, response) => {
         deviceId:Object.getOwnPropertyDescriptor(MediaDeviceInfo.prototype,'deviceId')?.get,
         groupId:Object.getOwnPropertyDescriptor(MediaDeviceInfo.prototype,'groupId')?.get,
         deviceCaps:window.InputDeviceInfo?.prototype.getCapabilities,
+        audioRate:window.BaseAudioContext&&Object.getOwnPropertyDescriptor(BaseAudioContext.prototype,'sampleRate')?.get,
         userAgent:Object.getOwnPropertyDescriptor(Navigator.prototype,'userAgent')};
       </script><script src="/__static/runtime.js" data-static-config-b64="${encoded}"></script></head><body></body></html>`)
   } else if (pathname === '/__static/runtime.js') {
@@ -84,6 +89,9 @@ async function main() {
     const shapes = await page.evaluate(async () => {
       const n = navigator, b = before
       const checks = {}
+      const pdfAvailable=expectedProfile.pdf_viewer_enabled&&b.plugins.length===5&&b.mimes.length===2&&['PDF Viewer','Chrome PDF Viewer','Chromium PDF Viewer','Microsoft Edge PDF Viewer','WebKit built-in PDF'].every((name,index)=>b.plugins[index].name===name)
+      if(expectedProfile.pdf_viewer_enabled&&!pdfAvailable){try{n.pdfViewerEnabled;checks.pdfFlag=false}catch(e){checks.pdfFlag=e.name==='SecurityError'}}
+      else checks.pdfFlag = n.pdfViewerEnabled === expectedProfile.pdf_viewer_enabled
       checks.installation = window.__fixtureReport.state === 'ready'
       const blocked=await fetch(new URL('/blocked',location.href))
       checks.blockedFetch=blocked instanceof Response&&blocked.status===204&&await blocked.text()===''
@@ -97,13 +105,14 @@ async function main() {
       let synchronous=false;const sync=new XMLHttpRequest();sync.open('GET','/blocked',false);sync.onload=()=>synchronous=true;sync.send();checks.xhrSync=synchronous
       for (const [key, previous] of Object.entries({storage:b.storage,permissions:b.permissions,
         mediaCapabilities:b.mediaCapabilities,plugins:b.plugins,mimeTypes:b.mimes})) {
-        checks[`identity-${key}`] = n[key] === previous
+        if(!pdfAvailable&&['plugins','mimeTypes'].includes(key)){try{n[key];checks[`identity-${key}`]=false}catch(e){checks[`identity-${key}`]=e.name==='SecurityError'}}
+        else checks[`identity-${key}`] = n[key] === previous
       }
       checks.identityNotification = window.Notification.prototype === b.notification.prototype &&
         Notification.prototype.constructor === Notification
       checks.uaIdentity = (n.userAgentData === n.userAgentData) === b.uaStable &&
         Object.getOwnPropertyDescriptor(Navigator.prototype,'userAgentData')?.get === b.uaGetter
-      checks.plugins = n.plugins instanceof PluginArray && !Array.isArray(n.plugins) &&
+      checks.plugins = !pdfAvailable || n.plugins instanceof PluginArray && !Array.isArray(n.plugins) &&
         n.mimeTypes instanceof MimeTypeArray && !Array.isArray(n.mimeTypes) &&
         PluginArray.prototype.item.call(n.plugins, '0') === (n.plugins[0] ?? null) && !('refresh' in n.mimeTypes)
       const voices = speechSynthesis.getVoices()
@@ -126,6 +135,16 @@ async function main() {
       try { descriptor.get.call({}); checks.receiver = false } catch (e) { checks.receiver = e instanceof TypeError }
       if (n.userAgentData) {
       const data = await n.userAgentData.getHighEntropyValues([])
+      const mappings={architecture:'architecture',bitness:'bitness',model:'model',platformVersion:'platform_version',fullVersionList:'full_version_list',uaFullVersion:'ua_full_version',wow64:'wow64',formFactors:'form_factors'}
+      checks.completeHints=true
+      for(const [hint,key] of Object.entries(mappings)) {
+        const value=await n.userAgentData.getHighEntropyValues([hint])
+        if(hint in value&&JSON.stringify(value[hint])!==JSON.stringify(expectedProfile.ua_data[key]))checks.completeHints=false
+        if(Object.keys(value).some(name=>!['brands','mobile','platform',hint].includes(name)))checks.completeHints=false
+      }
+      const all=await n.userAgentData.getHighEntropyValues(Object.keys(mappings))
+      checks.hintTypes=!('formFactors' in all)||Array.isArray(all.formFactors)&&all.formFactors.every(value=>typeof value==='string')
+      checks.hintBaseline=JSON.stringify(await n.userAgentData.getHighEntropyValues(['unknown-future-identity']))===JSON.stringify(data)
       checks.ua = n.userAgentData instanceof NavigatorUAData &&
         Object.hasOwn(data, 'brands') && Object.hasOwn(data, 'mobile') && Object.hasOwn(data, 'platform') &&
         Object.isFrozen(n.userAgentData.brands) && n.userAgentData.toJSON().brands[0].brand === n.userAgentData.brands[0].brand
@@ -161,7 +180,7 @@ async function main() {
       const codec = {type:'file',audio:{contentType:'audio/webm; codecs="opus"',channels:'2',bitrate:128000,samplerate:48000}}
       const capability = await n.mediaCapabilities.decodingInfo(codec)
       const nativeCapability = await b.decodingInfo.call(n.mediaCapabilities, codec)
-      checks.codecMask = capability.supported === nativeCapability.supported &&
+       checks.codecMask = capability.supported === true &&
         capability.smooth === capability.supported && capability.powerEfficient === capability.supported &&
         capability.keySystemAccess === nativeCapability.keySystemAccess
       checks.storage = n.storage instanceof StorageManager &&
@@ -169,11 +188,19 @@ async function main() {
         (!n.storage.getDirectory || await n.storage.getDirectory() instanceof FileSystemDirectoryHandle)
       const estimate = await n.storage.estimate()
       const nativeEstimate = await b.estimate.call(n.storage)
-      checks.storageMask = estimate.quota === 107374182400 && estimate.usage >= 1048576 &&
-        estimate.usage % 1048576 === 0 && estimate.usage <= estimate.quota &&
+      checks.storageMask = estimate.quota === expectedProfile.storage_quota && estimate.usage === expectedProfile.storage_usage &&
+        estimate.usage <= estimate.quota &&
         (!estimate.usageDetails || Object.keys(estimate.usageDetails).length === 0) && estimate !== nativeEstimate
       try { await n.storage.estimate.call({}); checks.storageReceiver = false }
       catch(e) { checks.storageReceiver = e instanceof TypeError }
+      if(n.storage.getDirectory) {
+        const directory=await n.storage.getDirectory(),name='profile-estimate-fixture'
+        try {
+          const file=await directory.getFileHandle(name,{create:true}),writer=await file.createWritable()
+          await writer.write(new Uint8Array(4096));await writer.close()
+          checks.storageWritesFixed=JSON.stringify(await n.storage.estimate())===JSON.stringify(estimate)
+        } finally { await directory.removeEntry(name) }
+      }
       checks.gamepads = Array.from(n.getGamepads()).every((pad) => pad === null)
       if(window.RTCPeerConnection){
         const left=new RTCPeerConnection(),right=new RTCPeerConnection()
@@ -188,6 +215,10 @@ async function main() {
           const answer=await right.createAnswer();await right.setLocalDescription(answer);await left.setRemoteDescription(answer)
           await Promise.race([new Promise(resolve=>{if(channel.readyState==='open')resolve();else channel.onopen=resolve}),new Promise((_,reject)=>setTimeout(()=>reject(Error('local peer timeout')),5000))])
           channel.send('privacy-fixture');checks.peerRoundTrip=await received==='privacy-fixture'&&listenerCalls>0
+          const stats=await left.getStats(),entries=Array.from(stats.values())
+          checks.statsAddresses=entries.every(value=>!['address','ip','ipAddress','relatedAddress'].some(key=>typeof value[key]==='string'&&value[key]&&!['192.0.2.1','2001:db8::1'].includes(value[key])))
+          let callbackOK=true;stats.forEach((value,key)=>{if(value.address!==stats.get(key).address)callbackOK=false})
+          checks.statsIteration=callbackOK&&Array.from(stats).length===stats.size&&stats[Symbol.iterator]===stats.entries
           left.removeEventListener('icecandidate',listener)
           try{Object.getOwnPropertyDescriptor(RTCPeerConnection.prototype,'onicecandidate').get.call({});checks.peerReceiver=false}
           catch(e){checks.peerReceiver=e instanceof TypeError}
@@ -245,15 +276,15 @@ async function main() {
       } finally { stream.getTracks().forEach((track) => track.stop()) }
       if(window.AudioContext) {
         let optionReads=0
-        const options={get sampleRate(){if(this!==options)throw new Error('audio options receiver');optionReads++;return 48000}}
+        const options={get sampleRate(){if(this!==options)throw new Error('audio options receiver');optionReads++;return 44100}}
         class CustomAudio extends AudioContext {}
         const context=new CustomAudio(options)
         checks.audioConstructor = context instanceof AudioContext && context instanceof CustomAudio &&
           AudioContext.prototype.constructor===AudioContext && optionReads===1
-        checks.audioExplicitRate=context.sampleRate===48000
+        checks.audioExplicitRate=context.sampleRate===expectedProfile.audio_context.sample_rate&&b.audioRate.call(context)===44100
         const analyser=context.createAnalyser(),large=new Float32Array(analyser.frequencyBinCount+8);large.fill(123)
         analyser.getFloatFrequencyData(large);checks.analyserTail=Array.from(large.slice(analyser.frequencyBinCount)).every(value=>value===123)
-        const oscillator=context.createOscillator();oscillator.frequency.value=777;oscillator.start();checks.oscillatorControl=oscillator.frequency.value===777;oscillator.stop()
+        const oscillator=context.createOscillator();oscillator.frequency.value=777;oscillator.start();oscillator.frequency.setValueAtTime(880,context.currentTime+.01);checks.oscillatorControl=oscillator.frequency instanceof AudioParam;oscillator.stop()
         await context.close()
       }
       const gl = document.createElement('canvas').getContext('webgl2')
@@ -262,6 +293,11 @@ async function main() {
           WebGL2RenderingContext.prototype.getParameter.call(gl, gl.MAX_VIEWPORT_DIMS) instanceof Int32Array &&
           gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE) instanceof Float32Array &&
           gl.getParameter(gl.VERSION).includes('WebGL 2')
+        const policy=expectedProfile.webgl_contexts.webgl2
+        checks.gpuProfileMetadata=gl.getParameter(gl.VERSION)===policy.version&&
+          gl.getParameter(gl.VENDOR)===policy.vendor&&gl.getParameter(gl.RENDERER)===policy.renderer&&
+          gl.getParameter(gl.MAX_TEXTURE_SIZE)===policy.parameters.MAX_TEXTURE_SIZE&&
+          JSON.stringify(gl.getSupportedExtensions())===JSON.stringify(policy.extensions)
         let conversions=0
         gl.getParameter({valueOf(){ conversions++; return gl.MAX_TEXTURE_SIZE }})
         checks.glConversion = conversions === 1
@@ -340,7 +376,7 @@ async function main() {
       const privacy = worker.privacy
       if (privacy.storage) {
         assert.equal(privacy.storage.quota,107374182400)
-        assert.ok(privacy.storage.usage >= 1048576 && privacy.storage.usage % 1048576 === 0)
+        assert.equal(privacy.storage.usage,raw.fingerprint.storage_usage)
         assert.ok(!privacy.storage.usageDetails || Object.keys(privacy.storage.usageDetails).length === 0)
       }
       if (privacy.notification) assert.equal(privacy.notification,'denied')

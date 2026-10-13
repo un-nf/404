@@ -1,0 +1,12 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),http=require('node:http')
+const playwright=require(process.env.STATIC_PLAYWRIGHT_MODULE||'playwright'),root=path.resolve(__dirname,'..'),engine=process.env.STATIC_BROWSER_ENGINE||'chromium'
+const profile=JSON.parse(fs.readFileSync(path.join(root,`profiles/${engine==='firefox'?'firefox':'chrome'}-windows.json`))),bundle=fs.readFileSync(path.join(root,'assets/js/dist/runtime.bundle.js'))
+const server=http.createServer((req,res)=>{res.setHeader('Content-Type',req.url==='/runtime.js'?'text/javascript':'text/html');res.end(req.url==='/runtime.js'?bundle:`<!doctype html><script>window.nativeConfiguration=RTCPeerConnection.prototype.getConfiguration;</script><script src="/runtime.js" data-static-config-b64="${Buffer.from(JSON.stringify(profile)).toString('base64')}"></script>`)})
+async function main(){await new Promise(r=>server.listen(0,'127.0.0.1',r));const browser=await playwright[engine].launch({headless:true,...(process.env.STATIC_BROWSER_EXECUTABLE?{executablePath:process.env.STATIC_BROWSER_EXECUTABLE}:{})});const contexts=[]
+ try{const results=[];for(let index=0;index<2;index++){const context=await browser.newContext();contexts.push(context);const page=await context.newPage();await page.goto(`http://localhost:${server.address().port}/`)
+  results.push(await page.evaluate(async()=>{const p=new RTCPeerConnection({iceTransportPolicy:'all'}),candidates=[];p.onicecandidate=e=>{if(e.candidate?.candidate)candidates.push(e.candidate.candidate)};p.setConfiguration({iceTransportPolicy:'all'});const policy=nativeConfiguration.call(p).iceTransportPolicy;p.createDataChannel('fixture');await p.setLocalDescription(await p.createOffer());await new Promise(resolve=>{if(p.iceGatheringState==='complete')return resolve();p.onicegatheringstatechange=()=>{if(p.iceGatheringState==='complete')resolve()};setTimeout(resolve,1500)});const state=p.iceGatheringState;p.close();return {policy,candidates,state}}))
+ }
+ for(const result of results){assert.equal(result.policy,'relay');assert.deepEqual(result.candidates,[])}
+ console.log(JSON.stringify({engine,version:browser.version(),results,scope:'two isolated contexts; no TURN configured, so direct candidate emission is denied; no remote relay connectivity claim'},null,2))
+ }finally{for(const context of contexts)await context.close();await browser.close();await new Promise(r=>server.close(r))}}
+main().catch(error=>{console.error(error);process.exitCode=1})

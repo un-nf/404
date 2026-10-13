@@ -46,6 +46,7 @@ export function transaction(operation) {
     if (result && typeof result.then === 'function') throw new TypeError('Installers must be synchronous')
     // A legacy installer swallowing a define failure cannot claim success.
     if (journal.errors.length) throw journal.errors[0]
+    if(parent){parent.undo.push(...journal.undo);parent.skipped.push(...journal.skipped)}
     return { changed: journal.undo.length, skipped: journal.skipped.slice() }
   } catch (error) {
     const rollbackErrors = []

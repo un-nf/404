@@ -7,11 +7,8 @@ function defineScreenGetter(name, fn) {
 }
 
 function parseResolution(value) {
-  const [width, height] = String(value || '1920x1080').split('x').map((part) => Number(part))
-  return {
-    width: Number.isFinite(width) ? width : 1920,
-    height: Number.isFinite(height) ? height : 1080,
-  }
+  const [width, height] = value.split('x').map(Number)
+  return { width, height }
 }
 
 export function installScreen() {

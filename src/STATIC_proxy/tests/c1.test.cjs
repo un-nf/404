@@ -26,8 +26,9 @@ function profile() {
   return { startup_salt: 'private-test-salt', fingerprint: {
     user_agent: 'Mozilla/5.0 Windows AppleWebKit/537.36 Chrome/147.0.0.0',
     platform: 'Win32', vendor: 'Google Inc.', browser_variant: 'chrome',
-    canvas_hash: 'private-canvas-seed', webgl_vendor: 'vendor', webgl_renderer: 'renderer',
-    ua_data: { brands: [{ brand: 'Chromium', version: '147' }] },
+    canvas_hash: 'private-canvas-seed', webgl_vendor: 'vendor', webgl_renderer: 'renderer', webgl_contexts:require('../profiles/chrome-windows.json').fingerprint.webgl_contexts,
+    ua_data: { brands: [{ brand: 'Chromium', version: '147' }], full_version_list:[{brand:'Chromium',version:'147.0.0.0'}],
+      platform:'Windows',platform_version:'15.0.0',architecture:'x86',bitness:'64',model:'',ua_full_version:'147.0.0.0',mobile:false,wow64:false,form_factors:['Desktop'] },
   } }
 }
 

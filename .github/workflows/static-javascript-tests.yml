@@ -1,0 +1,31 @@
+name: STATIC JavaScript contracts
+on:
+  pull_request:
+    paths: ["src/STATIC_proxy/**", ".gitattributes", "scripts/update-static-profile-manifest.ps1", ".github/workflows/static-javascript-tests.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contracts:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: src/STATIC_proxy/build/package-lock.json
+      - run: npm ci
+        working-directory: src/STATIC_proxy/build
+      - run: npm test
+        working-directory: src/STATIC_proxy/build
+      - run: npm run build
+        working-directory: src/STATIC_proxy/build
+      - name: Verify canonical profile manifest
+        shell: pwsh
+        run: |
+          ./scripts/update-static-profile-manifest.ps1
+          git diff --exit-code -- src/STATIC_proxy/profiles

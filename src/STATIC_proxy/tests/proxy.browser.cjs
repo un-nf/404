@@ -10,19 +10,23 @@ async function freePort(){const s=net.createServer();await new Promise(r=>s.list
 async function main(){
   execFileSync('cargo',['build','--locked','--offline'],{cwd:root,stdio:'pipe'})
   // Run a fixture-owned copy: a stalled browser cannot lock Cargo's output.
-  const executable=path.join(fixture,'static_proxy.exe')
-  fs.copyFileSync(path.join(root,'target/debug/static_proxy.exe'),executable)
+  const binary=process.platform==='win32'?'static_proxy.exe':'static_proxy'
+  const executable=path.join(fixture,binary)
+  fs.copyFileSync(path.join(root,'target/debug',binary),executable)
+  if(process.platform!=='win32')fs.chmodSync(executable,0o755)
   const observed=[]
   const upstream=http.createServer((req,res)=>{
-    observed.push({path:req.url,ua:req.headers['user-agent']})
+    observed.push({path:req.url,ua:req.headers['user-agent'],headers:req.headers})
+    res.setHeader('Accept-CH','Sec-CH-UA-Arch, Sec-CH-UA-Bitness, Sec-CH-UA-Model, Sec-CH-UA-Platform-Version, Sec-CH-UA-Full-Version-List, Sec-CH-UA-WoW64, Sec-CH-UA-Form-Factors')
     res.setHeader('Cache-Control','no-store')
-    if(req.url==='/worker.js'){res.setHeader('Content-Type','text/javascript');res.end('postMessage({ua:navigator.userAgent})')}
+    if(req.url==='/worker.js'){res.setHeader('Content-Type','text/javascript');res.end('(async()=>postMessage({ua:navigator.userAgent,storage:navigator.storage?await navigator.storage.estimate():null}))()')}
     else {res.setHeader('Content-Type','text/html');res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; worker-src 'self'");res.end('<!doctype html><html><head><title>proxy fixture</title></head><body>proxy fixture</body></html>')}
   })
   await new Promise(r=>upstream.listen(0,'127.0.0.1',r))
   const port=await freePort(),config=path.join(fixture,'config.toml')
   fs.writeFileSync(config,`[listener]\nbind_address="127.0.0.1"\nbind_port=${port}\nproxy_protocol="plain"\n[tls]\nkeystore={mode="file"}\n[pipeline]\nprofiles_path=${JSON.stringify(path.join(root,'profiles').replaceAll('\\','/'))}\ndefault_profile="${profile}-windows"\njs_debug=false\nalt_svc_strategy="normalize"\n[http3]\nenabled=false\n[telemetry]\nmode="stdout"\n`)
-  const child=spawn(executable,['--config',config],{cwd:root,windowsHide:true,
+  const storageArgs=JSON.parse(process.env.STATIC_STORAGE_TEST_ARGS||'[]')
+  const child=spawn(executable,['--config',config,...storageArgs],{cwd:root,windowsHide:true,
     env:{...process.env,RUST_LOG:'info',STATIC_TEST_DATA_DIR:path.join(fixture,'state')}})
   let logs='';child.stdout.on('data',data=>logs+=data);child.stderr.on('data',data=>logs+=data)
   let browser
@@ -61,9 +65,20 @@ async function main(){
       return{invalid,calls}
     })
     assert.equal(geoChecks.invalid,true);assert.equal(geoChecks.calls,0)
-    const workerUA=await page.evaluate(()=>new Promise((resolve,reject)=>{const worker=new Worker('/worker.js');worker.onmessage=e=>{worker.terminate();resolve(e.data.ua)};worker.onerror=reject}))
-    assert.equal(workerUA,expected)
-    const estimate=await page.evaluate(()=>navigator.storage.estimate());assert.equal(estimate.quota,107374182400)
+    const workerData=await page.evaluate(()=>new Promise((resolve,reject)=>{const worker=new Worker('/worker.js');worker.onmessage=e=>{worker.terminate();resolve(e.data)};worker.onerror=reject}))
+    assert.equal(workerData.ua,expected)
+    if(workerData.storage){assert.equal(workerData.storage.quota,Number(process.env.STATIC_TEST_STORAGE_QUOTA||107374182400));assert.equal(workerData.storage.usage,Number(process.env.STATIC_TEST_STORAGE_USAGE||1048576))}
+    const estimate=await page.evaluate(()=>navigator.storage.estimate())
+    assert.equal(estimate.quota,Number(process.env.STATIC_TEST_STORAGE_QUOTA||107374182400))
+    assert.equal(estimate.usage,Number(process.env.STATIC_TEST_STORAGE_USAGE||1048576))
+    await page.evaluate(()=>fetch('/hints'))
+    if(engine==='chromium') {
+      const identity=JSON.parse(fs.readFileSync(path.join(root,`profiles/${profile}-windows.json`))).fingerprint.ua_data
+      const hints=observed.find(value=>value.path==='/hints').headers
+      assert.equal(hints['sec-ch-ua-arch'],JSON.stringify(identity.architecture))
+      assert.equal(hints['sec-ch-ua-wow64'],identity.wow64?'?1':'?0')
+      assert.equal(hints['sec-ch-ua-form-factors'],identity.form_factors.map(value=>JSON.stringify(value)).join(', '))
+    }
     assert.deepEqual(errors,[])
     if(process.env.STATIC_PUBLIC_TLS_SMOKE==='1') {
       const secure=await page.goto('https://example.com/')

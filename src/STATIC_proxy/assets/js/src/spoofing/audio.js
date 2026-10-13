@@ -1,4 +1,4 @@
-import { replaceGetter, mapMethod, findDescriptor } from '../core/descriptors.js'
+import { replaceGetter, replaceMethod, mapMethod, findDescriptor } from '../core/descriptors.js'
 import { markNativeLike } from '../core/toString.js'
 import { definePatch } from '../core/patches.js'
 import { getFingerprint } from '../core/config.js'
@@ -219,12 +219,12 @@ function resolveAudioHardwareProfile(runtime, fingerprint) {
     ? audioContext.hardware_profiles
     : null
   if (configuredProfiles?.length) {
-    return chooseWeightedProfile(runtime, fingerprint, configuredProfiles, 'configured')
+    return configuredProfiles[0]
   }
 
   const deviceClass = classifyAudioHardware(fingerprint, audioContext)
   const defaults = DEFAULT_AUDIO_HARDWARE_PROFILES[deviceClass] || DEFAULT_AUDIO_HARDWARE_PROFILES.integrated
-  return chooseWeightedProfile(runtime, fingerprint, defaults, deviceClass)
+  return defaults[0]
 }
 
 function buildRenderModel(runtime, fingerprint, profile) {
@@ -243,10 +243,10 @@ function buildRenderModel(runtime, fingerprint, profile) {
   }
 }
 
-function resolveAudioPersona(runtime, fingerprint) {
+export function resolveAudioPersona(runtime, fingerprint) {
   const audioContext = fingerprint.audio_context || {}
   const hardwareProfile = resolveAudioHardwareProfile(runtime, fingerprint) || {}
-  const sampleRate = numericField(hardwareProfile.sample_rate, numericField(audioContext.sample_rate, 48000))
+  const sampleRate = numericField(audioContext.sample_rate, numericField(hardwareProfile.sample_rate, 48000))
   const baseFrames = Math.max(128, Math.round(numericField(hardwareProfile.base_frames, 256)))
   const configuredBaseLatency = numericField(audioContext.base_latency, Number.NaN)
   const configuredOutputLatency = numericField(audioContext.output_latency, Number.NaN)
@@ -263,10 +263,10 @@ function resolveAudioPersona(runtime, fingerprint) {
     sampleRate,
     baseLatency,
     outputLatency,
-    channelCount: Math.max(1, Math.round(numericField(hardwareProfile.channel_count, numericField(audioContext.channel_count, 2)))),
-    maxChannelCount: Math.max(1, Math.round(numericField(hardwareProfile.max_channel_count, numericField(audioContext.max_channel_count, 2)))),
-    numberOfInputs: Math.max(0, Math.round(numericField(hardwareProfile.number_of_inputs, numericField(audioContext.number_of_inputs, 1)))),
-    numberOfOutputs: Math.max(0, Math.round(numericField(hardwareProfile.number_of_outputs, numericField(audioContext.number_of_outputs, 0)))),
+    channelCount: numericField(audioContext.channel_count, numericField(hardwareProfile.channel_count, 2)),
+    maxChannelCount: numericField(audioContext.max_channel_count, numericField(hardwareProfile.max_channel_count, 2)),
+    numberOfInputs: numericField(audioContext.number_of_inputs, numericField(hardwareProfile.number_of_inputs, 1)),
+    numberOfOutputs: numericField(audioContext.number_of_outputs, numericField(hardwareProfile.number_of_outputs, 0)),
     renderModel: buildRenderModel(runtime, fingerprint, hardwareProfile),
   }
 }
@@ -338,7 +338,7 @@ function installAudioContextGetters(runtime, fingerprint, persona) {
     const outputLatencyDescriptor = Object.getOwnPropertyDescriptor(prototype, 'outputLatency')
 
     defineGetter(prototype, 'sampleRate', function sampleRateGetter(native) {
-      return native
+      return persona.sampleRate
     }, sampleRateDescriptor?.enumerable ?? false)
 
     defineGetter(prototype, 'baseLatency', function baseLatencyGetter() {
@@ -365,19 +365,19 @@ function installAudioDestinationGetters(runtime, persona) {
   const numberOfOutputsDescriptor = Object.getOwnPropertyDescriptor(prototype, 'numberOfOutputs')
 
   defineGetter(prototype, 'channelCount', function channelCountGetter(native) {
-    return native
+    return persona.channelCount
   }, channelCountDescriptor?.enumerable ?? false)
 
   defineGetter(prototype, 'maxChannelCount', function maxChannelCountGetter(native) {
-    return Math.min(native, persona.maxChannelCount)
+    return persona.maxChannelCount
   }, maxChannelCountDescriptor?.enumerable ?? false)
 
   defineGetter(prototype, 'numberOfInputs', function numberOfInputsGetter(native) {
-    return native
+    return persona.numberOfInputs
   }, numberOfInputsDescriptor?.enumerable ?? false)
 
   defineGetter(prototype, 'numberOfOutputs', function numberOfOutputsGetter(native) {
-    return native
+    return persona.numberOfOutputs
   }, numberOfOutputsDescriptor?.enumerable ?? false)
 }
 
@@ -389,6 +389,26 @@ export function installAudioSpoof() {
   }
 
   const persona = resolveAudioPersona(runtime, fingerprint)
+
+  // Restore the deliberately measured phase/frequency intervention. Buffer
+  // perturbation alone has not demonstrated equivalent fingerprint protection.
+  // Validate start() first so invalid receivers/times and repeated starts cannot
+  // mutate an AudioParam. Capture genuine operations once during installation.
+  const oscillatorPrototype = globalThis.OscillatorNode?.prototype
+  const frequencyGetter = findDescriptor(oscillatorPrototype, 'frequency')?.descriptor.get
+  const setFrequency = globalThis.AudioParam?.prototype.setValueAtTime
+  if (frequencyGetter && setFrequency) {
+    const drift = persona.renderModel.modulation * 1.2e6 + persona.renderModel.feedback * 8.0e5
+    replaceMethod(oscillatorPrototype, 'start', (native, receiver, args) => {
+      let frequency
+      try { frequency = Reflect.apply(frequencyGetter, receiver, []) }
+      catch { return Reflect.apply(native, receiver, args) } // Shared source prototype.
+      const when = args.length && args[0] !== undefined ? +args[0] : 0
+      const result = Reflect.apply(native, receiver, [when])
+      Reflect.apply(setFrequency, frequency, [(frequency.value || 440) + drift, when])
+      return result
+    })
+  }
 
   const rendered=new WeakSet()
   const maskBuffer=buffer=>{
@@ -460,5 +480,5 @@ export function installAudioSpoof() {
   installAudioContextGetters(runtime, fingerprint, persona)
   installAudioDestinationGetters(runtime, persona)
 
-  markModule('audio',{status:'partial',detail:'native receivers/default engine sample rate, explicit rates and oscillator automation retained; shared offline/analyser/worklet-output masking; processor realm and opaque transfer payloads remain partial'})
+  markModule('audio',{status:'partial',detail:'profile metadata and restored oscillator frequency intervention; native start validation and later automation retained; original-probe equivalence, processor realm and opaque transfer payloads remain partial'})
 }

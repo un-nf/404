@@ -49,12 +49,14 @@ export function startRuntime(rawConfig, initializeChild) {
   }
 
   try {
-    loadConfig(rawConfig)
-    captureNativeRefs()
-    captureNonce()
-    initEntropy()
-    initPolicy()
-    installToStringProxy()
+    const runtime = getRuntime()
+    if (!runtime.config?.ready) loadConfig(rawConfig)
+    if (!runtime.nativeRefs.functionToString) captureNativeRefs()
+    if (!runtime.nonceCaptured) { captureNonce(); runtime.nonceCaptured = true }
+    if (!runtime.entropy) initEntropy()
+    if (!runtime.policy) initPolicy()
+    installModule('toString', true, installToStringProxy)
+    if (runtime.outcomes.toString.status === 'failed') { finishRuntime(); return runtime.state }
 
     const policy = getPolicy()
     getRuntime().outcomes.configuration = Object.freeze({ status:getRuntime().config.contract.unsupported.length?'partial':'installed',

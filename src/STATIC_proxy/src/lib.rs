@@ -33,6 +33,7 @@ pub mod telemetry;
 pub mod tls;
 pub mod utils;
 pub mod runtime_schema;
+pub mod profile_overrides;
 
 static RUSTLS_PROVIDER_INIT: OnceLock<Result<(), String>> = OnceLock::new();
 

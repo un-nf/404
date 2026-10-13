@@ -587,17 +587,17 @@ fn permits_worker_bootstrap_import(headers: &http::HeaderMap) -> bool {
 
 fn worker_profile(fingerprint: &serde_json::Value) -> serde_json::Value {
     let mut profile = serde_json::Map::new();
-    for key in ["user_agent", "platform", "vendor", "vendorSub", "productSub", "browser_family",
+    for key in ["canvas_hash", "user_agent", "app_version", "platform", "vendor", "vendorSub", "productSub", "browser_family",
         "browser_variant", "profile_variant", "browser_type", "browser_version", "oscpu", "buildID",
         "hardware_concurrency", "device_memory", "max_touch_points", "languages", "language",
         "do_not_track", "pdf_viewer_enabled", "ua_data", "sec_ch_ua_platform", "enable_network_spoof",
         "downlink", "rtt", "effective_type", "connection_type", "timezone", "enable_timezone_spoof",
         "enable_performance_spoof", "enable_webgl_spoof", "webgl_vendor", "webgl_renderer",
-        "webgl_parameters", "webgl_standard_vendor", "webgl_standard_renderer",
-        "storage_quota", "storage_usage", "storage_usage_quantum", "enable_storage_spoof",
+        "webgl_contexts",
+        "storage_quota", "storage_usage", "enable_storage_spoof",
         "permission_states", "enable_geolocation_spoof", "media_capabilities", "cookie_enabled", "save_data",
         "enable_permissions_spoof", "enable_notifications_spoof", "enable_battery_spoof",
-        "enable_media_capabilities_spoof", "compatibility_mode", "enable_canvas_spoof", "canvas_noise"] {
+        "enable_media_capabilities_spoof", "enable_canvas_spoof", "enable_fingerprint_drift", "canvas_noise"] {
         if let Some(value) = fingerprint.get(key) { profile.insert(key.into(), value.clone()); }
     }
     serde_json::Value::Object(profile)
@@ -656,7 +656,7 @@ mod tests {
             let source = std::str::from_utf8(&first).unwrap();
             assert!(source.starts_with("/* leading */ 'use strict';"));
             assert!(!source.contains("must-not-be-published"));
-            assert!(!source.contains("chrome_win10_canvas_v1"));
+            assert!(source.contains("chrome_win10_canvas_v1"));
             assert!(flow.metadata.worker_injected);
             assert!(!flow.metadata.script_injected);
             stage.on_response_body(&mut flow).await.unwrap();
@@ -756,14 +756,15 @@ mod tests {
     #[test]
     fn worker_profile_carries_privacy_observations_without_private_material() {
         let fingerprint = json!({"storage_quota": 107374182400u64,
-            "storage_usage_quantum": 1048576, "enable_storage_spoof": false,
+            "storage_usage": 1048576, "enable_storage_spoof": false,
             "permission_states": {"camera":"denied"}, "media_capabilities":{"smooth":true},
             "canvas_hash":"private-seed", "startup_salt":"private-salt", "nonce":"private-nonce"});
         let profile = worker_profile(&fingerprint);
-        for key in ["storage_quota", "storage_usage_quantum", "enable_storage_spoof", "permission_states", "media_capabilities"] {
+        for key in ["storage_quota", "storage_usage", "enable_storage_spoof", "permission_states", "media_capabilities"] {
             assert_eq!(profile[key], fingerprint[key]);
         }
-        for key in ["canvas_hash", "startup_salt", "nonce"] { assert!(profile.get(key).is_none()); }
+        assert_eq!(profile["canvas_hash"],fingerprint["canvas_hash"]);
+        for key in ["startup_salt", "nonce"] { assert!(profile.get(key).is_none()); }
     }
 
     fn gzip_encode(data: &[u8]) -> Vec<u8> {

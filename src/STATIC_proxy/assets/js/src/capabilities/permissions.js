@@ -1,15 +1,17 @@
 import { getFingerprint } from '../core/config.js'
 import { markModule } from '../core/guard.js'
 import { replaceGetter, replaceMethod } from '../core/descriptors.js'
+import { suppressNativeTransitions } from '../core/events.js'
 
 const DENIED = new Set(['notifications', 'push', 'geolocation', 'camera', 'microphone',
   'background-sync', 'clipboard-read', 'clipboard-write'])
 
 export function permissionObservation(name, nativeState, fp) {
+  const configured = fp.permission_states?.[name]
+  if(configured!==undefined)return configured==='native'?nativeState:configured
   if (name === 'persistent-storage') return nativeState
   if (name === 'geolocation' && fp.enable_geolocation_spoof === false) return nativeState
-  const configured = fp.permission_states?.[name]
-  return configured === 'native' ? nativeState : configured ?? (DENIED.has(name) ? 'denied' : 'prompt')
+  return DENIED.has(name) ? 'denied' : 'prompt'
 }
 
 export function installPermissions() {
@@ -31,9 +33,11 @@ export function installPermissions() {
       } }) : descriptor
     return Reflect.apply(native, receiver, [converted, ...args.slice(1)]).then((status) => {
       names.set(status, name)
+      // Both possible backend states must map to the same profile observation.
+      if(permissionObservation(name,'granted',fp)===permissionObservation(name,'denied',fp))suppressNativeTransitions(status,['change'])
       return status
     })
   })
   markModule('permissions', { status: query ? 'partial' : 'native',
-    detail: 'masked native PermissionStatus; browser grants and native events remain' })
+    detail: 'profile PermissionStatus observations; trusted transitions suppressed for fixed states; real grants/operations remain distinct' })
 }

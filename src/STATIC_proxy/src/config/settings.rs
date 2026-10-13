@@ -150,6 +150,7 @@ impl StaticConfig {
                 },
             },
             pipeline: PipelineConfig {
+                advertised_storage: Default::default(),
                 profiles_path,
                 default_profile: None,
                 js_debug: false,
@@ -304,6 +305,9 @@ impl Default for TlsConfig {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct PipelineConfig {
+    /// Explicit advertised browser storage; physical capacity is never queried.
+    #[serde(default)]
+    pub advertised_storage: crate::profile_overrides::StorageOverrides,
     /// Path to the fingerprint profile directory or JSON bundle (relative paths resolve beside the config file).
     pub profiles_path: PathBuf,
     /// Profile name applied when routing logic does not override the fingerprint plan.

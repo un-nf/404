@@ -15,6 +15,8 @@ export function validateValue(value, rule, path = 'fingerprint') {
   }
   if (typeof value === 'string' && value.length < (rule.minLength ?? 0)) throw new TypeError(`STATIC ${path}: empty string`)
   if (typeof value === 'string' && rule['x-nonempty'] && !value.trim()) throw new TypeError(`STATIC ${path}: empty string`)
+  if (rule['x-http-string'] && !/^[\x20-\x7e]*$/.test(value)) throw new TypeError(`STATIC ${path}: invalid HTTP string`)
+  if (rule['x-resolution'] && (!/^[0-9]+x[0-9]+$/.test(value) || value.split('x').some(part => !Number.isSafeInteger(Number(part)) || Number(part) < 1 || Number(part) > 131072))) throw new TypeError(`STATIC ${path}: invalid resolution`)
   if (rule.enum && !rule.enum.includes(rule['x-casefold'] && typeof value === 'string' ? value.trim().toLowerCase() : value)) throw new TypeError(`STATIC ${path}: invalid enum`)
   if (Array.isArray(value) && rule.items) value.forEach((item, index) => validateValue(item, rule.items, `${path}[${index}]`))
   else if (value && typeof value === 'object' && !Array.isArray(value)) {
@@ -28,6 +30,11 @@ export function validateValue(value, rule, path = 'fingerprint') {
 }
 
 export function normalizeFingerprint(value) {
+  const data=value.ua_data
+  if(data?.formFactors!==undefined) {
+    if(data.form_factors!==undefined&&JSON.stringify(data.form_factors)!==JSON.stringify(data.formFactors))throw new TypeError('STATIC conflicting formFactors/form_factors')
+    data.form_factors=data.formFactors
+  }
   validateValue(value, schema)
   for (const [key, rule] of Object.entries(schema.properties)) {
     if (rule['x-alias'] && value[key] !== undefined) {

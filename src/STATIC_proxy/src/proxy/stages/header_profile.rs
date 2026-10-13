@@ -63,6 +63,7 @@ pub struct ProfileStore {
 }
 
 struct ProfileStoreInner {
+    storage_overrides: crate::profile_overrides::StorageOverrides,
     path: PathBuf,
     profiles: RwLock<HashMap<String, Arc<ProfileRecord>>>,
     default_profile: Option<String>,
@@ -75,7 +76,6 @@ struct ProfileIdentity {
     family: String,
     variant: String,
     platform: String,
-    selection_weight: f64,
 }
 
 struct ProfileRecord {
@@ -87,8 +87,13 @@ struct ProfileRecord {
 
 impl ProfileStore {
     pub fn load(path: PathBuf, default_profile: Option<String>) -> Result<Self> {
+        Self::load_with_overrides(path, default_profile, Default::default())
+    }
+
+    pub fn load_with_overrides(path: PathBuf, default_profile: Option<String>, storage_overrides: crate::profile_overrides::StorageOverrides) -> Result<Self> {
         let store = Self {
             inner: Arc::new(ProfileStoreInner {
+                storage_overrides,
                 path,
                 profiles: RwLock::new(HashMap::new()),
                 default_profile: normalize_profile_name(default_profile),
@@ -129,6 +134,7 @@ impl ProfileStore {
             .as_deref()
             .and_then(|value| self.resolve_catalog_entry(value))
             .or_else(|| {
+                if selected.is_some() { return None; }
                 self.inner
                     .default_profile
                     .as_deref()
@@ -142,6 +148,7 @@ impl ProfileStore {
             .as_deref()
             .and_then(|value| self.resolve_record(value))
             .or_else(|| {
+                if selected.is_some() { return None; }
                 self.inner
                     .default_profile
                     .as_deref()
@@ -163,12 +170,18 @@ impl ProfileStore {
             let mut discovered: HashMap<String, Arc<ProfileRecord>> = HashMap::new();
             for path in collect_profile_json_files(&self.inner.path)? {
                 let value = load_profile_config(&path)?;
+                validate_seeded_overlays(&value, &self.inner.storage_overrides)?;
                 let key = path
                     .file_stem()
                     .and_then(|s| s.to_str())
                     .unwrap_or("profile")
                     .to_string();
-                let materialized = materialize_profile_config(&value, &key, self.inner.startup_seed);
+                let mut materialized = materialize_profile_config(&value, &key, self.inner.startup_seed);
+                self.inner.storage_overrides.apply(&mut materialized)?;
+                crate::runtime_schema::resolve_audio_pool(&mut materialized, deterministic_choice_fraction(self.inner.startup_seed, &key, "audio hardware"))?;
+                if materialized["fingerprint"].get("canvas_hash").is_some() {
+                    materialized["fingerprint"] = crate::runtime_schema::apply_defaults(&materialized["fingerprint"])?;
+                }
                 let display = profile_display_name(&materialized, &key);
                 let identity = profile_identity(&materialized, &key);
                 let rules = HeaderProfileRules::from_value(&materialized);
@@ -196,7 +209,13 @@ impl ProfileStore {
             .and_then(|s| s.to_str())
             .unwrap_or("profile")
             .to_string();
-        let materialized = materialize_profile_config(&value, &key, self.inner.startup_seed);
+        validate_seeded_overlays(&value, &self.inner.storage_overrides)?;
+        let mut materialized = materialize_profile_config(&value, &key, self.inner.startup_seed);
+        self.inner.storage_overrides.apply(&mut materialized)?;
+        crate::runtime_schema::resolve_audio_pool(&mut materialized, deterministic_choice_fraction(self.inner.startup_seed, &key, "audio hardware"))?;
+        if materialized["fingerprint"].get("canvas_hash").is_some() {
+            materialized["fingerprint"] = crate::runtime_schema::apply_defaults(&materialized["fingerprint"])?;
+        }
         let display = profile_display_name(&materialized, &key);
         let identity = profile_identity(&materialized, &key);
         let mut parsed = HashMap::new();
@@ -215,20 +234,17 @@ impl ProfileStore {
         Ok(())
     }
 
-    fn select_record_for_flow(&self, flow: &Flow) -> Option<(String, Arc<ProfileRecord>)> {
+    fn select_record_for_flow(&self, _flow: &Flow) -> Option<(String, Arc<ProfileRecord>)> {
         let selected = self.inner.selected_profile.read().clone();
         selected
             .as_deref()
             .and_then(|value| self.resolve_record(value))
             .or_else(|| {
+                if selected.is_some() { return None; }
                 self.inner
                     .default_profile
                     .as_deref()
                     .and_then(|value| self.resolve_record(value))
-            })
-            .or_else(|| {
-                detect_request_browser_family(flow)
-                    .and_then(|family| self.select_family_record(family))
             })
     }
 
@@ -252,54 +268,15 @@ impl ProfileStore {
             return Some((requested.to_string(), Arc::clone(record)));
         }
 
-        profiles
+        let matches = profiles
             .iter()
-            .find(|(_, record)| {
+            .filter(|(_, record)| {
                 record.display_name.eq_ignore_ascii_case(requested)
                     || record.identity.variant.eq_ignore_ascii_case(requested)
             })
             .map(|(key, record)| (key.clone(), Arc::clone(record)))
-    }
-
-    fn select_family_record(&self, family: &str) -> Option<(String, Arc<ProfileRecord>)> {
-        let profiles = self.inner.profiles.read();
-        let candidates = profiles
-            .iter()
-            .filter(|(_, record)| record.identity.family.eq_ignore_ascii_case(family))
-            .collect::<Vec<_>>();
-
-        if candidates.is_empty() {
-            return None;
-        }
-
-        let total_weight: f64 = candidates
-            .iter()
-            .map(|(_, record)| record.identity.selection_weight.max(0.0))
-            .sum();
-
-        if total_weight <= f64::EPSILON {
-            let (key, record) = candidates[0];
-            return Some((key.clone(), Arc::clone(record)));
-        }
-
-        let target = deterministic_choice_fraction(self.inner.startup_seed, family, "profile-family") * total_weight;
-        let mut cursor = 0.0;
-        let mut fallback = None;
-
-        for (key, record) in candidates {
-            let weight = record.identity.selection_weight.max(0.0);
-            if weight <= 0.0 {
-                continue;
-            }
-
-            cursor += weight;
-            fallback = Some((key.clone(), Arc::clone(record)));
-            if target < cursor {
-                return Some((key.clone(), Arc::clone(record)));
-            }
-        }
-
-        fallback
+            .take(2).collect::<Vec<_>>();
+        if matches.len()==1 {matches.into_iter().next()} else {None}
     }
 
     fn startup_seed(&self) -> u64 {
@@ -487,17 +464,10 @@ fn profile_identity(value: &Value, fallback_key: &str) -> ProfileIdentity {
         })
         .unwrap_or_else(|| "windows".to_string());
 
-    let selection_weight = identity
-        .and_then(|entry| entry.get("selection_weight"))
-        .and_then(Value::as_f64)
-        .filter(|entry| *entry > 0.0)
-        .unwrap_or(1.0);
-
     ProfileIdentity {
         family,
         variant,
         platform,
-        selection_weight,
     }
 }
 
@@ -531,42 +501,6 @@ fn normalize_profile_platform(raw: &str) -> String {
         "ios" | "iphone" | "ipad" => "ios".to_string(),
         other => other.to_string(),
     }
-}
-
-fn detect_request_browser_family(flow: &Flow) -> Option<&'static str> {
-    let sec_ch_ua = flow
-        .request
-        .headers
-        .get("sec-ch-ua")
-        .and_then(|value| value.to_str().ok())
-        .map(|value| value.to_ascii_lowercase())
-        .unwrap_or_default();
-
-    if sec_ch_ua.contains("firefox") {
-        return Some("firefox-like");
-    }
-
-    if sec_ch_ua.contains("chromium") || sec_ch_ua.contains("google chrome") || sec_ch_ua.contains("microsoft edge") {
-        return Some("chromium-like");
-    }
-
-    let user_agent = flow
-        .request
-        .headers
-        .get(USER_AGENT)
-        .and_then(|value| value.to_str().ok())
-        .map(|value| value.to_ascii_lowercase())
-        .unwrap_or_default();
-
-    if user_agent.contains("firefox/") {
-        return Some("firefox-like");
-    }
-
-    if user_agent.contains("edg/") || user_agent.contains("chrome/") || user_agent.contains("chromium") {
-        return Some("chromium-like");
-    }
-
-    None
 }
 
 #[derive(Clone, Default)]
@@ -987,6 +921,34 @@ fn ends_with_any(path: &str, suffixes: &[&str]) -> bool {
     suffixes.iter().any(|suffix| path.ends_with(suffix))
 }
 
+fn validate_seeded_overlays(base: &Value, storage: &crate::profile_overrides::StorageOverrides) -> Result<()> {
+    let Some(value) = base.get("seeded_overlays") else { return Ok(()); };
+    let categories = value.as_object().context("STATIC seeded_overlays must be an object")?;
+    for (category, value) in categories {
+        let entries = value.as_array().with_context(|| format!("STATIC overlay {category} must be an array"))?;
+        let mut total = 0.0;
+        for entry in entries {
+            let entry = entry.as_object().context("STATIC overlay candidate must be an object")?;
+            if entry.keys().any(|key| !["id", "weight", "fingerprint", "headers", "packet_profile"].contains(&key.as_str())) {
+                return Err(anyhow!("STATIC unknown seeded overlay candidate field"));
+            }
+            let weight = match entry.get("weight") { Some(value) => value.as_f64().context("STATIC overlay weight must be numeric")?, None => 1.0 };
+            if !weight.is_finite() || weight < 0.0 { return Err(anyhow!("STATIC overlay weight must be finite and nonnegative")); }
+            total += weight;
+            let mut candidate = base.clone();
+            apply_overlay_entry(&mut candidate, entry);
+            storage.apply(&mut candidate)?;
+            crate::runtime_schema::resolve_audio_pool(&mut candidate, 0.5)?;
+            if candidate["fingerprint"].get("canvas_hash").is_some() {
+                crate::runtime_schema::apply_defaults(&candidate["fingerprint"])
+                    .with_context(|| format!("STATIC invalid overlay candidate in {category}"))?;
+            }
+        }
+        if !total.is_finite() || total <= 0.0 { return Err(anyhow!("STATIC overlay category requires positive total weight")); }
+    }
+    Ok(())
+}
+
 fn materialize_profile_config(base: &Value, profile_key: &str, startup_seed: u64) -> Value {
     let Some(overlays) = base.get("seeded_overlays").and_then(Value::as_object) else {
         return base.clone();
@@ -1061,7 +1023,6 @@ fn overlay_entry_weight(entry: &Map<String, Value>) -> f64 {
     entry
         .get("weight")
         .and_then(Value::as_f64)
-        .filter(|weight| *weight > 0.0)
         .unwrap_or(1.0)
 }
 
@@ -1076,7 +1037,7 @@ fn deterministic_choice_fraction(startup_seed: u64, profile_key: &str, category:
     category.hash(&mut hasher);
     let hash = hasher.finish();
 
-    (hash as f64) / ((u64::MAX as f64) + 1.0)
+    ((hash >> 11) as f64) / ((1u64 << 53) as f64)
 }
 
 fn apply_overlay_entry(materialized: &mut Value, entry: &Map<String, Value>) {
@@ -1143,6 +1104,25 @@ mod tests {
     use crate::proxy::flow::{BodyBuffer, RequestParts};
     use http::{HeaderMap, Method, Uri, Version};
     use tempfile::tempdir;
+
+    #[test]
+    fn seeded_candidates_preflight_before_random_selection() {
+        let storage=crate::profile_overrides::StorageOverrides::default();
+        for text in [include_str!("../../../profiles/chrome-windows.json"),include_str!("../../../profiles/edge-windows.json"),include_str!("../../../profiles/firefox-windows.json")] {
+            let profile:Value=serde_json::from_str(text).unwrap();validate_seeded_overlays(&profile,&storage).unwrap();
+        }
+        let mut profile:Value=serde_json::from_str(include_str!("../../../profiles/chrome-windows.json")).unwrap();
+        profile["seeded_overlays"]["hardware_profiles"][2]["fingerprint"]["device_memory"]=serde_json::json!(16);
+        assert!(validate_seeded_overlays(&profile,&storage).is_err());
+        profile["seeded_overlays"]["hardware_profiles"][2]["fingerprint"]["device_memory"]=serde_json::json!(8);
+        profile["seeded_overlays"]["hardware_profiles"][2]["weight"]=serde_json::json!(0);
+        validate_seeded_overlays(&profile,&storage).unwrap();
+        for seed in 0..128 {
+            let selected=materialize_profile_config(&profile,"chrome",seed);
+            assert_ne!(selected["selected_overlays"]["hardware_profiles"],"desktop_16c_8gb");
+            assert!(deterministic_choice_fraction(seed,"chrome","hardware_profiles")<1.0);
+        }
+    }
 
     fn build_flow(path: &str) -> Flow {
         let request = RequestParts {
@@ -1360,7 +1340,7 @@ mod tests {
     }
 
     #[test]
-    fn profile_store_auto_selects_from_host_family() {
+    fn profile_store_never_auto_selects_from_host_family() {
         let dir = tempdir().expect("tempdir");
         write_profile_fixture(dir.path(), "firefox-windows.json", "Firefox Windows", "firefox-like", "firefox", "firefox");
         write_profile_fixture(dir.path(), "chrome-windows.json", "Chrome Windows", "chromium-like", "chrome", "chrome");
@@ -1378,12 +1358,14 @@ mod tests {
             HeaderValue::from_static("\"Not_A Brand\";v=\"8\", \"Chromium\";v=\"147\", \"Google Chrome\";v=\"147\""),
         );
 
-        let (_, record) = store
-            .select_record_for_flow(&flow)
-            .expect("family-selected profile");
-
-        assert_eq!(record.identity.family, "chromium-like");
-        assert!(record.identity.variant == "chrome" || record.identity.variant == "edge");
+        assert!(store.select_record_for_flow(&flow).is_none());
+        let selected = ProfileStore::load(dir.path().to_path_buf(), Some("edge-windows".into())).unwrap();
+        selected.select_profile("chrome-windows").unwrap();
+        fs::remove_file(dir.path().join("chrome-windows.json")).unwrap();
+        selected.reload().unwrap();
+        assert!(selected.active_profile().is_none());
+        assert!(selected.active_profile_config().is_none());
+        assert!(selected.select_record_for_flow(&flow).is_none());
     }
 
     #[test]
@@ -1829,6 +1811,9 @@ impl FlowStage for HeaderProfileStage {
 
             if profile.config.get("fingerprint").and_then(|fp| fp.get("enable_headers_spoof")).and_then(Value::as_bool).unwrap_or(true) {
                 apply_profile_rules(flow, &profile.rules)?;
+                if let Some(fp) = flow.metadata.js_runtime_config.get("fingerprint").cloned() {
+                    normalize_identity_headers(flow, &fp)?;
+                }
             }
             flow.metadata.user_agent = flow
                 .request
@@ -1837,6 +1822,8 @@ impl FlowStage for HeaderProfileStage {
                 .and_then(|value| value.to_str().ok())
                 .map(|s| s.to_string())
                 .or_else(|| profile.rules.user_agent_hint.clone());
+        } else {
+            return Err(anyhow!("selected profile is unavailable; explicit profile selection is required"));
         }
         Ok(())
     }
@@ -1849,6 +1836,57 @@ fn profile_display_name(value: &serde_json::Value, fallback: &str) -> String {
         .and_then(|name| name.as_str())
         .map(|s| s.to_string())
         .unwrap_or_else(|| fallback.to_string())
+}
+
+fn normalize_identity_headers(flow: &mut Flow, fp: &Value) -> Result<()> {
+    let quoted = |value: &Value| serde_json::to_string(value.as_str().unwrap_or("")).unwrap();
+    let brands = |value: &Value| value.as_array().map(|values| values.iter()
+        .map(|item| format!("{};v={}", quoted(&item["brand"]), quoted(&item["version"]))).collect::<Vec<_>>().join(", "));
+    let data = &fp["ua_data"];
+    let mut values = HashMap::<String, String>::new();
+    if data.is_object() {
+        for (header, field) in [("sec-ch-ua-platform","platform"),("sec-ch-ua-arch","architecture"),
+            ("sec-ch-ua-bitness","bitness"),("sec-ch-ua-model","model"),("sec-ch-ua-platform-version","platform_version"),
+            ("sec-ch-ua-full-version","ua_full_version")] {
+            values.insert(header.into(), quoted(&data[field]));
+        }
+        for (header, field) in [("sec-ch-ua-mobile","mobile"),("sec-ch-ua-wow64","wow64")] {
+            values.insert(header.into(), if data[field].as_bool().unwrap_or(false) {"?1"} else {"?0"}.into());
+        }
+        if let Some(value)=brands(&data["brands"]) { values.insert("sec-ch-ua".into(),value); }
+        if let Some(value)=brands(&data["full_version_list"]) { values.insert("sec-ch-ua-full-version-list".into(),value); }
+        if let Some(factors)=data["form_factors"].as_array() { values.insert("sec-ch-ua-form-factors".into(), factors.iter().map(quoted).collect::<Vec<_>>().join(", ")); }
+    }
+    let present = flow.request.headers.keys().filter(|key| key.as_str()=="sec-ch-ua" || key.as_str().starts_with("sec-ch-ua-")).cloned().collect::<Vec<_>>();
+    for key in present {
+        if let Some(value)=values.get(key.as_str()) {flow.request.headers.insert(key,HeaderValue::from_str(value)?);}
+        else {flow.request.headers.remove(key);}
+    }
+    if let Some(ua)=fp["user_agent"].as_str() {flow.request.headers.insert(USER_AGENT,HeaderValue::from_str(ua)?);}
+    Ok(())
+}
+
+#[cfg(test)]
+mod identity_policy_tests {
+    use super::*;
+    use crate::proxy::flow::RequestParts;
+    #[test]
+    fn cached_and_unknown_client_hints_cannot_restore_host_identity() {
+        let profile: Value=serde_json::from_str(include_str!("../../../profiles/chrome-windows.json")).unwrap();
+        let mut flow=Flow::new(RequestParts::default());
+        for key in ["sec-ch-ua-arch","sec-ch-ua-wow64","sec-ch-ua-form-factors","sec-ch-ua-full-version-list","sec-ch-ua-future"] {
+            flow.request.headers.insert(HeaderName::from_str(key).unwrap(),HeaderValue::from_static("native-secret"));
+        }
+        normalize_identity_headers(&mut flow,&profile["fingerprint"]).unwrap();
+        assert_eq!(flow.request.headers["sec-ch-ua-arch"],"\"x86\"");
+        assert_eq!(flow.request.headers["sec-ch-ua-wow64"],"?0");
+        assert_eq!(flow.request.headers["sec-ch-ua-form-factors"],"\"Desktop\"");
+        assert!(!flow.request.headers.contains_key("sec-ch-ua-future"));
+        assert!(!flow.request.headers.contains_key("sec-ch-ua-platform-version"));
+        assert!(flow.request.headers["sec-ch-ua-full-version-list"].to_str().unwrap().contains("147.0.7727.102"));
+        normalize_identity_headers(&mut flow,&serde_json::json!({"user_agent":"Firefox"})).unwrap();
+        assert!(!flow.request.headers.contains_key("sec-ch-ua-arch"));
+    }
 }
 
 fn build_js_runtime_config(config: &Value, _startup_seed: u64) -> Value {

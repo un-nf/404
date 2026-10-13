@@ -1,8 +1,8 @@
-import { replaceGetter, replaceMethod, mapMethod } from '../core/descriptors.js'
-import { definePatch } from '../core/patches.js'
+import { findDescriptor, replaceGetter, replaceMethod, mapMethod } from '../core/descriptors.js'
+import { definePatch, transaction } from '../core/patches.js'
 import { getFingerprint } from '../core/config.js'
 import { getRuntime, markModule } from '../core/guard.js'
-import { markNativeCode } from '../core/toString.js'
+import { markNativeCode, markNativeLike } from '../core/toString.js'
 
 const PRIVATE_IPV4 = /^(0\.|10\.|127\.|169\.254|172\.(1[6-9]|2[0-9]|3[0-1])|192\.168)/
 const PRIVATE_IPV6 = /^(::1|fc00:|fd00:|fe80:)/i
@@ -19,37 +19,24 @@ function defineMethod(target, name, fn) {
   })
 }
 
-function sanitizeCandidateLine(line, fingerprint) {
+export function sanitizeCandidateLine(line, fingerprint) {
   if (typeof line !== 'string') {
     return line
   }
 
-  const publicIpv4 = fingerprint.webrtc_ip || fingerprint.ip_address || '104.244.72.1'
-  const publicIpv6 = fingerprint.webrtc_ipv6 || '2001:4860:4860::8888'
+  const publicIpv4 = fingerprint.webrtc_ip || fingerprint.ip_address || '192.0.2.1'
+  const publicIpv6 = fingerprint.webrtc_ipv6 || '2001:db8::1'
   const trimmed = line.trim()
   const prefixed = trimmed.startsWith('a=')
   const payload = prefixed ? trimmed.slice(2) : trimmed
-  const parts = payload.split(' ')
+  const parts = payload.split(/\s+/)
   if (parts.length < 8) {
     return trimmed
   }
 
   const ipIndex = 4
-  const typeIndex = parts.indexOf('typ')
-  const ip = parts[ipIndex]
-  const privateAddress = PRIVATE_IPV4.test(ip) || PRIVATE_IPV6.test(ip)
-  if (PRIVATE_IPV4.test(ip)) {
-    parts[ipIndex] = publicIpv4
-  } else if (PRIVATE_IPV6.test(ip)) {
-    parts[ipIndex] = publicIpv6
-  }
-
-  if (typeIndex >= 0 && privateAddress && parts[typeIndex + 1] === 'host') {
-    parts[typeIndex + 1] = 'srflx'
-  }
-  if (fingerprint.webrtc_udp_only === true) {
-    parts[2] = 'udp'
-  }
+  parts[ipIndex] = parts[ipIndex].includes(':') ? publicIpv6 : publicIpv4
+  for(let index=8;index<parts.length-1;index++)if(parts[index]==='raddr')parts[index+1]=parts[index+1].includes(':')?publicIpv6:publicIpv4
 
   const nextLine = parts.join(' ')
   return prefixed ? `a=${nextLine}` : nextLine
@@ -62,8 +49,8 @@ function sanitizeSessionDescription(runtime, description, fingerprint) {
 
   const candidateLimit = Math.max(1, Number(fingerprint.webrtc_candidate_limit) || 4)
   let candidates = 0
-  const publicIpv4 = fingerprint.webrtc_ip || fingerprint.ip_address || '104.244.72.1'
-  const publicIpv6 = fingerprint.webrtc_ipv6 || '2001:4860:4860::8888'
+  const publicIpv4 = fingerprint.webrtc_ip || fingerprint.ip_address || '192.0.2.1'
+  const publicIpv6 = fingerprint.webrtc_ipv6 || '2001:db8::1'
   const sanitized = String(description.sdp)
     .split(/\r?\n/)
     .filter((line) => {
@@ -118,6 +105,7 @@ function sanitizeIceCandidate(runtime, candidate, fingerprint) {
         candidate: sanitizedLine,
         sdpMid: candidate.sdpMid || null,
         sdpMLineIndex: candidate.sdpMLineIndex,
+        usernameFragment: candidate.usernameFragment,
       })
     } catch {
       // ignore
@@ -130,7 +118,77 @@ function sanitizeIceCandidate(runtime, candidate, fingerprint) {
 export function installWebRTCSpoof() {
   const runtime=getRuntime(),fingerprint=getFingerprint(),proto=runtime.nativeRefs.peerPrototype
   if(!proto){markModule('webrtc',{status:'unavailable'});return}
+  if(fingerprint.webrtc_transport_policy==='relay-only') {
+    const enforce=config=>config==null?{iceTransportPolicy:'relay'}:new Proxy({}, {get(_target,key){
+      const value=Reflect.get(config,key,config)
+      if(key==='iceTransportPolicy') {
+        if(value!==undefined&&!['all','relay'].includes(`${value}`))throw new TypeError('Invalid iceTransportPolicy')
+        return 'relay'
+      }
+      return value
+    }})
+    const Native=runtime.nativeRefs.RTCPeerConnection
+    const Wrapped=markNativeLike(new Proxy(Native,{construct(native,args,newTarget){
+      const config=args[0]
+      if(config!=null&&!['object','function'].includes(typeof config))return Reflect.construct(native,args,newTarget)
+      return Reflect.construct(native,[enforce(config),...args.slice(1)],newTarget)
+    }}),Native)
+    for(const name of ['RTCPeerConnection','webkitRTCPeerConnection'])if(globalThis[name]===Native)definePatch(globalThis,name,{...Object.getOwnPropertyDescriptor(globalThis,name),value:Wrapped})
+    definePatch(proto,'constructor',{...Object.getOwnPropertyDescriptor(proto,'constructor'),value:Wrapped})
+    replaceMethod(proto,'setConfiguration',(native,receiver,args)=>{
+      if(!args.length||args[0]!=null&&!['object','function'].includes(typeof args[0]))return Reflect.apply(native,receiver,args)
+      return Reflect.apply(native,receiver,[enforce(args[0]),...args.slice(1)])
+    })
+  }
   const descriptions=new Map(),candidates=new Map(),candidateObjects=new WeakMap(),descriptionObjects=new WeakMap()
+  const reports=new WeakSet(),values=new WeakMap(),iterators=new WeakMap(),reportPrototypes=new WeakSet(),iteratorPrototypes=new WeakSet()
+  const maskStats=value=>{
+    if(!value||typeof value!=='object')return value
+    if(!values.has(value)) {
+      const descriptors=Object.getOwnPropertyDescriptors(value)
+      for(const key of ['address','ip','ipAddress','relatedAddress']) {
+        const field=descriptors[key]
+        if(typeof field?.value==='string'&&field.value)field.value=field.value.includes(':')?(fingerprint.webrtc_ipv6||'2001:db8::1'):(fingerprint.webrtc_ip||fingerprint.ip_address||'192.0.2.1')
+      }
+      values.set(value,Object.create(Object.getPrototypeOf(value),descriptors))
+    }
+    return values.get(value)
+  }
+  function wrapIterator(iterator,mode) {
+    iterators.set(iterator,mode)
+    const prototype=Object.getPrototypeOf(iterator)
+    if(!iteratorPrototypes.has(prototype)) {
+      if(!mapMethod(prototype,'next',(step,receiver)=>{
+        const kind=iterators.get(receiver)
+        if(kind&&!step.done)step.value=kind==='entries'?[step.value[0],maskStats(step.value[1])]:maskStats(step.value)
+        return step
+      }))throw new DOMException('Stats iterator masking unavailable','NotSupportedError')
+      iteratorPrototypes.add(prototype)
+    }
+    return iterator
+  }
+  function shieldReportPrototype(prototype) {
+    if(!reportPrototypes.has(prototype)) {
+      transaction(()=>{
+      const symbol=findDescriptor(prototype,Symbol.iterator),entry=findDescriptor(prototype,'entries')
+      if(!mapMethod(prototype,'get',(value,receiver)=>reports.has(receiver)?maskStats(value):value))throw new DOMException('Stats masking unavailable','NotSupportedError')
+      for(const kind of ['entries','values'])if(!mapMethod(prototype,kind,(iterator,receiver)=>reports.has(receiver)?wrapIterator(iterator,kind):iterator))throw new DOMException('Stats iteration masking unavailable','NotSupportedError')
+      if(symbol?.descriptor.value===entry?.descriptor.value)definePatch(symbol.owner,Symbol.iterator,{...symbol.descriptor,value:findDescriptor(prototype,'entries').descriptor.value})
+      else if(!mapMethod(prototype,Symbol.iterator,(iterator,receiver)=>reports.has(receiver)?wrapIterator(iterator,'entries'):iterator))throw new DOMException('Stats iteration masking unavailable','NotSupportedError')
+      if(!replaceMethod(prototype,'forEach',(native,receiver,args)=>{
+        if(!reports.has(receiver)||typeof args[0]!=='function')return Reflect.apply(native,receiver,args)
+        return Reflect.apply(native,receiver,[(value,key,collection)=>Reflect.apply(args[0],args[1],[maskStats(value),key,collection])])
+      }))throw new DOMException('Stats callback masking unavailable','NotSupportedError')
+      })
+      reportPrototypes.add(prototype)
+    }
+  }
+  shieldReportPrototype(Map.prototype)
+  if(globalThis.RTCStatsReport?.prototype)shieldReportPrototype(RTCStatsReport.prototype)
+  wrapIterator(new Map().entries(),'entries')
+  for(const target of [proto,globalThis.RTCRtpSender?.prototype,globalThis.RTCRtpReceiver?.prototype])if(target)mapMethod(target,'getStats',promise=>promise.then(report=>{
+    shieldReportPrototype(Object.getPrototypeOf(report));reports.add(report);return report
+  }))
   function maskDescription(value){
     if(!value||typeof value.sdp!=='string')return value
     const masked=sanitizeSessionDescription(runtime,value,fingerprint).sdp
@@ -167,5 +225,5 @@ export function installWebRTCSpoof() {
       return Reflect.apply(native,receiver,args.length?[translated,...args.slice(1)]:args)
     })
   }
-  markModule('webrtc',{status:'partial',detail:'native event/handler contracts, all candidate listeners, bidirectional same-realm SDP/candidate mappings; remote wire endpoints/getStats and relay policy remain architectural work'})
+  markModule('webrtc',{status:'partial',detail:'public/private/related candidate and stats address observations masked; native transport unchanged; same-realm alias reversal only; remote routing, stats IDs/ports/performance and clean-realm recovery remain incomplete'})
 }

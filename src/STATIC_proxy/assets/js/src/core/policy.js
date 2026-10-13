@@ -1,24 +1,6 @@
 import { getRuntime } from './guard.js'
 import { getFingerprint } from './config.js'
 
-const STABILITY_HOSTS = [
-  'google.com',
-  'youtube.com',
-  'youtube-nocookie.com',
-  'ytimg.com',
-  'googlevideo.com',
-  'gstatic.com',
-  'discord.com',
-  'discordapp.com',
-  'discord.gg',
-  'recaptcha.net',
-  'challenges.cloudflare.com',
-]
-
-function hostMatches(host, suffixes) {
-  return suffixes.some((suffix) => host === suffix || host.endsWith(`.${suffix}`))
-}
-
 export function initPolicy() {
   const runtime = getRuntime()
   const fingerprint = getFingerprint()
@@ -29,11 +11,9 @@ export function initPolicy() {
       return ''
     }
   })()
-  const stabilityMode = fingerprint.compatibility_mode === 'legacy-host-exceptions' && hostMatches(host, STABILITY_HOSTS)
 
   runtime.policy = Object.freeze({
     host,
-    stabilityMode,
     timezoneEnabled: fingerprint.enable_timezone_spoof !== false,
     performanceEnabled: fingerprint.enable_performance_spoof !== false,
     fontMetricsEnabled: (fingerprint.enable_font_metric_spoof ?? fingerprint.enable_font_spoof) !== false,
@@ -46,12 +26,12 @@ export function initPolicy() {
     batteryEnabled: fingerprint.enable_battery_spoof !== false,
     canvasEnabled: fingerprint.enable_canvas_spoof !== false,
     webglEnabled: fingerprint.enable_webgl_spoof !== false,
-    audioEnabled: !stabilityMode && fingerprint.enable_audio_spoof !== false,
+    audioEnabled: fingerprint.enable_audio_spoof !== false,
     webrtcEnabled: fingerprint.enable_webrtc_spoof !== false,
     mediaDevicesEnabled: fingerprint.enable_webrtc_spoof !== false,
     gamepadEnabled: fingerprint.enable_gamepad_spoof !== false,
     speechEnabled: fingerprint.enable_speech_synthesis_spoof !== false,
-    eventTimingEnabled: !stabilityMode && fingerprint.enable_performance_spoof !== false,
+    eventTimingEnabled: fingerprint.enable_performance_spoof !== false,
     automationEvasionEnabled: fingerprint.enable_automation_evasion !== false,
     geolocationEnabled: fingerprint.enable_geolocation_spoof !== false,
     privacyBlackholeEnabled: fingerprint.enable_privacy_blackhole !== false,

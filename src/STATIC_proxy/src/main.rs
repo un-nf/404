@@ -53,6 +53,15 @@ impl From<CliMode> for RunMode {
     about = "STATIC: Synthetic Traffic and TLS Identity Camouflage"
 )]
 struct Cli {
+    /// Advertised browser storage quota in bytes or B/KiB/MiB/GiB/TiB; not physical disk capacity.
+    #[arg(long, value_parser = static_proxy::profile_overrides::parse_storage_bytes)]
+    storage_quota: Option<u64>,
+    /// Advertised browser storage usage; remains fixed after writes.
+    #[arg(long, value_parser = static_proxy::profile_overrides::parse_storage_bytes)]
+    storage_usage: Option<u64>,
+    /// Advertised quota preset: lower (10 GiB), standard (50 GiB), higher (100 GiB).
+    #[arg(long, value_parser = ["lower", "standard", "higher"])]
+    storage_preset: Option<String>,
     /// Path to the STATIC configuration file (TOML format).
     /// If omitted, STATIC will use config/static.example.toml when present, otherwise built-in defaults.
     #[arg(short, long)]
@@ -95,6 +104,20 @@ enum ConfigSource {
     BuiltInDefaults,
 }
 
+#[cfg(test)]
+mod cli_tests {
+    use super::*;
+    #[test]
+    fn storage_options_use_existing_cli_and_reject_invalid_units() {
+        let cli=Cli::try_parse_from(["static","--storage-preset","lower","--storage-quota","50GiB","--storage-usage","2MiB"]).unwrap();
+        assert_eq!(cli.storage_quota,Some(50_u64<<30));assert_eq!(cli.storage_usage,Some(2<<20));
+        for value in ["-1","NaN","1GB","9007199254740992"] {
+            assert!(Cli::try_parse_from(["static","--storage-quota",value]).is_err());
+        }
+        assert!(Cli::try_parse_from(["static","--storage-preset","automatic"]).is_err());
+    }
+}
+
 /// Application entry point: parse CLI, initialize logging, load config, run server.
 ///
 /// This creates a multi-threaded tokio runtime (default: one thread per CPU core)
@@ -119,9 +142,10 @@ async fn run() -> anyhow::Result<()> {
     let config = load_effective_config(&cli)?;
 
     if cli.list_profiles {
-        let store = ProfileStore::load(
+        let store = ProfileStore::load_with_overrides(
             config.pipeline.profiles_path.clone(),
             config.pipeline.default_profile.clone(),
+            config.pipeline.advertised_storage.clone(),
         )?;
         print_profile_catalog(&store);
         return Ok(());
@@ -177,6 +201,12 @@ fn load_effective_config(cli: &Cli) -> Result<StaticConfig> {
 
     if cfg!(target_os = "linux") && matches!(config_source, ConfigSource::ImplicitExample(_)) {
         config.tls.keystore.mode = static_proxy::keystore::KeystoreMode::File;
+    }
+    if let Some(value) = cli.storage_quota { config.pipeline.advertised_storage.quota = Some(value); }
+    if let Some(value) = cli.storage_usage { config.pipeline.advertised_storage.usage = Some(value); }
+    if let Some(value) = cli.storage_preset.clone() { config.pipeline.advertised_storage.preset = Some(value); }
+    if cli.storage_preset.is_some() && cli.storage_quota.is_none() {
+        config.pipeline.advertised_storage.quota = None;
     }
 
     if let Some(profiles_path) = cli.profiles_path.clone() {

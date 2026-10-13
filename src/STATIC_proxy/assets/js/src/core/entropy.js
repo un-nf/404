@@ -43,12 +43,14 @@ export function initEntropy() {
       return 'opaque'
     }
   })()
-  const sessionSeed = hashString(`${sessionId}:${origin}:${fingerprint.canvas_hash || ''}`)
+  const realm = typeof WorkerGlobalScope === 'function' && globalThis instanceof WorkerGlobalScope ? 'worker' : 'window'
+  const sessionSeed = hashString(`${sessionId}:${origin}:${realm}:${fingerprint.canvas_hash || ''}`)
   const originSeed = hashString(`${sessionId}:${origin}`)
 
   runtime.entropy = Object.freeze({
     sessionId,
     origin,
+    realm,
     startupSalt,
     sessionSeed,
     originSeed,

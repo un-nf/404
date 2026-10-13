@@ -93,6 +93,7 @@ export function loadConfig(input) {
     }
   }
   const uaData = fingerprint.ua_data
+  if (expectedFamily === 'chromium-like' && !uaData) throw new TypeError('STATIC chromium identity requires complete ua_data')
   if (uaData !== undefined) {
     if (!uaData || typeof uaData !== 'object' || Array.isArray(uaData)) throw new TypeError('STATIC ua_data must be an object')
     for (const key of ['brands', 'full_version_list']) {
@@ -116,7 +117,7 @@ export function loadConfig(input) {
     if (typeof fingerprint.timezone !== 'string') throw new TypeError('STATIC timezone must be a string')
     new Intl.DateTimeFormat('en-US', { timeZone: fingerprint.timezone })
   }
-  for (const key of ['storage_quota', 'storage_usage', 'storage_usage_quantum', 'speech_voice_limit', 'media_devices_per_kind', 'media_device_count']) {
+  for (const key of ['storage_quota', 'storage_usage', 'speech_voice_limit', 'media_devices_per_kind', 'media_device_count']) {
     const value = fingerprint[key]
     if (value !== undefined && (!Number.isSafeInteger(value) || value < (key === 'storage_usage' ? 0 : 1))) {
       throw new TypeError(`STATIC ${key} must be a safe integer in range`)
@@ -127,7 +128,7 @@ export function loadConfig(input) {
       throw new TypeError(`STATIC ${key} must be boolean`)
     }
   }
-  if (fingerprint.storage_usage !== undefined && fingerprint.storage_usage > (fingerprint.storage_quota ?? 107374182400)) {
+  if (fingerprint.storage_usage !== undefined && fingerprint.storage_usage > (fingerprint.storage_quota ?? 53687091200)) {
     throw new TypeError('STATIC storage_usage exceeds persona quota')
   }
   if (fingerprint.speech_languages !== undefined && !(Array.isArray(fingerprint.speech_languages) &&
@@ -146,14 +147,19 @@ export function loadConfig(input) {
         !['denied', 'native'].includes(fingerprint.permission_states.notifications))) {
     throw new TypeError('STATIC permission_states must specify denied, prompt or native; notifications denied or native')
   }
-  if (fingerprint.media_capabilities !== undefined && (!fingerprint.media_capabilities ||
-      typeof fingerprint.media_capabilities !== 'object' || Array.isArray(fingerprint.media_capabilities) ||
-      Object.entries(fingerprint.media_capabilities).some(([key, value]) =>
-        !['smooth', 'power_efficient'].includes(key) || typeof value !== 'boolean'))) {
-    throw new TypeError('STATIC media_capabilities must specify boolean smooth/power_efficient')
-  }
   validateCoherence(fingerprint || {})
   const contract = normalizeFingerprint(fingerprint)
+  if (fingerprint.audio_context?.hardware_profiles &&
+      (fingerprint.audio_context.hardware_profiles.length !== 1 || fingerprint.audio_context.hardware_profiles[0].weight === 0)) {
+    throw new TypeError('STATIC audio hardware pool must be resolved once before delivery')
+  }
+  for (const record of Object.values(fingerprint.webgl_contexts)) {
+    for (const [name, value] of Object.entries(record.parameters)) {
+      if (Array.isArray(value) && (value.length !== 2 || value[0] > value[1])) throw new TypeError(`STATIC invalid WebGL parameter shape ${name}`)
+      if (name === 'MAX_VIEWPORT_DIMS' && value.some(number => !Number.isInteger(number) || number < 0 || number > 2147483647)) throw new TypeError('STATIC invalid viewport Int32 values')
+    }
+  }
+  if (fingerprint.storage_usage > fingerprint.storage_quota) throw new TypeError('STATIC storage_usage exceeds resolved profile quota')
   if (raw.privacy_rules !== undefined) {
     if (!Array.isArray(raw.privacy_rules) || raw.privacy_rules.length > 1024) throw new TypeError('STATIC privacy_rules must be a bounded array')
     for (const rule of raw.privacy_rules) {

@@ -3,6 +3,15 @@ const esbuild=require('../build/node_modules/esbuild')
 const root=path.resolve(__dirname,'..')
 const source=esbuild.build({stdin:{contents:`export * from './assets/js/src/core/guard.js';export * from './assets/js/src/core/patches.js';export * from './assets/js/src/core/installer.js';`,resolveDir:root},bundle:true,format:'cjs',write:false}).then(r=>r.outputFiles[0].text)
 async function setup(){const context=vm.createContext({module:{exports:{}}});vm.runInContext(await source,context);const api=context.module.exports;api.initRuntime();return api}
+test('successful nested transactions roll back with a later outer installer failure',async()=>{
+  const api=await setup(),target={},cleanups=[]
+  api.installModule('nested',true,()=>{
+    api.transaction(()=>{api.definePatch(target,'inner',{value:1,configurable:true});api.onRollback(()=>cleanups.push('inner'))})
+    api.definePatch(target,'outer',{value:2,configurable:true});throw Error('later failure')
+  })
+  assert.deepEqual(Object.keys(target),[]);assert.equal('inner' in target,false);assert.equal('outer' in target,false)
+  assert.deepEqual(cleanups,['inner']);assert.equal(api.getRuntime().outcomes.nested.rolledBack,true)
+})
 test('module failure rolls descriptors back, continues other modules and retries originals exactly once',async()=>{
   const api=await setup(),target={value:1},original=Object.getOwnPropertyDescriptor(target,'value')
   const installer=()=>{api.definePatch(target,'value',{...original,value:2});throw Error('fault')}

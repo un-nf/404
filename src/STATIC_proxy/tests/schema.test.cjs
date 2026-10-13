@@ -10,18 +10,23 @@ test('shared schema rejects typos, contradictory aliases and invalid nested nume
  assert.throws(()=>a.loadConfig({fingerprint:profile(),privacy_rules:[{pathPrefix:'/all'}]}),/invalid rule/)
  assert.throws(()=>a.loadConfig({fingerprint:profile(),privacy_rules:[{hostSuffix:'example.com',pathPrefix:'relative'}]}),/invalid rule/)
 })
-test('canonical flags have observable policy and host exceptions require explicit opt-in',async()=>{
+test('canonical flags control observations and hostname exception mode is rejected',async()=>{
  const a=await api(),p=profile();p.enable_font_spoof=false;delete p.enable_font_metric_spoof
  for(const key of ['enable_permissions_spoof','enable_notifications_spoof','enable_battery_spoof','enable_media_capabilities_spoof','enable_privacy_blackhole'])p[key]=false
  a.loadConfig({fingerprint:p});a.initPolicy();const policy=a.getPolicy()
  for(const key of ['fontMetricsEnabled','permissionsEnabled','notificationsEnabled','batteryEnabled','mediaCapabilitiesEnabled','privacyBlackholeEnabled'])assert.equal(policy[key],false,key)
- assert.equal(policy.stabilityMode,false);assert.equal(policy.audioEnabled,true);assert.equal(policy.eventTimingEnabled,true)
- const b=await api(),q=profile();q.compatibility_mode='legacy-host-exceptions';b.loadConfig({fingerprint:q});b.initPolicy()
- assert.equal(b.getPolicy().stabilityMode,true);assert.equal(b.getPolicy().audioEnabled,false)
+ assert.equal(policy.stabilityMode,undefined);assert.equal(policy.audioEnabled,true);assert.equal(policy.eventTimingEnabled,true)
+ const b=await api(),q=profile();q.compatibility_mode='legacy-host-exceptions'
+ assert.throws(()=>b.loadConfig({fingerprint:q}),/STATIC/)
 })
 test('deprecated metadata is reported and persona snapshots including defaults are frozen',async()=>{
  const a=await api(),p=profile();p.fonts=['Arial'];const report=a.normalizeFingerprint(p)
- assert.ok(report.unsupported.includes('fonts'));assert.equal(p.compatibility_mode,'normalization')
+ assert.ok(report.unsupported.includes('fonts'));assert.equal(p.compatibility_mode,undefined)
  a.loadConfig({fingerprint:p});assert.equal(Object.isFrozen(a.getFingerprint()),true)
  assert.equal(Object.isFrozen(a.getFingerprint().fonts),true)
+})
+
+test('shared valid/invalid fixtures agree before installation',async()=>{
+ const cases=require('./fixtures/profile-validation.json')
+ for(const item of cases){const a=await api();let accepted=true;try{a.loadConfig({fingerprint:{...profile(),...item.patch}})}catch{accepted=false}assert.equal(accepted,item.valid,item.id)}
 })

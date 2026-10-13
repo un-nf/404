@@ -1,7 +1,8 @@
 import { definePatch, deletePatch, onRollback } from '../core/patches.js'
 import { markModule } from '../core/guard.js'
 import { markNativeCode } from '../core/toString.js'
-import { replaceGetter } from '../core/descriptors.js'
+import { replaceGetter, mapMethod } from '../core/descriptors.js'
+import { getFingerprint } from '../core/config.js'
 
 const AUTOMATION_GLOBALS = [
   '__webdriver_script_fn',
@@ -159,6 +160,12 @@ function installDocumentAutomationObserver(doc) {
 }
 
 export function installAutomationEvasion() {
+  const fp=getFingerprint()
+  if(fp.visibility_state!==undefined) {
+    replaceGetter(Document.prototype,'visibilityState',()=>fp.visibility_state)
+    replaceGetter(Document.prototype,'hidden',()=>fp.visibility_state==='hidden')
+  }
+  if(fp.has_focus!==undefined)mapMethod(Document.prototype,'hasFocus',()=>fp.has_focus)
 
   replaceGetter(Navigator.prototype, 'webdriver', () => false)
 
@@ -166,5 +173,6 @@ export function installAutomationEvasion() {
   cleanupDocumentAutomationMarkers(document)
   installDocumentAutomationObserver(document)
 
-  markModule('automation')
+  markModule('automation',{status:fp.visibility_state!==undefined||fp.has_focus!==undefined?'partial':'installed',
+    detail:'profile-declared focus/visibility queries; actual events, throttling and focus operations are not virtualized'})
 }

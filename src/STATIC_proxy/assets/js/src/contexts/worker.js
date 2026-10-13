@@ -20,11 +20,10 @@ export function startWorker(fingerprint) {
   if (typeof WorkerGlobalScope !== 'function' || !(globalThis instanceof WorkerGlobalScope)) return 'unavailable'
   if (!initRuntime()) return getRuntime().state
   try {
-    if (!getRuntime().config?.ready) loadConfig({ fingerprint: { ...fingerprint, canvas_hash: 'unused-worker',
-      webgl_vendor: fingerprint.webgl_vendor || 'unused-worker', webgl_renderer: fingerprint.webgl_renderer || 'unused-worker' } })
+    if (!getRuntime().config?.ready) loadConfig({ fingerprint })
     if (!getRuntime().nativeRefs.functionToString) getRuntime().nativeRefs = Object.freeze({ functionToString: Function.prototype.toString, intlDateTimeFormat: Intl.DateTimeFormat })
     installModule('toString', true, installToStringProxy)
-    initPolicy()
+    if (!getRuntime().policy) initPolicy()
     if (!getRuntime().entropy) initEntropy()
     const policy = getPolicy()
     installModule('navigator', true, installNavigator)
@@ -38,7 +37,7 @@ export function startWorker(fingerprint) {
     installModule('timezone', policy.timezoneEnabled, installTimezone)
     installModule('canvas', policy.canvasEnabled && Boolean(globalThis.OffscreenCanvas), installCanvasSpoof)
     installModule('webgl', policy.webglEnabled && Boolean(fingerprint.webgl_vendor && fingerprint.webgl_renderer), installWebGLSpoof)
-    markModule('worker', { status: 'partial', detail: 'identity/network, storage/permissions/media/notifications where present, clock, default timezone and WebGL metadata; canvas pixels/audio uncovered' })
+    markModule('worker', { status: 'partial', detail: 'profile identity/network, fixed storage, permissions/media/notifications where present, clock, timezone, WebGL metadata and supported Offscreen 2D readback; audio/processor globals/rendering recovery remain uncovered' })
     finishRuntime()
     return getRuntime().state
   } catch (error) {
