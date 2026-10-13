@@ -36,9 +36,17 @@ pub fn validate_fingerprint(value: &Value) -> Result<()> {
         if pool.len()!=1 || pool[0]["weight"].as_f64()==Some(0.0) {bail!("STATIC audio hardware pool must be resolved once before delivery");}
     }
     if let Some(contexts)=value["webgl_contexts"].as_object() {
-        for record in contexts.values() {
+        let enums:Value=serde_json::from_str(include_str!("../schema/webgl-parameters.json")).expect("WebGL enum contract");
+        for (kind,record) in contexts {
+            let mut aliases=std::collections::HashMap::<u64,&Value>::new();
             if let Some(parameters)=record["parameters"].as_object() {
                 for (key,parameter) in parameters {
+                    let rule=&enums[key];
+                    if !rule["versions"].as_array().is_some_and(|versions|versions.iter().any(|version|version.as_str()==Some(kind))) {bail!("STATIC unresolved {kind} parameter {key}");}
+                    let number=rule["enum"].as_u64().expect("enum number");
+                    if let Some(prior)=aliases.insert(number,parameter) {
+                        if prior!=parameter && !prior.as_f64().zip(parameter.as_f64()).is_some_and(|(left,right)|left==right) {bail!("STATIC conflicting {kind} parameter aliases");}
+                    }
                     if let Some(array)=parameter.as_array() {
                         if array.len()!=2 || array[0].as_f64()>array[1].as_f64() {bail!("STATIC invalid WebGL parameter shape {key}");}
                         if key=="MAX_VIEWPORT_DIMS" && array.iter().any(|n| n.as_f64().is_none_or(|v| v<0.0 || v.fract()!=0.0 || v>2147483647.0)) {bail!("STATIC invalid viewport Int32 values");}
@@ -155,6 +163,17 @@ fn validate(value: &Value, rule: &Value, path: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn webgl_enum_aliases_and_version_ownership_validate_before_delivery() {
+        let profile:Value=serde_json::from_str(include_str!("../profiles/chrome-windows.json")).unwrap();
+        let mut fingerprint=profile["fingerprint"].clone();
+        fingerprint["webgl_contexts"]["webgl2"]["parameters"]["MAX_DRAW_BUFFERS_WEBGL"]=serde_json::json!(7);
+        assert!(apply_defaults(&fingerprint).is_err());
+        fingerprint["webgl_contexts"]["webgl2"]["parameters"]["MAX_DRAW_BUFFERS_WEBGL"]=serde_json::json!(8.0);
+        apply_defaults(&fingerprint).unwrap();
+        fingerprint["webgl_contexts"]["webgl1"]["parameters"]["MAX_TEXTURE_LOD_BIAS"]=serde_json::json!(2);
+        assert!(apply_defaults(&fingerprint).is_err());
+    }
     #[test]
     fn audio_pool_resolves_once_and_rejects_invalid_candidates() {
         let mut profile=serde_json::json!({"fingerprint":{"audio_context":{"hardware_profiles":[{"id":"first","weight":1,"sample_rate":44100},{"id":"second","weight":3,"sample_rate":48000}]}}});

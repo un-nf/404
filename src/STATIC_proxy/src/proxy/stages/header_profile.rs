@@ -1883,7 +1883,7 @@ mod identity_policy_tests {
         assert_eq!(flow.request.headers["sec-ch-ua-form-factors"],"\"Desktop\"");
         assert!(!flow.request.headers.contains_key("sec-ch-ua-future"));
         assert!(!flow.request.headers.contains_key("sec-ch-ua-platform-version"));
-        assert!(flow.request.headers["sec-ch-ua-full-version-list"].to_str().unwrap().contains("147.0.7727.102"));
+        assert!(flow.request.headers["sec-ch-ua-full-version-list"].to_str().unwrap().contains(profile["fingerprint"]["ua_data"]["ua_full_version"].as_str().unwrap()));
         normalize_identity_headers(&mut flow,&serde_json::json!({"user_agent":"Firefox"})).unwrap();
         assert!(!flow.request.headers.contains_key("sec-ch-ua-arch"));
     }

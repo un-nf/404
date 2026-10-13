@@ -13,7 +13,7 @@
   "replace": [
     [
       "User-Agent",
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:149.0) Gecko/20100101 Firefox/149.0"
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:158.0) Gecko/20100101 Firefox/158.0"
     ],
     [
       "Accept-Language",
@@ -88,14 +88,14 @@
     "access-control-request-method"
   ],
   "fingerprint": {
-    "name": "Firefox 149.0.2 - Windows 10",
+    "name": "Firefox 158.0 - Windows 10",
     "browser_family": "firefox-like",
     "browser_variant": "firefox",
     "browser_type": "firefox",
-    "browser_version": "149.0.2",
+    "browser_version": "158.0",
     "os": "Windows",
     "os_version": "10",
-    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:149.0) Gecko/20100101 Firefox/149.0",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:158.0) Gecko/20100101 Firefox/158.0",
     "platform": "Win32",
     "vendor": "",
     "vendorSub": "",
@@ -273,7 +273,7 @@
           "MAX_CUBE_MAP_TEXTURE_SIZE": 16384,
           "MAX_COMBINED_TEXTURE_IMAGE_UNITS": 32,
           "MAX_TEXTURE_MAX_ANISOTROPY_EXT": 16,
-          "MAX_TEXTURE_LOD_BIAS": 2
+          "MAX_COLOR_ATTACHMENTS_WEBGL": 8
         },
         "extensions": [
           "ANGLE_instanced_arrays",

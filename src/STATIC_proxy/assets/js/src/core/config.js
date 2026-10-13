@@ -1,5 +1,6 @@
 import { getRuntime } from './guard.js'
 import { normalizeFingerprint, variantFamilies } from './schema.js'
+import { resolveWebGLParameters } from './webgl-parameters.js'
 import { isChromiumLike, isFirefoxLike, resolveBrowserFamily, resolveBrowserVariant } from './browser.js'
 
 const REQUIRED_FIELDS = [
@@ -149,6 +150,7 @@ export function loadConfig(input) {
   }
   validateCoherence(fingerprint || {})
   const contract = normalizeFingerprint(fingerprint)
+  resolveWebGLParameters(fingerprint)
   if (fingerprint.audio_context?.hardware_profiles &&
       (fingerprint.audio_context.hardware_profiles.length !== 1 || fingerprint.audio_context.hardware_profiles[0].weight === 0)) {
     throw new TypeError('STATIC audio hardware pool must be resolved once before delivery')

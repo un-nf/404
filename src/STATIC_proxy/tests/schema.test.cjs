@@ -30,3 +30,10 @@ test('shared valid/invalid fixtures agree before installation',async()=>{
  const cases=require('./fixtures/profile-validation.json')
  for(const item of cases){const a=await api();let accepted=true;try{a.loadConfig({fingerprint:{...profile(),...item.patch}})}catch{accepted=false}assert.equal(accepted,item.valid,item.id)}
 })
+
+test('WebGL aliases resolve before installation and conflicting configured limits reject',async()=>{
+ const a=await api(),value=profile();value.webgl_contexts.webgl2.parameters.MAX_DRAW_BUFFERS_WEBGL=7
+ assert.throws(()=>a.loadConfig({fingerprint:value}),/conflicting.*parameter aliases/)
+ const b=await api(),invalid=profile();invalid.webgl_contexts.webgl1.parameters.MAX_TEXTURE_LOD_BIAS=2
+ assert.throws(()=>b.loadConfig({fingerprint:invalid}),/unknown field|unresolved/)
+})

@@ -23,8 +23,12 @@ export function installNavigator() {
     if (value !== undefined) (replaceGetter(proto, name, () => value) ? changed : unavailable).push(name)
   }
   const ua = globalThis.navigator.userAgentData
-  if (ua && !isFirefoxLike(fp)) {
-    const data = fp.ua_data || {}
+  const suppressUa = isFirefoxLike(fp)
+  if (ua) {
+    // Firefox personas suppress the Chromium-only acquisition surface. Also
+    // normalize any already acquired genuine object in this covered realm.
+    if(suppressUa)replaceGetter(proto,'userAgentData',()=>undefined)
+    const data = suppressUa ? {brands:[],full_version_list:[],mobile:false,platform:'',architecture:'',bitness:'',model:'',platform_version:'',ua_full_version:'',wow64:false,form_factors:[]} : fp.ua_data || {}
     const brandValues = data.brands
     const brandArrays = new WeakMap()
     const copyBrand = (x) => ({ brand: x.brand, version: x.version })
@@ -58,6 +62,6 @@ export function installNavigator() {
   }
   markModule('navigator', { status: unavailable.length ? 'partial' : 'installed',
     changed: Object.freeze(changed), unavailable: Object.freeze(unavailable),
-    uaData: !ua ? 'unavailable' : isFirefoxLike(fp) ? 'native' : 'installed',
-    detail: 'existing host identity surfaces only; native UA data getter retained' })
+    uaData: !ua ? 'unavailable' : suppressUa ? 'suppressed' : 'installed',
+    detail: 'genuine identity interfaces; Chromium hints normalized, Firefox persona suppresses UA-data acquisition and neutralizes retained objects' })
 }

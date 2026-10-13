@@ -1,9 +1,14 @@
 import { getFingerprint } from '../core/config.js'
 import { markModule } from '../core/guard.js'
 import { findDescriptor, replaceMethod, replaceGetter } from '../core/descriptors.js'
+import { resolveWebGLParameters } from '../core/webgl-parameters.js'
+export { resolveWebGLParameter } from '../core/webgl-parameters.js'
 
 export function installWebGLSpoof() {
   const fp=getFingerprint(), precisionValues=new WeakMap()
+  // Resolve every declaration before mutating any host descriptor. Extension
+  // constants are not context-prototype properties.
+  const configured=resolveWebGLParameters(fp)
   let installed=0
   for(const [kind,proto] of [['webgl1',globalThis.WebGLRenderingContext?.prototype],['webgl2',globalThis.WebGL2RenderingContext?.prototype]]) {
     if(!proto)continue
@@ -13,10 +18,7 @@ export function installWebGLSpoof() {
     if(!validate)continue
     const overrides=new Map([[0x1f00,record.vendor],[0x1f01,record.renderer],[0x1f02,record.version],
       [0x8b8c,record.shading_language_version],[0x9245,record.debug_vendor],[0x9246,record.debug_renderer]])
-    for(const [name,value] of Object.entries(record.parameters)) {
-      const constant=findDescriptor(proto,name)?.descriptor.value,key=typeof constant==='number'?constant:Number(name)
-      if(Number.isFinite(key))overrides.set(key,value)
-    }
+    for(const [key,value] of configured.get(kind))overrides.set(key,value)
     installed+=Number(replaceMethod(proto,'getParameter',(native,receiver,args)=>{
       if(!args.length)return Reflect.apply(native,receiver,args)
       Reflect.apply(validate,receiver,[])
