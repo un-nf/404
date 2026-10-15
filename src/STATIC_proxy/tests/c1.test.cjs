@@ -38,7 +38,7 @@ function realm(raw = profile()) {
   const frames = []
   const script = { nonce: 'document-nonce', getAttribute: (key) => attributes.get(key),
     removeAttribute: (key) => attributes.delete(key) }
-  const context = vm.createContext({ console: { warn() {}, error() {} }, TextDecoder, URL,
+  const context = vm.createContext({ crypto:require('node:crypto').webcrypto, console: { warn() {}, error() {} }, TextDecoder, URL,
     atob: (value) => Buffer.from(value, 'base64').toString('binary'),
     document: { currentScript: script, documentElement: {}, scripts: [script],
       getElementById: () => null, querySelectorAll: () => frames },

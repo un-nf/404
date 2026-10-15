@@ -1,71 +1,66 @@
-import { getConfig } from '../core/config.js'
-import { getRuntime, markModule } from '../core/guard.js'
-import { findDescriptor, replaceGetter } from '../core/descriptors.js'
-import { onRollback } from '../core/patches.js'
-
+import { iterate } from '../core/primordials.js';
+import { invoke, arraySome, arrayForEach, ReflectIntrinsic as Reflect, ArrayIntrinsic as Array, WeakMapIntrinsic as WeakMap, WeakSetIntrinsic as WeakSet } from '../core/primordials.js';
+import { getConfig } from '../core/config.js';
+import { getRuntime, markModule } from '../core/guard.js';
+import { findDescriptor, replaceGetter } from '../core/descriptors.js';
+import { onRollback, onDispose } from '../core/patches.js';
 export function installIframePropagation(initializeChild) {
-  const runtime = getRuntime()
-  const watched = new WeakSet()
-  const busy = new WeakSet()
-  const prototype = globalThis.HTMLIFrameElement?.prototype
-  const windowGetter = findDescriptor(prototype, 'contentWindow')?.descriptor.get
-  const documentGetter = findDescriptor(prototype, 'contentDocument')?.descriptor.get
-  runtime.frames = new WeakMap()
-
-  function propagate(frame) {
-    if (busy.has(frame)) return
-    busy.add(frame)
-    let outcome = 'unavailable'
-    try {
-      const child = windowGetter ? Reflect.apply(windowGetter, frame, []) : frame.contentWindow
-      const doc = documentGetter ? Reflect.apply(documentGetter, frame, []) : frame.contentDocument
-      if (child && child !== window && doc) {
-        // Proxied documents own their parser-inserted bootstrap. Avoid
-        // installing a second set of wrappers over that document.
-        const hasBootstrap = Array.from(doc.scripts).some((script) => {
-          try {
-            return new URL(script.src, doc.baseURI).pathname === '/__static/runtime.js'
-          } catch {
-            return false
-          }
-        })
-        outcome = hasBootstrap ? 'document-bootstrap-unverified' :
-          typeof initializeChild === 'function' ? initializeChild(child, doc, getConfig().raw) : 'unsupported'
-      }
-    } catch {
-      outcome = 'unavailable'
+    const runtime = getRuntime();
+    const watched = new WeakSet();
+    const busy = new WeakSet();
+    const prototype = globalThis.HTMLIFrameElement?.prototype;
+    const windowGetter = findDescriptor(prototype, 'contentWindow')?.descriptor.get;
+    const documentGetter = findDescriptor(prototype, 'contentDocument')?.descriptor.get;
+    runtime.frames = new WeakMap();
+    function propagate(frame) {
+        if (busy.has(frame))
+            return;
+        busy.add(frame);
+        let outcome = 'unavailable';
+        try {
+            const child = windowGetter ? Reflect.apply(windowGetter, frame, []) : frame.contentWindow;
+            const doc = documentGetter ? Reflect.apply(documentGetter, frame, []) : frame.contentDocument;
+            if (child && child !== window && doc) {
+                // A path, tag or nonce is not an execution acknowledgement.
+                // The supplied coordinator owns document/generation deduplication.
+                outcome = typeof initializeChild === 'function' ? initializeChild(child, doc, getConfig().raw) : 'unsupported';
+            }
+        }
+        catch {
+            outcome = 'unavailable';
+        }
+        runtime.frames.set(frame, outcome);
+        busy.delete(frame);
     }
-    runtime.frames.set(frame, outcome)
-    busy.delete(frame)
-  }
-
-  function watch(frame) {
-    if (!watched.has(frame)) {
-      watched.add(frame)
-      const loaded = () => propagate(frame)
-      frame.addEventListener('load', loaded)
-      onRollback(() => frame.removeEventListener('load', loaded))
+    function watch(frame) {
+        if (!watched.has(frame)) {
+            watched.add(frame);
+            const loaded = () => propagate(frame);
+            frame.addEventListener('load', loaded);
+            onRollback(() => frame.removeEventListener('load', loaded));
+        }
+        propagate(frame);
     }
-    propagate(frame)
-  }
-
-  for (const name of ['contentWindow', 'contentDocument']) {
-    replaceGetter(prototype, name, (value, frame) => {
-      propagate(frame)
-      return value
-    })
-  }
-  document.querySelectorAll('iframe').forEach(watch)
-  const observer = new MutationObserver((mutations) => {
-    for (const mutation of mutations) {
-      for (const node of mutation.addedNodes) {
-        if (node.nodeType !== 1) continue
-        if (node.localName === 'iframe') watch(node)
-        node.querySelectorAll?.('iframe').forEach(watch)
-      }
+    for (const name of iterate(['contentWindow', 'contentDocument'])) {
+        replaceGetter(prototype, name, (value, frame) => {
+            propagate(frame);
+            return value;
+        });
     }
-  })
-  observer.observe(document.documentElement, { childList: true, subtree: true })
-  onRollback(() => observer.disconnect())
-  markModule('iframePropagation', { status: 'partial', detail: 'synchronous accessible-frame getters and observer/load fallback; early child code and CSP gaps remain' })
+    arrayForEach(document.querySelectorAll('iframe'), watch);
+    const observer = new MutationObserver((mutations) => {
+        for (const mutation of iterate(mutations)) {
+            for (const node of iterate(mutation.addedNodes)) {
+                if (node.nodeType !== 1)
+                    continue;
+                if (node.localName === 'iframe')
+                    watch(node);
+                arrayForEach(node.querySelectorAll?.('iframe'), watch);
+            }
+        }
+    });
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+    onRollback(() => observer.disconnect());
+    onDispose(() => observer.disconnect());
+    markModule('iframePropagation', { status: 'partial', detail: 'synchronous accessible-frame getters and observer/load fallback; early child code and CSP gaps remain' });
 }

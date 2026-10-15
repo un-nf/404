@@ -12,7 +12,7 @@ const source = esbuild.build({stdin:{contents:`
   export * from './assets/js/src/capabilities/media-capabilities.js';
   export * from './assets/js/src/spoofing/speech.js';`,resolveDir:root},
   bundle:true,format:'cjs',write:false}).then(r=>r.outputFiles[0].text)
-const profile = (extra={}) => ({fingerprint:{user_agent:'Windows AppleWebKit/537.36 Chrome/147.0.0.0',
+const profile = (extra={}) => ({fingerprint:{user_agent:'Windows AppleWebKit/537.36 Chrome/155.0.0.0',
   platform:'Win32',vendor:'Google Inc.',browser_variant:'chrome',canvas_hash:'test',
   webgl_vendor:'test',webgl_renderer:'test',webgl_contexts:require('../profiles/chrome-windows.json').fingerprint.webgl_contexts,languages:['en-US'],ua_data:require('../profiles/chrome-windows.json').fingerprint.ua_data,...extra}})
 async function setup(extra={}) {

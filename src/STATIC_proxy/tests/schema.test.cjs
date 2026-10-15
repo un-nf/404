@@ -21,14 +21,15 @@ test('canonical flags control observations and hostname exception mode is reject
 })
 test('deprecated metadata is reported and persona snapshots including defaults are frozen',async()=>{
  const a=await api(),p=profile();p.fonts=['Arial'];const report=a.normalizeFingerprint(p)
- assert.ok(report.unsupported.includes('fonts'));assert.equal(p.compatibility_mode,undefined)
+ assert.ok(report.partial.includes('fonts'));assert.equal(report.unsupported.includes('fonts'),false);assert.equal(p.compatibility_mode,undefined)
+ assert.equal(p.timezone_legacy_policy,'normalize');assert.ok(report.partial.includes('timezone_legacy_policy'))
  a.loadConfig({fingerprint:p});assert.equal(Object.isFrozen(a.getFingerprint()),true)
  assert.equal(Object.isFrozen(a.getFingerprint().fonts),true)
 })
 
 test('shared valid/invalid fixtures agree before installation',async()=>{
  const cases=require('./fixtures/profile-validation.json')
- for(const item of cases){const a=await api();let accepted=true;try{a.loadConfig({fingerprint:{...profile(),...item.patch}})}catch{accepted=false}assert.equal(accepted,item.valid,item.id)}
+ for(const item of cases){const a=await api();let accepted=true;const value={...profile(),...item.patch};for(const mutation of item.mutations||[]){let owner=value;for(const key of mutation.path.slice(0,-1))owner=owner[key];owner[mutation.path.at(-1)]=mutation.value;}try{a.loadConfig({fingerprint:value})}catch{accepted=false}assert.equal(accepted,item.valid,item.id)}
 })
 
 test('WebGL aliases resolve before installation and conflicting configured limits reject',async()=>{

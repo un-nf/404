@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
+import { createReadStream } from "node:fs";
 import path from "node:path";
 
 const parseArgs = (argv) => {
@@ -32,7 +33,9 @@ const walk = async (rootDirectory) => {
     const fullPath = path.join(rootDirectory, entry.name);
     if (entry.isDirectory()) {
       files.push(...(await walk(fullPath)));
-    } else {
+    } else if (entry.isSymbolicLink()) {
+      throw new Error(`Symbolic release artifact is unsupported: ${fullPath}`);
+    } else if (entry.isFile()) {
       files.push(fullPath);
     }
   }
@@ -41,12 +44,14 @@ const walk = async (rootDirectory) => {
 };
 
 const sha256File = async (filePath) => {
-  const contents = await fs.readFile(filePath);
-  return createHash("sha256").update(contents).digest("hex");
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(filePath)) hash.update(chunk);
+  return hash.digest("hex");
 };
 
 const main = async () => {
   const args = parseArgs(process.argv.slice(2));
+  if (!args.input?.trim() || !args.output?.trim() || !args.version?.trim()) throw new Error("Usage: --input <dir> --output <file> --version <tag>");
   const inputRoot = path.resolve(args.input || "");
   const outputPath = path.resolve(args.output || "");
   const version = (args.version || "").trim();
@@ -59,9 +64,12 @@ const main = async () => {
 
   const files = await walk(inputRoot);
   const artifacts = [];
+  const names = new Set();
+  const identity = file => process.platform === 'win32' ? path.resolve(file).toLowerCase() : path.resolve(file);
 
   for (const filePath of files) {
     const fileName = path.basename(filePath);
+    if (identity(filePath) === identity(outputPath)) continue;
     if (
       fileName === "static_proxy-release-manifest.json" ||
       fileName === "static_proxy-release-manifest.json.sig" ||
@@ -70,6 +78,9 @@ const main = async () => {
       continue;
     }
 
+    const nameKey = fileName.toLowerCase();
+    if (names.has(nameKey)) throw new Error(`Ambiguous release artifact basename: ${fileName}`);
+    names.add(nameKey);
     artifacts.push({
       name: fileName,
       sha256: await sha256File(filePath),

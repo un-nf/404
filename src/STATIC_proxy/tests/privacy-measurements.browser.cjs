@@ -5,6 +5,7 @@ const root=path.resolve(__dirname,'..'),engine=process.env.STATIC_BROWSER_ENGINE
 const profile=process.env.STATIC_BROWSER_PROFILE||(engine==='firefox'?'firefox':'chrome')
 const raw=JSON.parse(fs.readFileSync(path.join(root,`profiles/${profile}-windows.json`)))
 raw.startup_salt='public-known-fixture-salt'
+if(process.env.STATIC_CANVAS_READBACK_MODE)raw.fingerprint.canvas_readback_mode=process.env.STATIC_CANVAS_READBACK_MODE;
 const bundle=fs.readFileSync(path.join(root,'assets/js/dist/runtime.bundle.js'))
 const server=http.createServer((req,res)=>{
   if(req.url==='/runtime.js'){res.setHeader('Content-Type','text/javascript');res.end(bundle)}
@@ -51,7 +52,8 @@ async function main(){
     fs.mkdirSync(path.join(root,'target/privacy-measurements'),{recursive:true})
     fs.writeFileSync(path.join(root,`target/privacy-measurements/${engine}-${profile}.json`),JSON.stringify(report,null,2)+'\n')
     assert.ok(Object.values(report.functionality).every(Boolean));assert.ok(report.personaFit.uaMatches);assert.ok(report.personaFit.explicitSampleRatesPreserved)
-    assert.ok(report.repeatVisitLinkage.maskedUniqueHashes>1,'Public salt must not determine all document noise')
+    if(raw.fingerprint.canvas_readback_mode==='redacted')assert.equal(report.repeatVisitLinkage.maskedUniqueHashes,1,'Fixed redaction must not encode native rendering/session noise');
+    else assert.ok(report.repeatVisitLinkage.maskedUniqueHashes>1,'Public salt must not determine all document noise')
     if(process.env.STATIC_PRIVACY_EFFECTIVENESS_GATE==='1')assert.equal(report.effectiveness.passed,true,'Approximate historical-baseline matching remains effective; C5 gate failed')
     console.log(JSON.stringify({engine,effectiveness:report.effectiveness,hostRecovery:report.hostRecovery,repeatVisitLinkage:report.repeatVisitLinkage,personaFit:report.personaFit,functionality:report.functionality},null,2))
   }finally{await browser.close();await new Promise(r=>server.close(r))}

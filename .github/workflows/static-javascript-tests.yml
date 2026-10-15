@@ -24,8 +24,101 @@ jobs:
         working-directory: src/STATIC_proxy/build
       - run: npm run build
         working-directory: src/STATIC_proxy/build
+      - run: node build.js --verify
+        working-directory: src/STATIC_proxy/build
       - name: Verify canonical profile manifest
         shell: pwsh
         run: |
           ./scripts/update-static-profile-manifest.ps1
           git diff --exit-code -- src/STATIC_proxy/profiles
+  rust-contracts:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --locked --lib
+        working-directory: src/STATIC_proxy
+  browser-contracts:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [chromium, firefox]
+    env:
+      STATIC_BROWSER_ENGINE: ${{ matrix.engine }}
+      STATIC_PLAYWRIGHT_MODULE: ${{ github.workspace }}/src/STATIC_proxy/build/node_modules/playwright
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: npm ci
+        working-directory: src/STATIC_proxy/build
+      - run: npx playwright install --with-deps ${{ matrix.engine }}
+        working-directory: src/STATIC_proxy/build
+      - run: npm run build
+        working-directory: src/STATIC_proxy/build
+      - run: node tests/audio-graph.browser.cjs
+        working-directory: src/STATIC_proxy
+      - run: node tests/primordials.browser.cjs
+        working-directory: src/STATIC_proxy
+      - run: node tests/canvas-bitmap.browser.cjs
+        working-directory: src/STATIC_proxy
+      - run: node tests/relay-policy.browser.cjs
+        working-directory: src/STATIC_proxy
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-contracts-${{ matrix.engine }}
+          path: src/STATIC_proxy/target/audit-contracts
+  live-proxy-contract:
+    runs-on: windows-latest
+    env:
+      STATIC_PLAYWRIGHT_MODULE: ${{ github.workspace }}/src/STATIC_proxy/build/node_modules/playwright
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --locked
+        working-directory: src/STATIC_proxy
+      - run: npm run build
+        working-directory: src/STATIC_proxy/build
+      - run: npx playwright install chromium
+        working-directory: src/STATIC_proxy/build
+      - run: node tests/proxy.browser.cjs
+        working-directory: src/STATIC_proxy
+  rendering-effectiveness:
+    # This is a separate required privacy result. The default sparse-noise
+    # policy is expected to fail approximate historical matching; do not mute it.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [noise, redacted]
+    env:
+      STATIC_PRIVACY_EFFECTIVENESS_GATE: "1"
+      STATIC_CANVAS_READBACK_MODE: ${{ matrix.mode }}
+      STATIC_PLAYWRIGHT_MODULE: ${{ github.workspace }}/src/STATIC_proxy/build/node_modules/playwright
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: npm ci
+        working-directory: src/STATIC_proxy/build
+      - run: npx playwright install --with-deps chromium
+        working-directory: src/STATIC_proxy/build
+      - run: npm run build
+        working-directory: src/STATIC_proxy/build
+      - run: node tests/privacy-measurements.browser.cjs
+        working-directory: src/STATIC_proxy
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rendering-effectiveness-${{ matrix.mode }}
+          path: src/STATIC_proxy/target/privacy-measurements

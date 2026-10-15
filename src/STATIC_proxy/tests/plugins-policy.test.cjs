@@ -1,7 +1,7 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),vm=require('node:vm'),path=require('node:path'),esbuild=require('../build/node_modules/esbuild')
 const root=path.resolve(__dirname,'..'),profile=require('../profiles/chrome-windows.json')
 const source=esbuild.build({stdin:{contents:`export * from './assets/js/src/core/guard.js';export * from './assets/js/src/core/config.js';export * from './assets/js/src/identity/plugins.js';`,resolveDir:root},bundle:true,format:'cjs',write:false}).then(r=>r.outputFiles[0].text)
-async function setup(enabled,uniform){const context=vm.createContext({module:{exports:{}},DOMException,uniform});vm.runInContext(await source,context);const api=context.module.exports;api.initRuntime();api.loadConfig({...profile,fingerprint:{...profile.fingerprint,pdf_viewer_enabled:enabled}})
+async function setup(enabled,uniform,policy){const context=vm.createContext({module:{exports:{}},DOMException,uniform});vm.runInContext(await source,context);const api=context.module.exports;api.initRuntime();api.loadConfig({...profile,fingerprint:{...profile.fingerprint,pdf_viewer_enabled:enabled,...(policy?{pdf_inventory_policy:policy}:{})}})
  vm.runInContext(`
  class Plugin {constructor(name){this.name=name}get filename(){if(!(this instanceof Plugin))throw TypeError('receiver');return 'host-private-filename'}get description(){return 'host-description'}}
  class MimeType {constructor(type){this.type=type}get suffixes(){return 'host-suffix'}get description(){return 'host-description'}}
@@ -25,3 +25,5 @@ test('mismatching and disabled PDF inventories are denied rather than exposed',a
   else assert.equal(vm.runInContext('navigator.pdfViewerEnabled',context),false)
  }
 })
+
+test('R10 explicit uniform denial follows the profile flag across host cohorts without claiming collection parity',async()=>{for(const uniform of [true,false]){const {context}=await setup(true,uniform,'deny');assert.equal(vm.runInContext('navigator.pdfViewerEnabled',context),true);for(const key of ['plugins','mimeTypes'])assert.throws(()=>vm.runInContext('navigator.'+key,context),error=>error.name==='SecurityError');}})

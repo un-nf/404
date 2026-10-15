@@ -825,22 +825,28 @@
         "channel_count": {
           "type": "integer",
           "minimum": 0,
-          "maximum": 65536
+          "maximum": 32
         },
         "max_channel_count": {
           "type": "integer",
           "minimum": 0,
-          "maximum": 65536
+          "maximum": 32
         },
         "number_of_inputs": {
           "type": "integer",
           "minimum": 0,
-          "maximum": 65536
+          "maximum": 65536,
+          "enum": [
+            1
+          ]
         },
         "number_of_outputs": {
           "type": "integer",
           "minimum": 0,
-          "maximum": 65536
+          "maximum": 65536,
+          "enum": [
+            0
+          ]
         },
         "render": {
           "type": "object",
@@ -931,12 +937,18 @@
               "number_of_inputs": {
                 "type": "integer",
                 "minimum": 0,
-                "maximum": 65536
+                "maximum": 65536,
+                "enum": [
+                  1
+                ]
               },
               "number_of_outputs": {
                 "type": "integer",
                 "minimum": 0,
-                "maximum": 65536
+                "maximum": 65536,
+                "enum": [
+                  0
+                ]
               },
               "render": {
                 "type": "object",
@@ -989,6 +1001,25 @@
         "weight": {
           "type": "number",
           "minimum": 0
+        },
+        "worklet_policy": {
+          "type": "string",
+          "enum": [
+            "legacy-float-noise",
+            "channel-data-only",
+            "deny-opaque"
+          ],
+          "default": "legacy-float-noise",
+          "x-runtime": "partial",
+          "description": "Window-side message readback policy; processor globals and opaque controls are not browser-engine emulation."
+        },
+        "byte_readback_delta": {
+          "type": "integer",
+          "minimum": -1,
+          "maximum": 1,
+          "default": 1,
+          "x-runtime": "implemented",
+          "description": "Deterministic one-byte analyser readback intervention; not driver/engine emulation."
         }
       }
     },
@@ -1319,7 +1350,7 @@
     },
     "fonts": {
       "type": "array",
-      "x-runtime": "unsupported-or-metadata",
+      "x-runtime": "partial",
       "items": {
         "type": "string"
       }
@@ -1626,116 +1657,122 @@
               "properties": {
                 "MAX_VERTEX_ATTRIBS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_VERTEX_UNIFORM_VECTORS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_VERTEX_TEXTURE_IMAGE_UNITS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_VARYING_VECTORS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "ALIASED_LINE_WIDTH_RANGE": {
                   "type": "array",
                   "items": {
-                    "type": "number"
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 2147483647
                   }
                 },
                 "ALIASED_POINT_SIZE_RANGE": {
                   "type": "array",
                   "items": {
-                    "type": "number"
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 2147483647
                   }
                 },
                 "MAX_FRAGMENT_UNIFORM_VECTORS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_TEXTURE_IMAGE_UNITS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_DRAW_BUFFERS_WEBGL": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_RENDERBUFFER_SIZE": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_VIEWPORT_DIMS": {
                   "type": "array",
                   "items": {
-                    "type": "number"
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 2147483647
                   }
                 },
                 "RED_BITS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "GREEN_BITS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "BLUE_BITS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "ALPHA_BITS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "DEPTH_BITS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "STENCIL_BITS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_TEXTURE_SIZE": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_CUBE_MAP_TEXTURE_SIZE": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_COMBINED_TEXTURE_IMAGE_UNITS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_TEXTURE_MAX_ANISOTROPY_EXT": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_COLOR_ATTACHMENTS_WEBGL": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 }
               }
             },
@@ -1836,231 +1873,237 @@
               "properties": {
                 "MAX_VERTEX_ATTRIBS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_VERTEX_UNIFORM_VECTORS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_VERTEX_TEXTURE_IMAGE_UNITS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_VARYING_VECTORS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "ALIASED_LINE_WIDTH_RANGE": {
                   "type": "array",
                   "items": {
-                    "type": "number"
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 2147483647
                   }
                 },
                 "ALIASED_POINT_SIZE_RANGE": {
                   "type": "array",
                   "items": {
-                    "type": "number"
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 2147483647
                   }
                 },
                 "MAX_FRAGMENT_UNIFORM_VECTORS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_TEXTURE_IMAGE_UNITS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_DRAW_BUFFERS_WEBGL": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_RENDERBUFFER_SIZE": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_VIEWPORT_DIMS": {
                   "type": "array",
                   "items": {
-                    "type": "number"
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 2147483647
                   }
                 },
                 "RED_BITS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "GREEN_BITS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "BLUE_BITS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "ALPHA_BITS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "DEPTH_BITS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "STENCIL_BITS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_TEXTURE_SIZE": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_CUBE_MAP_TEXTURE_SIZE": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_COMBINED_TEXTURE_IMAGE_UNITS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_TEXTURE_MAX_ANISOTROPY_EXT": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_TEXTURE_LOD_BIAS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_VERTEX_UNIFORM_COMPONENTS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_VERTEX_UNIFORM_BLOCKS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_VERTEX_OUTPUT_COMPONENTS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_VARYING_COMPONENTS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_TRANSFORM_FEEDBACK_INTERLEAVED_COMPONENTS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_TRANSFORM_FEEDBACK_SEPARATE_COMPONENTS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_FRAGMENT_UNIFORM_COMPONENTS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_FRAGMENT_UNIFORM_BLOCKS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_FRAGMENT_INPUT_COMPONENTS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MIN_PROGRAM_TEXEL_OFFSET": {
                   "type": "integer",
                   "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "maximum": 0
                 },
                 "MAX_PROGRAM_TEXEL_OFFSET": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_DRAW_BUFFERS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_COLOR_ATTACHMENTS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_SAMPLES": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_3D_TEXTURE_SIZE": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_ARRAY_TEXTURE_LAYERS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_UNIFORM_BUFFER_BINDINGS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_UNIFORM_BLOCK_SIZE": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "UNIFORM_BUFFER_OFFSET_ALIGNMENT": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_COMBINED_UNIFORM_BLOCKS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_COMBINED_VERTEX_UNIFORM_COMPONENTS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 },
                 "MAX_COMBINED_FRAGMENT_UNIFORM_COMPONENTS": {
                   "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 9007199254740991
+                  "minimum": 0,
+                  "maximum": 2147483647
                 }
               }
             },
@@ -2179,6 +2222,98 @@
         "relay-only"
       ],
       "default": "relay-only"
+    },
+    "canvas_export_budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bytes",
+        "operations"
+      ],
+      "properties": {
+        "bytes": {
+          "type": "integer",
+          "minimum": 4096,
+          "maximum": 1073741824
+        },
+        "operations": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32
+        }
+      },
+      "default": {
+        "bytes": 268435456,
+        "operations": 4
+      },
+      "x-runtime": "observation"
+    },
+    "canvas_readback_mode": {
+      "type": "string",
+      "enum": [
+        "noise",
+        "redacted"
+      ],
+      "default": "noise",
+      "x-runtime": "observation"
+    },
+    "canvas_redaction_color": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 255
+      },
+      "default": [
+        0,
+        0,
+        0,
+        255
+      ],
+      "x-runtime": "observation"
+    },
+    "webrtc_observation_policy": {
+      "type": "string",
+      "enum": [
+        "mask-all",
+        "preserve-relay-routing"
+      ],
+      "default": "mask-all",
+      "x-runtime": "partial",
+      "description": "mask-all obscures even usable relay signaling; preserve-relay-routing retains only TURN relay endpoints, with related/native addresses still masked and relay-only transport required."
+    },
+    "font_inventory_policy": {
+      "type": "string",
+      "enum": [
+        "profile-allowlist",
+        "native"
+      ],
+      "default": "profile-allowlist",
+      "x-runtime": "partial",
+      "description": "FontFaceSet.check policy only when fonts are configured; does not install fonts or normalize glyph rendering."
+    },
+    "pdf_inventory_policy": {
+      "type": "string",
+      "enum": [
+        "standardized-native",
+        "deny"
+      ],
+      "default": "standardized-native",
+      "x-runtime": "partial",
+      "description": "Keep a genuine matching native cohort or explicitly deny collections uniformly. Neither implements a PDF viewer or absent native collection brands."
+    },
+    "timezone_legacy_policy": {
+      "type": "string",
+      "enum": [
+        "normalize",
+        "deny",
+        "native"
+      ],
+      "default": "normalize",
+      "x-runtime": "partial",
+      "description": "Normalize engine-recognized legacy local strings into profile time; deny unsupported normalization, or explicitly opt into native legacy parsing."
     }
   },
   "anyOf": [

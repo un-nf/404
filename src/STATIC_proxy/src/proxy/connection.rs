@@ -2104,27 +2104,28 @@ mod tests {
     }
 
     #[test]
+    fn parse_http_request_head_rejects_header_without_colon() {
+        let err = parse_http_request_head(
+            b"GET / HTTP/1.1\r\nHost: example.com\r\nX-Broken\r\n\r\n",
+        )
+        .expect_err("malformed request header should fail");
+
+        assert!(err.to_string().contains("invalid HTTP header line: X-Broken"));
+    }
+
+    #[test]
+    fn parse_http_response_head_rejects_header_without_colon() {
+        let err = parse_http_response_head(
+            b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection upgrade\r\n\r\n",
+        )
+        .expect_err("malformed response header should fail");
+
+        assert!(err.to_string().contains("invalid HTTP header line: Connection upgrade"));
+    }
+
+    #[test]
     fn retryable_upstream_connect_errors_exclude_dns_failures() {
 
-        #[test]
-        fn parse_http_request_head_rejects_header_without_colon() {
-            let err = parse_http_request_head(
-                b"GET / HTTP/1.1\r\nHost: example.com\r\nX-Broken\r\n\r\n",
-            )
-            .expect_err("malformed request header should fail");
-
-            assert!(err.to_string().contains("invalid HTTP header line: X-Broken"));
-        }
-
-        #[test]
-        fn parse_http_response_head_rejects_header_without_colon() {
-            let err = parse_http_response_head(
-                b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection upgrade\r\n\r\n",
-            )
-            .expect_err("malformed response header should fail");
-
-            assert!(err.to_string().contains("invalid HTTP header line: Connection upgrade"));
-        }
         let dns_err = anyhow::anyhow!("client error (Connect): dns error: No such host is known. (os error 11001)");
         let handshake_err = anyhow::anyhow!("client error (Connect): [SSLV3_ALERT_HANDSHAKE_FAILURE] [HANDSHAKE_FAILURE_ON_CLIENT_HELLO]");
         let unexpected_message_err = anyhow::anyhow!("client error (Connect): [SSLV3_ALERT_UNEXPECTED_MESSAGE]: [SSLV3_ALERT_UNEXPECTED_MESSAGE]");

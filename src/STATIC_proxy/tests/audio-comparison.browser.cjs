@@ -6,7 +6,7 @@ const {execFileSync}=require('node:child_process'),esbuild=require('../build/nod
 const playwright=require(process.env.STATIC_PLAYWRIGHT_MODULE||'playwright')
 const root=path.resolve(__dirname,'..'),engine=process.env.STATIC_BROWSER_ENGINE||'chromium'
 const profile=JSON.parse(fs.readFileSync(path.join(root,'profiles/chrome-windows.json')))
-profile.fingerprint.audio_context={sample_rate:44100,channel_count:1,max_channel_count:6,number_of_inputs:2,number_of_outputs:3,hardware_profiles:[{id:'comparison',sample_rate:44100,render:{gain:1,bias:0,feedback:1.6e-7,modulation:2.2e-8}}]}
+profile.fingerprint.audio_context={sample_rate:44100,channel_count:1,max_channel_count:6,number_of_inputs:1,number_of_outputs:0,hardware_profiles:[{id:'comparison',sample_rate:44100,render:{gain:1,bias:0,feedback:1.6e-7,modulation:2.2e-8}}]}
 async function source(commit){
  const audio=commit?execFileSync('git',['show',`${commit}:src/STATIC_proxy/assets/js/src/spoofing/audio.js`],{cwd:root,encoding:'utf8'}):null
  const built=await esbuild.build({stdin:{contents:`import {initRuntime,getRuntime} from './assets/js/src/core/guard.js';import {loadConfig} from './assets/js/src/core/config.js';import {captureNativeRefs} from './assets/js/src/core/native-refs.js';import {installAudioSpoof} from './assets/js/src/spoofing/audio.js';initRuntime();loadConfig(${JSON.stringify(profile)});captureNativeRefs();getRuntime().entropy={sessionId:'comparison',hash:()=>7,rng:()=>()=>0.5};installAudioSpoof();`,resolveDir:root},bundle:true,format:'iife',write:false,plugins:audio?[{name:'historical-installer',setup(build){build.onLoad({filter:/spoofing[\\/]audio\.js$/},args=>({contents:audio,resolveDir:path.dirname(args.path)}))}}]:[]})
