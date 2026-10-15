@@ -65,6 +65,9 @@ jobs:
         working-directory: src/STATIC_proxy
       - run: node tests/primordials.browser.cjs
         working-directory: src/STATIC_proxy
+      - run: node tests/uach-isolation.browser.cjs
+        if: matrix.engine == 'chromium'
+        working-directory: src/STATIC_proxy
       - run: node tests/canvas-bitmap.browser.cjs
         working-directory: src/STATIC_proxy
       - run: node tests/relay-policy.browser.cjs

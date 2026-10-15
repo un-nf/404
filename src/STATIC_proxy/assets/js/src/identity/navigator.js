@@ -1,10 +1,46 @@
 import { iterateEntries, iterate } from '../core/primordials.js';
-import { slice, arrayFilter, arrayMap, stringSplit, stringTrim, stringReplace, arrayPush, promiseThen, ObjectIntrinsic as Object, ArrayIntrinsic as Array, StringIntrinsic as String, BooleanIntrinsic as Boolean, WeakMapIntrinsic as WeakMap } from '../core/primordials.js';
+import { slice, arrayFilter, arrayMap, stringSplit, stringTrim, stringReplace, arrayPush, promiseThen, ObjectIntrinsic as Object, ArrayIntrinsic as Array, StringIntrinsic as String, BooleanIntrinsic as Boolean, WeakMapIntrinsic as WeakMap, SetIntrinsic as Set, ReflectIntrinsic as Reflect, SymbolIntrinsic as Symbol, PromiseIntrinsic as Promise, TypeErrorIntrinsic as TypeError } from '../core/primordials.js';
 import { getFingerprint } from '../core/config.js';
 import { isFirefoxLike } from '../core/browser.js';
 import { markModule } from '../core/guard.js';
-import { replaceGetter, mapMethod } from '../core/descriptors.js';
+import { replaceGetter, mapMethod, replaceMethod, findDescriptor } from '../core/descriptors.js';
 import { publicArray } from '../core/primordials.js';
+// WebIDL sequence<DOMString> conversion. These are application-owned iterables:
+// honor their iterator and conversion callbacks, but do not use Array.from or
+// acquire a native identity dictionary to validate them. WebIDL does not close
+// the iterator when conversion of an element fails.
+function requestedHints(value) {
+    if (value === null || (typeof value !== 'object' && typeof value !== 'function'))
+        throw new TypeError('UA-CH hints must be an iterable object');
+    const method = Reflect.get(value, Symbol.iterator);
+    if (typeof method !== 'function')
+        throw new TypeError('UA-CH hints must be iterable');
+    const iterator = Reflect.apply(method, value, []);
+    if (iterator === null || (typeof iterator !== 'object' && typeof iterator !== 'function'))
+        throw new TypeError('UA-CH iterator must return an object');
+    const next = Reflect.get(iterator, 'next');
+    const requested = new Set();
+    while (true) {
+        const step = Reflect.apply(next, iterator, []);
+        if (step === null || (typeof step !== 'object' && typeof step !== 'function'))
+            throw new TypeError('UA-CH iterator result must be an object');
+        // Chromium's sequence conversion reads value before done, including
+        // accessor side effects. Keep that observed order without converting
+        // the terminal value (covered by the real-browser differential test).
+        const hint = step.value;
+        if (step.done)
+            return requested;
+        if (typeof hint === 'symbol')
+            throw new TypeError('Cannot convert a Symbol value to a string');
+        requested.add(String(hint));
+    }
+}
+function resultField(result, key, value) {
+    const descriptor = Object.create(null);
+    descriptor.value = value;
+    descriptor.writable = descriptor.enumerable = descriptor.configurable = true;
+    Object.defineProperty(result, key, descriptor);
+}
 export function installNavigator() {
     const fp = getFingerprint();
     const proto = Object.getPrototypeOf(globalThis.navigator);
@@ -45,6 +81,7 @@ export function installNavigator() {
             uaFullVersion: data.ua_full_version, wow64: data.wow64, formFactors: data.form_factors,
         };
         const uaProto = Object.getPrototypeOf(ua);
+        const nativeBrands = findDescriptor(uaProto, 'brands')?.descriptor.get;
         replaceGetter(uaProto, 'brands', (nativeArray) => {
             if (!brandArrays.has(nativeArray))
                 brandArrays.set(nativeArray, publicArray(Object.freeze(arrayMap(brandValues, copyBrand))));
@@ -55,18 +92,41 @@ export function installNavigator() {
         const mapResult = (result) => {
             const normalized = {};
             for (const key of iterate(Object.keys(result))) {
-                if (hints[key] !== undefined) {
-                    normalized[key] = key === 'formFactors' ? publicArray(slice(hints[key])) :
-                        Array.isArray(hints[key]) ? publicArray(arrayMap(hints[key], copyBrand)) : hints[key];
+                if (Object.hasOwn(hints, key) && hints[key] !== undefined) {
+                    resultField(normalized, key, key === 'formFactors' ? publicArray(slice(hints[key])) :
+                        Array.isArray(hints[key]) ? publicArray(arrayMap(hints[key], copyBrand)) : hints[key]);
                 }
             }
             return normalized;
         };
-        mapMethod(uaProto, 'getHighEntropyValues', (promise) => promiseThen(promise, mapResult));
+        // Native promise resolution can invoke Object.prototype.then on the
+        // host dictionary before any downstream mapper. Never request that
+        // dictionary. A captured synchronous getter supplies the genuine brand
+        // check; only selected-profile copies enter promise resolution.
+        replaceMethod(uaProto, 'getHighEntropyValues', (_native, receiver, args) => {
+            try {
+                if (typeof nativeBrands !== 'function')
+                    throw new TypeError('UA-CH receiver validation is unavailable');
+                Reflect.apply(nativeBrands, receiver, []);
+                const requested = requestedHints(args[0]);
+                return promiseThen(Promise.resolve(undefined), () => {
+                    const result = {};
+                    // WebIDL dictionaries expose members in lexical order.
+                    for (const key of iterate(['architecture', 'bitness', 'brands', 'formFactors', 'fullVersionList', 'mobile', 'model', 'platform', 'platformVersion', 'uaFullVersion', 'wow64'])) {
+                        if ((key === 'brands' || key === 'mobile' || key === 'platform' || requested.has(key)) && hints[key] !== undefined)
+                            resultField(result, key, key === 'formFactors' ? publicArray(slice(hints[key])) :
+                                Array.isArray(hints[key]) ? publicArray(arrayMap(hints[key], copyBrand)) : hints[key]);
+                    }
+                    return result;
+                });
+            } catch (error) {
+                return Promise.reject(error);
+            }
+        });
         mapMethod(uaProto, 'toJSON', mapResult);
     }
     markModule('navigator', { status: unavailable.length ? 'partial' : 'installed',
         changed: Object.freeze(changed), unavailable: Object.freeze(unavailable),
         uaData: !ua ? 'unavailable' : suppressUa ? 'suppressed' : 'installed',
-        detail: 'genuine identity interfaces; Chromium hints normalized, Firefox persona suppresses UA-data acquisition and neutralizes retained objects' });
+        detail: 'genuine identity interfaces; profile-only UA-CH dictionaries without native high-entropy acquisition; Firefox persona suppresses UA-data acquisition and neutralizes retained objects' });
 }

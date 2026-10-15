@@ -61,6 +61,7 @@ export const MathIntrinsic = freeze(Object.create(null, descriptors(Math)))
 export const NumberIntrinsic = staticFacade(Number)
 export const StringIntrinsic = staticFacade(String)
 export const BooleanIntrinsic = Boolean
+export const TypeErrorIntrinsic = TypeError
 export const ProxyIntrinsic = NativeProxy
 export const functionToString = Function.prototype.toString
 export const FunctionPrototype = functionPrototype
