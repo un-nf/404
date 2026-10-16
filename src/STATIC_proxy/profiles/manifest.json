@@ -1,23 +1,23 @@
 {
   "profiles": [
     {
-      "file_name": "chrome-windows.json",
-      "path": "src/STATIC_proxy/profiles/chrome-windows.json",
+      "file_name": "/chrome-windows.json",
+      "path": "/src/STATIC_proxy/profiles/chrome-windows.json",
       "sha256": "967732f47aa284bb5d66a7c7a4f486dfd976287dbbe559596ce069e86c81da5d"
     },
     {
-      "file_name": "edge-windows.json",
-      "path": "src/STATIC_proxy/profiles/edge-windows.json",
+      "file_name": "/edge-windows.json",
+      "path": "/src/STATIC_proxy/profiles/edge-windows.json",
       "sha256": "78fcb5b6501ca91e6fb2edef708618d2dad51269cc2a104ba7885074e53d8cd7"
     },
     {
-      "file_name": "firefox-windows.json",
-      "path": "src/STATIC_proxy/profiles/firefox-windows.json",
+      "file_name": "/firefox-windows.json",
+      "path": "/src/STATIC_proxy/profiles/firefox-windows.json",
       "sha256": "027227351d05585fa2493a499b00746786fb839055dfd2090868ce6909a0b869"
     },
     {
-      "file_name": "primitives/windows-tcp.json",
-      "path": "src/STATIC_proxy/profiles/primitives/windows-tcp.json",
+      "file_name": "/primitives/windows-tcp.json",
+      "path": "/src/STATIC_proxy/profiles/primitives/windows-tcp.json",
       "sha256": "590973101cb5cb98787c7c815fce7cad314c773e53d43592e3aa4c596e2816fe"
     }
   ]
