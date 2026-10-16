@@ -112,6 +112,13 @@ The v2.6 runtime kept its config, original function references and nonce somewhe
   - `.gitattributes` was added to keep manifest bytes stable.
 - Local results at the last checkpoint: 81 JS tests and 111 Rust library tests pass. The remote CI workflow has not been run yet.
 
+## Dependency security fixes (v2.7.01)
+
+- Raise the Rustls minimum to 0.23.46 and lock that version. This fixes TLS 1.3 handshake encryption-level validation (GHSA-2mjx-qc3c-rqvc / RUSTSEC-2026-0285) and session-value Debug secret disclosure (GHSA-c8m5-c952-6cm4 / RUSTSEC-2026-0346).
+- Raise the serde_with minimum to 3.21.0 and lock its matching macro package. This fixes KeyValueMap serialization panics on empty entries (GHSA-7gcf-g7xr-8hxj).
+- Replace the incompatible exact Serde 1.0.220 pin with a 1.0.225 minimum; the lockfile resolves Serde and its derive/core packages to 1.0.229 to satisfy patched serde_with.
+- Regenerate the lockfile with Cargo, retaining the pinned wreq source revision. Related AWS-LC, WebPKI, macro and serialization dependencies change as required by resolution.
+
 ## Upgrade notes
 
 - No change to the control plane, the distro layout, or the eBPF map.
