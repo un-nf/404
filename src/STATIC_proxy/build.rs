@@ -3,6 +3,7 @@ use std::process::Command;
 
 fn main() {
     println!("cargo:rerun-if-changed=assets/js/src");
+    println!("cargo:rerun-if-changed=schema");
     println!("cargo:rerun-if-changed=build/build.js");
     println!("cargo:rerun-if-changed=build/package.json");
     println!("cargo:rerun-if-changed=build/package-lock.json");
@@ -28,7 +29,10 @@ fn main() {
         );
     };
 
-    let esbuild_installed = esbuild_package_path.exists();
+    let lock_bytes = std::fs::read("build/package-lock.json").expect("JS dependency lockfile");
+    let dependency_stamp = node_modules_path.join(".static-dependency-lock");
+    let esbuild_installed = esbuild_package_path.exists()
+        && std::fs::read(&dependency_stamp).ok().as_deref() == Some(lock_bytes.as_slice());
     if !esbuild_installed {
         if node_modules_path.exists() {
             std::fs::remove_dir_all(node_modules_path).unwrap_or_else(|error| {
@@ -56,6 +60,7 @@ fn main() {
                         "STATIC JS npm install succeeded but build/node_modules/esbuild was not produced"
                     );
                 }
+                std::fs::write(&dependency_stamp, &lock_bytes).expect("JS dependency lock stamp");
             }
             Ok(result) => {
                 panic!(
@@ -83,6 +88,15 @@ fn main() {
                     bundle_path.display()
                 );
             }
+            let verification = Command::new(&node_command)
+                .args(["build/build.js", "--verify"])
+                .env("STATIC_BUNDLE_OUTFILE", &bundle_path)
+                .status()
+                .expect("verify generated bundle set");
+            assert!(
+                verification.success(),
+                "refusing to embed mismatched bundle/schema/lockfile outputs"
+            );
         }
         Ok(result) => {
             panic!(
@@ -109,19 +123,15 @@ fn ensure_bundle_output_writable(bundle_path: &Path) {
         make_writable(parent);
     }
 
-    if bundle_path.exists() {
-        std::fs::remove_file(bundle_path).unwrap_or_else(|error| {
-            panic!(
-                "failed to remove stale JS bundle {} before rebuild: {error}",
-                bundle_path.display()
-            )
-        });
-    }
+    // Publish only after the Node builder finishes a matched temporary set.
 }
 
 fn make_writable(path: &Path) {
     let metadata = std::fs::metadata(path).unwrap_or_else(|error| {
-        panic!("failed to inspect {} before JS bundle build: {error}", path.display())
+        panic!(
+            "failed to inspect {} before JS bundle build: {error}",
+            path.display()
+        )
     });
     let mut permissions = metadata.permissions();
 

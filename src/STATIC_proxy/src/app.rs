@@ -57,10 +57,17 @@ impl StaticApp {
     pub async fn new(config: StaticConfig, mode: RunMode) -> Result<Self> {
         let ready = Arc::new(AtomicBool::new(false));
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let profile_store = ProfileStore::load(
+        let profile_store = ProfileStore::load_with_overrides(
             config.pipeline.profiles_path.clone(),
             config.pipeline.default_profile.clone(),
+            config.pipeline.advertised_storage.clone(),
         )?;
+        if let Some(profile) = profile_store.active_profile_config() {
+            if let Some(fp) = profile.get("fingerprint") {
+                tracing::info!(advertised_storage_quota = ?fp.get("storage_quota").and_then(serde_json::Value::as_u64),
+                    advertised_storage_usage = ?fp.get("storage_usage").and_then(serde_json::Value::as_u64), "resolved advertised browser storage (bytes)");
+            }
+        }
 
         if mode == RunMode::Proxy && profile_store.active_profile().is_none() {
             let available_profiles = profile_store

@@ -1,0 +1,2348 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "STATIC runtime fingerprint contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "user_agent",
+    "platform",
+    "canvas_hash",
+    "webgl_vendor",
+    "webgl_renderer",
+    "webgl_contexts"
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "x-runtime": "metadata"
+    },
+    "browser_family": {
+      "type": "string",
+      "enum": [
+        "chromium-like",
+        "firefox-like"
+      ]
+    },
+    "browser_variant": {
+      "type": "string",
+      "enum": [
+        "chrome",
+        "chromium",
+        "edge",
+        "brave",
+        "vivaldi",
+        "opera",
+        "firefox",
+        "gecko",
+        "tor",
+        "mullvad"
+      ],
+      "x-casefold": true
+    },
+    "browser_type": {
+      "type": "string",
+      "enum": [
+        "chrome",
+        "chromium",
+        "edge",
+        "brave",
+        "vivaldi",
+        "opera",
+        "firefox",
+        "gecko",
+        "tor",
+        "mullvad"
+      ],
+      "x-casefold": true
+    },
+    "browser_version": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "os": {
+      "type": "string",
+      "x-runtime": "metadata"
+    },
+    "os_version": {
+      "type": "string",
+      "x-runtime": "metadata"
+    },
+    "user_agent": {
+      "type": "string",
+      "x-runtime": "observation",
+      "x-nonempty": true,
+      "x-http-string": true
+    },
+    "platform": {
+      "type": "string",
+      "x-runtime": "observation",
+      "x-nonempty": true
+    },
+    "vendor": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "vendor_flavors": {
+      "type": "array",
+      "x-runtime": "unsupported-or-metadata",
+      "items": {
+        "type": "string"
+      }
+    },
+    "ua_data": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "platform": {
+          "type": "string",
+          "x-http-string": true
+        },
+        "platform_version": {
+          "type": "string",
+          "x-http-string": true
+        },
+        "architecture": {
+          "type": "string",
+          "x-http-string": true
+        },
+        "bitness": {
+          "type": "string",
+          "x-http-string": true
+        },
+        "model": {
+          "type": "string",
+          "x-http-string": true
+        },
+        "ua_full_version": {
+          "type": "string",
+          "x-http-string": true
+        },
+        "mobile": {
+          "type": "boolean"
+        },
+        "brands": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "brand",
+              "version"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "brand": {
+                "type": "string",
+                "x-http-string": true
+              },
+              "version": {
+                "type": "string",
+                "x-http-string": true
+              }
+            }
+          }
+        },
+        "full_version_list": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "brand",
+              "version"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "brand": {
+                "type": "string",
+                "x-http-string": true
+              },
+              "version": {
+                "type": "string",
+                "x-http-string": true
+              }
+            }
+          }
+        },
+        "wow64": {
+          "type": "boolean"
+        },
+        "form_factors": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "x-http-string": true
+          }
+        },
+        "formFactors": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "x-http-string": true
+          },
+          "deprecated": true
+        }
+      },
+      "required": [
+        "brands",
+        "full_version_list",
+        "platform",
+        "platform_version",
+        "architecture",
+        "bitness",
+        "model",
+        "ua_full_version",
+        "mobile",
+        "wow64",
+        "form_factors"
+      ]
+    },
+    "vendorSub": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "productSub": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "hardware_concurrency": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4294967295,
+      "x-runtime": "observation"
+    },
+    "device_memory": {
+      "type": "number",
+      "minimum": 0.01,
+      "maximum": 4294967295,
+      "enum": [
+        0.25,
+        0.5,
+        1,
+        2,
+        4,
+        8
+      ]
+    },
+    "max_touch_points": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "x-runtime": "observation"
+    },
+    "screen_resolution": {
+      "type": "string",
+      "x-runtime": "observation",
+      "x-resolution": true,
+      "default": "1920x1080"
+    },
+    "screen_avail_width": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "x-runtime": "observation"
+    },
+    "screen_avail_height": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "x-runtime": "observation"
+    },
+    "screen_avail_top": {
+      "type": "integer",
+      "minimum": -100000,
+      "maximum": 100000
+    },
+    "screen_avail_left": {
+      "type": "integer",
+      "minimum": -100000,
+      "maximum": 100000
+    },
+    "color_depth": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "x-runtime": "observation"
+    },
+    "pixel_depth": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "x-runtime": "observation"
+    },
+    "screen_orientation_type": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "screen_orientation_angle": {
+      "type": "number",
+      "x-runtime": "observation",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "screen_is_extended": {
+      "type": "boolean",
+      "x-runtime": "observation"
+    },
+    "device_pixel_ratio": {
+      "type": "number",
+      "minimum": 0.01,
+      "maximum": 4294967295
+    },
+    "timezone": {
+      "type": "string",
+      "x-runtime": "observation",
+      "enum": [
+        "UTC",
+        "Africa/Abidjan",
+        "Africa/Accra",
+        "Africa/Addis_Ababa",
+        "Africa/Algiers",
+        "Africa/Asmera",
+        "Africa/Bamako",
+        "Africa/Bangui",
+        "Africa/Banjul",
+        "Africa/Bissau",
+        "Africa/Blantyre",
+        "Africa/Brazzaville",
+        "Africa/Bujumbura",
+        "Africa/Cairo",
+        "Africa/Casablanca",
+        "Africa/Ceuta",
+        "Africa/Conakry",
+        "Africa/Dakar",
+        "Africa/Dar_es_Salaam",
+        "Africa/Djibouti",
+        "Africa/Douala",
+        "Africa/El_Aaiun",
+        "Africa/Freetown",
+        "Africa/Gaborone",
+        "Africa/Harare",
+        "Africa/Johannesburg",
+        "Africa/Juba",
+        "Africa/Kampala",
+        "Africa/Khartoum",
+        "Africa/Kigali",
+        "Africa/Kinshasa",
+        "Africa/Lagos",
+        "Africa/Libreville",
+        "Africa/Lome",
+        "Africa/Luanda",
+        "Africa/Lubumbashi",
+        "Africa/Lusaka",
+        "Africa/Malabo",
+        "Africa/Maputo",
+        "Africa/Maseru",
+        "Africa/Mbabane",
+        "Africa/Mogadishu",
+        "Africa/Monrovia",
+        "Africa/Nairobi",
+        "Africa/Ndjamena",
+        "Africa/Niamey",
+        "Africa/Nouakchott",
+        "Africa/Ouagadougou",
+        "Africa/Porto-Novo",
+        "Africa/Sao_Tome",
+        "Africa/Tripoli",
+        "Africa/Tunis",
+        "Africa/Windhoek",
+        "America/Adak",
+        "America/Anchorage",
+        "America/Anguilla",
+        "America/Antigua",
+        "America/Araguaina",
+        "America/Argentina/La_Rioja",
+        "America/Argentina/Rio_Gallegos",
+        "America/Argentina/Salta",
+        "America/Argentina/San_Juan",
+        "America/Argentina/San_Luis",
+        "America/Argentina/Tucuman",
+        "America/Argentina/Ushuaia",
+        "America/Aruba",
+        "America/Asuncion",
+        "America/Bahia",
+        "America/Bahia_Banderas",
+        "America/Barbados",
+        "America/Belem",
+        "America/Belize",
+        "America/Blanc-Sablon",
+        "America/Boa_Vista",
+        "America/Bogota",
+        "America/Boise",
+        "America/Buenos_Aires",
+        "America/Cambridge_Bay",
+        "America/Campo_Grande",
+        "America/Cancun",
+        "America/Caracas",
+        "America/Catamarca",
+        "America/Cayenne",
+        "America/Cayman",
+        "America/Chicago",
+        "America/Chihuahua",
+        "America/Ciudad_Juarez",
+        "America/Coral_Harbour",
+        "America/Cordoba",
+        "America/Costa_Rica",
+        "America/Coyhaique",
+        "America/Creston",
+        "America/Cuiaba",
+        "America/Curacao",
+        "America/Danmarkshavn",
+        "America/Dawson",
+        "America/Dawson_Creek",
+        "America/Denver",
+        "America/Detroit",
+        "America/Dominica",
+        "America/Edmonton",
+        "America/Eirunepe",
+        "America/El_Salvador",
+        "America/Fort_Nelson",
+        "America/Fortaleza",
+        "America/Glace_Bay",
+        "America/Godthab",
+        "America/Goose_Bay",
+        "America/Grand_Turk",
+        "America/Grenada",
+        "America/Guadeloupe",
+        "America/Guatemala",
+        "America/Guayaquil",
+        "America/Guyana",
+        "America/Halifax",
+        "America/Havana",
+        "America/Hermosillo",
+        "America/Indiana/Knox",
+        "America/Indiana/Marengo",
+        "America/Indiana/Petersburg",
+        "America/Indiana/Tell_City",
+        "America/Indiana/Vevay",
+        "America/Indiana/Vincennes",
+        "America/Indiana/Winamac",
+        "America/Indianapolis",
+        "America/Inuvik",
+        "America/Iqaluit",
+        "America/Jamaica",
+        "America/Jujuy",
+        "America/Juneau",
+        "America/Kentucky/Monticello",
+        "America/Kralendijk",
+        "America/La_Paz",
+        "America/Lima",
+        "America/Los_Angeles",
+        "America/Louisville",
+        "America/Lower_Princes",
+        "America/Maceio",
+        "America/Managua",
+        "America/Manaus",
+        "America/Marigot",
+        "America/Martinique",
+        "America/Matamoros",
+        "America/Mazatlan",
+        "America/Mendoza",
+        "America/Menominee",
+        "America/Merida",
+        "America/Metlakatla",
+        "America/Mexico_City",
+        "America/Miquelon",
+        "America/Moncton",
+        "America/Monterrey",
+        "America/Montevideo",
+        "America/Montserrat",
+        "America/Nassau",
+        "America/New_York",
+        "America/Nome",
+        "America/Noronha",
+        "America/North_Dakota/Beulah",
+        "America/North_Dakota/Center",
+        "America/North_Dakota/New_Salem",
+        "America/Ojinaga",
+        "America/Panama",
+        "America/Paramaribo",
+        "America/Phoenix",
+        "America/Port-au-Prince",
+        "America/Port_of_Spain",
+        "America/Porto_Velho",
+        "America/Puerto_Rico",
+        "America/Punta_Arenas",
+        "America/Rankin_Inlet",
+        "America/Recife",
+        "America/Regina",
+        "America/Resolute",
+        "America/Rio_Branco",
+        "America/Santarem",
+        "America/Santiago",
+        "America/Santo_Domingo",
+        "America/Sao_Paulo",
+        "America/Scoresbysund",
+        "America/Sitka",
+        "America/St_Barthelemy",
+        "America/St_Johns",
+        "America/St_Kitts",
+        "America/St_Lucia",
+        "America/St_Thomas",
+        "America/St_Vincent",
+        "America/Swift_Current",
+        "America/Tegucigalpa",
+        "America/Thule",
+        "America/Tijuana",
+        "America/Toronto",
+        "America/Tortola",
+        "America/Vancouver",
+        "America/Whitehorse",
+        "America/Winnipeg",
+        "America/Yakutat",
+        "Antarctica/Casey",
+        "Antarctica/Davis",
+        "Antarctica/DumontDUrville",
+        "Antarctica/Macquarie",
+        "Antarctica/Mawson",
+        "Antarctica/McMurdo",
+        "Antarctica/Palmer",
+        "Antarctica/Rothera",
+        "Antarctica/Syowa",
+        "Antarctica/Troll",
+        "Antarctica/Vostok",
+        "Arctic/Longyearbyen",
+        "Asia/Aden",
+        "Asia/Almaty",
+        "Asia/Amman",
+        "Asia/Anadyr",
+        "Asia/Aqtau",
+        "Asia/Aqtobe",
+        "Asia/Ashgabat",
+        "Asia/Atyrau",
+        "Asia/Baghdad",
+        "Asia/Bahrain",
+        "Asia/Baku",
+        "Asia/Bangkok",
+        "Asia/Barnaul",
+        "Asia/Beirut",
+        "Asia/Bishkek",
+        "Asia/Brunei",
+        "Asia/Calcutta",
+        "Asia/Chita",
+        "Asia/Colombo",
+        "Asia/Damascus",
+        "Asia/Dhaka",
+        "Asia/Dili",
+        "Asia/Dubai",
+        "Asia/Dushanbe",
+        "Asia/Famagusta",
+        "Asia/Gaza",
+        "Asia/Hebron",
+        "Asia/Hong_Kong",
+        "Asia/Hovd",
+        "Asia/Irkutsk",
+        "Asia/Jakarta",
+        "Asia/Jayapura",
+        "Asia/Jerusalem",
+        "Asia/Kabul",
+        "Asia/Kamchatka",
+        "Asia/Karachi",
+        "Asia/Katmandu",
+        "Asia/Khandyga",
+        "Asia/Krasnoyarsk",
+        "Asia/Kuala_Lumpur",
+        "Asia/Kuching",
+        "Asia/Kuwait",
+        "Asia/Macau",
+        "Asia/Magadan",
+        "Asia/Makassar",
+        "Asia/Manila",
+        "Asia/Muscat",
+        "Asia/Nicosia",
+        "Asia/Novokuznetsk",
+        "Asia/Novosibirsk",
+        "Asia/Omsk",
+        "Asia/Oral",
+        "Asia/Phnom_Penh",
+        "Asia/Pontianak",
+        "Asia/Pyongyang",
+        "Asia/Qatar",
+        "Asia/Qostanay",
+        "Asia/Qyzylorda",
+        "Asia/Rangoon",
+        "Asia/Riyadh",
+        "Asia/Saigon",
+        "Asia/Sakhalin",
+        "Asia/Samarkand",
+        "Asia/Seoul",
+        "Asia/Shanghai",
+        "Asia/Singapore",
+        "Asia/Srednekolymsk",
+        "Asia/Taipei",
+        "Asia/Tashkent",
+        "Asia/Tbilisi",
+        "Asia/Tehran",
+        "Asia/Thimphu",
+        "Asia/Tokyo",
+        "Asia/Tomsk",
+        "Asia/Ulaanbaatar",
+        "Asia/Urumqi",
+        "Asia/Ust-Nera",
+        "Asia/Vientiane",
+        "Asia/Vladivostok",
+        "Asia/Yakutsk",
+        "Asia/Yekaterinburg",
+        "Asia/Yerevan",
+        "Atlantic/Azores",
+        "Atlantic/Bermuda",
+        "Atlantic/Canary",
+        "Atlantic/Cape_Verde",
+        "Atlantic/Faeroe",
+        "Atlantic/Madeira",
+        "Atlantic/Reykjavik",
+        "Atlantic/South_Georgia",
+        "Atlantic/St_Helena",
+        "Atlantic/Stanley",
+        "Australia/Adelaide",
+        "Australia/Brisbane",
+        "Australia/Broken_Hill",
+        "Australia/Darwin",
+        "Australia/Eucla",
+        "Australia/Hobart",
+        "Australia/Lindeman",
+        "Australia/Lord_Howe",
+        "Australia/Melbourne",
+        "Australia/Perth",
+        "Australia/Sydney",
+        "Europe/Amsterdam",
+        "Europe/Andorra",
+        "Europe/Astrakhan",
+        "Europe/Athens",
+        "Europe/Belgrade",
+        "Europe/Berlin",
+        "Europe/Bratislava",
+        "Europe/Brussels",
+        "Europe/Bucharest",
+        "Europe/Budapest",
+        "Europe/Busingen",
+        "Europe/Chisinau",
+        "Europe/Copenhagen",
+        "Europe/Dublin",
+        "Europe/Gibraltar",
+        "Europe/Guernsey",
+        "Europe/Helsinki",
+        "Europe/Isle_of_Man",
+        "Europe/Istanbul",
+        "Europe/Jersey",
+        "Europe/Kaliningrad",
+        "Europe/Kiev",
+        "Europe/Kirov",
+        "Europe/Lisbon",
+        "Europe/Ljubljana",
+        "Europe/London",
+        "Europe/Luxembourg",
+        "Europe/Madrid",
+        "Europe/Malta",
+        "Europe/Mariehamn",
+        "Europe/Minsk",
+        "Europe/Monaco",
+        "Europe/Moscow",
+        "Europe/Oslo",
+        "Europe/Paris",
+        "Europe/Podgorica",
+        "Europe/Prague",
+        "Europe/Riga",
+        "Europe/Rome",
+        "Europe/Samara",
+        "Europe/San_Marino",
+        "Europe/Sarajevo",
+        "Europe/Saratov",
+        "Europe/Simferopol",
+        "Europe/Skopje",
+        "Europe/Sofia",
+        "Europe/Stockholm",
+        "Europe/Tallinn",
+        "Europe/Tirane",
+        "Europe/Ulyanovsk",
+        "Europe/Vaduz",
+        "Europe/Vatican",
+        "Europe/Vienna",
+        "Europe/Vilnius",
+        "Europe/Volgograd",
+        "Europe/Warsaw",
+        "Europe/Zagreb",
+        "Europe/Zurich",
+        "Indian/Antananarivo",
+        "Indian/Chagos",
+        "Indian/Christmas",
+        "Indian/Cocos",
+        "Indian/Comoro",
+        "Indian/Kerguelen",
+        "Indian/Mahe",
+        "Indian/Maldives",
+        "Indian/Mauritius",
+        "Indian/Mayotte",
+        "Indian/Reunion",
+        "Pacific/Apia",
+        "Pacific/Auckland",
+        "Pacific/Bougainville",
+        "Pacific/Chatham",
+        "Pacific/Easter",
+        "Pacific/Efate",
+        "Pacific/Enderbury",
+        "Pacific/Fakaofo",
+        "Pacific/Fiji",
+        "Pacific/Funafuti",
+        "Pacific/Galapagos",
+        "Pacific/Gambier",
+        "Pacific/Guadalcanal",
+        "Pacific/Guam",
+        "Pacific/Honolulu",
+        "Pacific/Kiritimati",
+        "Pacific/Kosrae",
+        "Pacific/Kwajalein",
+        "Pacific/Majuro",
+        "Pacific/Marquesas",
+        "Pacific/Midway",
+        "Pacific/Nauru",
+        "Pacific/Niue",
+        "Pacific/Norfolk",
+        "Pacific/Noumea",
+        "Pacific/Pago_Pago",
+        "Pacific/Palau",
+        "Pacific/Pitcairn",
+        "Pacific/Ponape",
+        "Pacific/Port_Moresby",
+        "Pacific/Rarotonga",
+        "Pacific/Saipan",
+        "Pacific/Tahiti",
+        "Pacific/Tarawa",
+        "Pacific/Tongatapu",
+        "Pacific/Truk",
+        "Pacific/Wake",
+        "Pacific/Wallis"
+      ]
+    },
+    "languages": {
+      "type": [
+        "string",
+        "array"
+      ],
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "canvas_hash": {
+      "type": "string",
+      "x-runtime": "observation",
+      "x-nonempty": true
+    },
+    "canvas_noise": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "small_canvas_threshold": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "small_canvas_stride": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "default_stride": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "noise_probability": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "delta_min": {
+          "type": "number",
+          "minimum": -255,
+          "maximum": 255
+        },
+        "delta_max": {
+          "type": "number",
+          "minimum": -255,
+          "maximum": 255
+        },
+        "integer_delta": {
+          "type": "boolean"
+        },
+        "touch_alpha": {
+          "type": "boolean"
+        },
+        "log_activity": {
+          "type": "boolean"
+        }
+      }
+    },
+    "webgl_vendor": {
+      "type": "string",
+      "x-runtime": "observation",
+      "x-nonempty": true
+    },
+    "webgl_renderer": {
+      "type": "string",
+      "x-runtime": "observation",
+      "x-nonempty": true
+    },
+    "webgl_hash": {
+      "type": "string",
+      "x-runtime": "unsupported-or-metadata"
+    },
+    "audio_hash": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "audio_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "device_label": {
+          "type": "string"
+        },
+        "hardware_class": {
+          "type": "string"
+        },
+        "sample_rate": {
+          "type": "number",
+          "minimum": 3000,
+          "maximum": 384000
+        },
+        "base_frames": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65536
+        },
+        "base_latency": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 384000
+        },
+        "output_latency": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 384000
+        },
+        "channel_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 32
+        },
+        "max_channel_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 32
+        },
+        "number_of_inputs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536,
+          "enum": [
+            1
+          ]
+        },
+        "number_of_outputs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536,
+          "enum": [
+            0
+          ]
+        },
+        "render": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "gain": {
+              "type": "number",
+              "minimum": -2,
+              "maximum": 2
+            },
+            "bias": {
+              "type": "number",
+              "minimum": -2,
+              "maximum": 2
+            },
+            "feedback": {
+              "type": "number",
+              "minimum": -2,
+              "maximum": 2
+            },
+            "modulation": {
+              "type": "number",
+              "minimum": -2,
+              "maximum": 2
+            },
+            "step_offset": {
+              "type": "number",
+              "minimum": -2,
+              "maximum": 2
+            },
+            "modulation_period": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000000
+            },
+            "step_stride": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000000
+            }
+          }
+        },
+        "hardware_profiles": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "device_label": {
+                "type": "string"
+              },
+              "hardware_class": {
+                "type": "string"
+              },
+              "sample_rate": {
+                "type": "number",
+                "minimum": 3000,
+                "maximum": 384000
+              },
+              "base_frames": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 65536
+              },
+              "base_latency": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 384000
+              },
+              "output_latency": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 384000
+              },
+              "channel_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 65536
+              },
+              "max_channel_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 65536
+              },
+              "number_of_inputs": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 65536,
+                "enum": [
+                  1
+                ]
+              },
+              "number_of_outputs": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 65536,
+                "enum": [
+                  0
+                ]
+              },
+              "render": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "gain": {
+                    "type": "number",
+                    "minimum": -2,
+                    "maximum": 2
+                  },
+                  "bias": {
+                    "type": "number",
+                    "minimum": -2,
+                    "maximum": 2
+                  },
+                  "feedback": {
+                    "type": "number",
+                    "minimum": -2,
+                    "maximum": 2
+                  },
+                  "modulation": {
+                    "type": "number",
+                    "minimum": -2,
+                    "maximum": 2
+                  },
+                  "step_offset": {
+                    "type": "number",
+                    "minimum": -2,
+                    "maximum": 2
+                  },
+                  "modulation_period": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1000000
+                  },
+                  "step_stride": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1000000
+                  }
+                }
+              },
+              "weight": {
+                "type": "number",
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "weight": {
+          "type": "number",
+          "minimum": 0
+        },
+        "worklet_policy": {
+          "type": "string",
+          "enum": [
+            "legacy-float-noise",
+            "channel-data-only",
+            "deny-opaque"
+          ],
+          "default": "legacy-float-noise",
+          "x-runtime": "partial",
+          "description": "Window-side message readback policy; processor globals and opaque controls are not browser-engine emulation."
+        },
+        "byte_readback_delta": {
+          "type": "integer",
+          "minimum": -1,
+          "maximum": 1,
+          "default": 1,
+          "x-runtime": "implemented",
+          "description": "Deterministic one-byte analyser readback intervention; not driver/engine emulation."
+        }
+      }
+    },
+    "do_not_track": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "x-runtime": "observation"
+    },
+    "cookie_enabled": {
+      "type": "boolean",
+      "x-runtime": "observation"
+    },
+    "webdriver": {
+      "type": "boolean",
+      "x-runtime": "unsupported-or-metadata"
+    },
+    "plugins": {
+      "type": [
+        "string",
+        "array"
+      ],
+      "x-runtime": "unsupported-or-metadata",
+      "items": {
+        "type": [
+          "string",
+          "object"
+        ]
+      }
+    },
+    "mimeTypes": {
+      "type": "array",
+      "x-runtime": "unsupported-or-metadata",
+      "items": {
+        "type": [
+          "string",
+          "object"
+        ]
+      }
+    },
+    "storage_quota": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "x-runtime": "observation",
+      "default": 53687091200
+    },
+    "storage_usage": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "x-runtime": "observation",
+      "default": 1048576
+    },
+    "media_capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "smooth": {
+          "type": "boolean"
+        },
+        "power_efficient": {
+          "type": "boolean"
+        },
+        "decoding_types": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "file",
+              "media-source",
+              "webrtc"
+            ]
+          }
+        },
+        "encoding_types": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "record",
+              "webrtc"
+            ]
+          }
+        },
+        "audio_content_types": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "x-http-string": true
+          }
+        },
+        "video_content_types": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "x-http-string": true
+          }
+        },
+        "key_systems": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "x-http-string": true
+          }
+        },
+        "max_width": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 1000000000
+        },
+        "max_height": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 1000000000
+        },
+        "max_bitrate": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 1000000000
+        },
+        "max_framerate": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 1000000000
+        },
+        "max_sample_rate": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 1000000000
+        },
+        "max_channels": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 1000000000
+        }
+      },
+      "default": {
+        "smooth": true,
+        "power_efficient": true,
+        "decoding_types": [
+          "file",
+          "media-source"
+        ],
+        "encoding_types": [
+          "record"
+        ],
+        "audio_content_types": [
+          "audio/webm;codecs=opus",
+          "audio/ogg;codecs=opus",
+          "audio/ogg;codecs=vorbis",
+          "audio/mp4;codecs=mp4a.40.2",
+          "audio/mpeg",
+          "audio/wav"
+        ],
+        "video_content_types": [
+          "video/webm;codecs=vp8",
+          "video/webm;codecs=vp9",
+          "video/mp4;codecs=avc1.42e01e"
+        ],
+        "key_systems": [],
+        "max_width": 3840,
+        "max_height": 2160,
+        "max_bitrate": 50000000,
+        "max_framerate": 60,
+        "max_sample_rate": 48000,
+        "max_channels": 2
+      }
+    },
+    "permission_states": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "enum": [
+          "denied",
+          "prompt",
+          "native"
+        ]
+      },
+      "properties": {
+        "notifications": {
+          "type": "string",
+          "enum": [
+            "denied",
+            "native"
+          ]
+        }
+      }
+    },
+    "speech_languages": {
+      "type": "array",
+      "x-runtime": "observation",
+      "items": {
+        "type": "string"
+      }
+    },
+    "speech_voice_limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "x-runtime": "observation"
+    },
+    "media_devices_per_kind": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "x-runtime": "observation"
+    },
+    "save_data": {
+      "type": "boolean",
+      "x-runtime": "observation"
+    },
+    "sec_ch_ua": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "sec_ch_ua_mobile": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "sec_ch_ua_platform": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "sec_ch_ua_full_version": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "sec_ch_ua_arch": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "sec_ch_ua_platform_version": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "sec_ch_ua_bitness": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "enable_headers_spoof": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "enable_canvas_spoof": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "enable_webgl_spoof": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "enable_audio_spoof": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "enable_timezone_spoof": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "enable_automation_evasion": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "enable_webrtc_spoof": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "enable_performance_spoof": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "enable_plugin_spoof": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "enable_storage_spoof": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "enable_element_spoofing": {
+      "type": "boolean",
+      "x-runtime": "unsupported-or-metadata",
+      "default": true
+    },
+    "enable_dom_evasion": {
+      "type": "boolean",
+      "x-runtime": "unsupported-or-metadata",
+      "default": true
+    },
+    "enable_iframe_protection": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "enable_speech_synthesis_spoof": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "enable_font_spoof": {
+      "type": "boolean",
+      "x-alias": "enable_font_metric_spoof"
+    },
+    "enable_network_spoof": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "enable_fingerprint_drift": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "fonts": {
+      "type": "array",
+      "x-runtime": "partial",
+      "items": {
+        "type": "string"
+      }
+    },
+    "debug": {
+      "type": "boolean",
+      "x-runtime": "observation"
+    },
+    "media_device_count": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "x-runtime": "observation"
+    },
+    "media_devices": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "audioinput",
+              "audiooutput",
+              "videoinput"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "deviceId": {
+            "type": "string"
+          },
+          "groupId": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "window_inner_width": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "x-runtime": "observation"
+    },
+    "window_inner_height": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "x-runtime": "observation"
+    },
+    "window_outer_width": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "x-runtime": "observation"
+    },
+    "window_outer_height": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "x-runtime": "observation"
+    },
+    "timezone_offset": {
+      "type": "integer",
+      "minimum": -100000,
+      "maximum": 100000,
+      "x-runtime": "unsupported-or-metadata"
+    },
+    "webrtc_local_ips": {
+      "type": "array",
+      "x-runtime": "observation",
+      "items": {
+        "type": "string"
+      }
+    },
+    "enable_viewport_spoof": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": false
+    },
+    "viewport_rounding": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "x-runtime": "observation"
+    },
+    "oscpu": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "buildID": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "pdf_viewer_enabled": {
+      "type": "boolean",
+      "x-runtime": "observation-partial"
+    },
+    "downlink": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "default": 10
+    },
+    "effective_type": {
+      "type": "string",
+      "x-runtime": "observation",
+      "default": "4g"
+    },
+    "rtt": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "default": 50
+    },
+    "connection_type": {
+      "type": "string",
+      "x-runtime": "observation",
+      "default": "wifi"
+    },
+    "enable_geolocation_spoof": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "profile_variant": {
+      "type": "string",
+      "enum": [
+        "chrome",
+        "chromium",
+        "edge",
+        "brave",
+        "vivaldi",
+        "opera",
+        "firefox",
+        "gecko",
+        "tor",
+        "mullvad"
+      ],
+      "x-casefold": true
+    },
+    "profile_family": {
+      "type": "string",
+      "enum": [
+        "chromium-like",
+        "firefox-like"
+      ]
+    },
+    "speech_voices": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "lang"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "lang": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string"
+          },
+          "voiceURI": {
+            "type": "string"
+          },
+          "localService": {
+            "type": "boolean"
+          },
+          "default": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "enable_font_metric_spoof": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "enable_media_capabilities_spoof": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "enable_permissions_spoof": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "enable_notifications_spoof": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "enable_battery_spoof": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "enable_gamepad_spoof": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "enable_privacy_blackhole": {
+      "type": "boolean",
+      "x-runtime": "observation",
+      "default": true
+    },
+    "language": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "webrtc_ip": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "ip_address": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "webrtc_ipv6": {
+      "type": "string",
+      "x-runtime": "observation"
+    },
+    "webrtc_udp_only": {
+      "type": "boolean",
+      "x-runtime": "unsupported-or-metadata"
+    },
+    "webrtc_candidate_limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "x-runtime": "observation"
+    },
+    "profile_platform": {
+      "type": "string",
+      "x-runtime": "metadata"
+    },
+    "audio_personas": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      },
+      "x-runtime": "metadata"
+    },
+    "webgl_contexts": {
+      "type": "object",
+      "required": [
+        "webgl1",
+        "webgl2"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "webgl1": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "vendor",
+            "renderer",
+            "debug_vendor",
+            "debug_renderer",
+            "version",
+            "shading_language_version",
+            "parameters",
+            "extensions",
+            "shader_precision"
+          ],
+          "properties": {
+            "vendor": {
+              "type": "string",
+              "minLength": 1
+            },
+            "renderer": {
+              "type": "string",
+              "minLength": 1
+            },
+            "debug_vendor": {
+              "type": "string",
+              "minLength": 1
+            },
+            "debug_renderer": {
+              "type": "string",
+              "minLength": 1
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1
+            },
+            "shading_language_version": {
+              "type": "string",
+              "minLength": 1
+            },
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "MAX_VERTEX_ATTRIBS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_VERTEX_UNIFORM_VECTORS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_VERTEX_TEXTURE_IMAGE_UNITS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_VARYING_VECTORS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "ALIASED_LINE_WIDTH_RANGE": {
+                  "type": "array",
+                  "items": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 2147483647
+                  }
+                },
+                "ALIASED_POINT_SIZE_RANGE": {
+                  "type": "array",
+                  "items": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 2147483647
+                  }
+                },
+                "MAX_FRAGMENT_UNIFORM_VECTORS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_TEXTURE_IMAGE_UNITS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_DRAW_BUFFERS_WEBGL": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_RENDERBUFFER_SIZE": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_VIEWPORT_DIMS": {
+                  "type": "array",
+                  "items": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 2147483647
+                  }
+                },
+                "RED_BITS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "GREEN_BITS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "BLUE_BITS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "ALPHA_BITS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "DEPTH_BITS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "STENCIL_BITS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_TEXTURE_SIZE": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_CUBE_MAP_TEXTURE_SIZE": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_COMBINED_TEXTURE_IMAGE_UNITS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_TEXTURE_MAX_ANISOTROPY_EXT": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_COLOR_ATTACHMENTS_WEBGL": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                }
+              }
+            },
+            "extensions": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "shader_precision": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "rangeMin",
+                  "rangeMax",
+                  "precision"
+                ],
+                "properties": {
+                  "rangeMin": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1024
+                  },
+                  "rangeMax": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1024
+                  },
+                  "precision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1024
+                  }
+                }
+              },
+              "required": [
+                "35632:36336",
+                "35632:36337",
+                "35632:36338",
+                "35632:36339",
+                "35632:36340",
+                "35632:36341",
+                "35633:36336",
+                "35633:36337",
+                "35633:36338",
+                "35633:36339",
+                "35633:36340",
+                "35633:36341"
+              ]
+            }
+          }
+        },
+        "webgl2": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "vendor",
+            "renderer",
+            "debug_vendor",
+            "debug_renderer",
+            "version",
+            "shading_language_version",
+            "parameters",
+            "extensions",
+            "shader_precision"
+          ],
+          "properties": {
+            "vendor": {
+              "type": "string",
+              "minLength": 1
+            },
+            "renderer": {
+              "type": "string",
+              "minLength": 1
+            },
+            "debug_vendor": {
+              "type": "string",
+              "minLength": 1
+            },
+            "debug_renderer": {
+              "type": "string",
+              "minLength": 1
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1
+            },
+            "shading_language_version": {
+              "type": "string",
+              "minLength": 1
+            },
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "MAX_VERTEX_ATTRIBS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_VERTEX_UNIFORM_VECTORS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_VERTEX_TEXTURE_IMAGE_UNITS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_VARYING_VECTORS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "ALIASED_LINE_WIDTH_RANGE": {
+                  "type": "array",
+                  "items": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 2147483647
+                  }
+                },
+                "ALIASED_POINT_SIZE_RANGE": {
+                  "type": "array",
+                  "items": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 2147483647
+                  }
+                },
+                "MAX_FRAGMENT_UNIFORM_VECTORS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_TEXTURE_IMAGE_UNITS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_DRAW_BUFFERS_WEBGL": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_RENDERBUFFER_SIZE": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_VIEWPORT_DIMS": {
+                  "type": "array",
+                  "items": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 2147483647
+                  }
+                },
+                "RED_BITS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "GREEN_BITS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "BLUE_BITS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "ALPHA_BITS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "DEPTH_BITS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "STENCIL_BITS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_TEXTURE_SIZE": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_CUBE_MAP_TEXTURE_SIZE": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_COMBINED_TEXTURE_IMAGE_UNITS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_TEXTURE_MAX_ANISOTROPY_EXT": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_TEXTURE_LOD_BIAS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_VERTEX_UNIFORM_COMPONENTS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_VERTEX_UNIFORM_BLOCKS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_VERTEX_OUTPUT_COMPONENTS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_VARYING_COMPONENTS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_TRANSFORM_FEEDBACK_INTERLEAVED_COMPONENTS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_TRANSFORM_FEEDBACK_SEPARATE_COMPONENTS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_FRAGMENT_UNIFORM_COMPONENTS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_FRAGMENT_UNIFORM_BLOCKS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_FRAGMENT_INPUT_COMPONENTS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MIN_PROGRAM_TEXEL_OFFSET": {
+                  "type": "integer",
+                  "minimum": -2147483648,
+                  "maximum": 0
+                },
+                "MAX_PROGRAM_TEXEL_OFFSET": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_DRAW_BUFFERS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_COLOR_ATTACHMENTS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_SAMPLES": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_3D_TEXTURE_SIZE": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_ARRAY_TEXTURE_LAYERS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_UNIFORM_BUFFER_BINDINGS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_UNIFORM_BLOCK_SIZE": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "UNIFORM_BUFFER_OFFSET_ALIGNMENT": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_COMBINED_UNIFORM_BLOCKS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_COMBINED_VERTEX_UNIFORM_COMPONENTS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "MAX_COMBINED_FRAGMENT_UNIFORM_COMPONENTS": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                }
+              }
+            },
+            "extensions": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "shader_precision": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "rangeMin",
+                  "rangeMax",
+                  "precision"
+                ],
+                "properties": {
+                  "rangeMin": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1024
+                  },
+                  "rangeMax": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1024
+                  },
+                  "precision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1024
+                  }
+                }
+              },
+              "required": [
+                "35632:36336",
+                "35632:36337",
+                "35632:36338",
+                "35632:36339",
+                "35632:36340",
+                "35632:36341",
+                "35633:36336",
+                "35633:36337",
+                "35633:36338",
+                "35633:36339",
+                "35633:36340",
+                "35633:36341"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "app_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "visibility_state": {
+      "type": "string",
+      "enum": [
+        "visible",
+        "hidden"
+      ]
+    },
+    "has_focus": {
+      "type": "boolean"
+    },
+    "battery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "charging",
+        "level",
+        "charging_time",
+        "discharging_time"
+      ],
+      "properties": {
+        "charging": {
+          "type": "boolean"
+        },
+        "level": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "charging_time": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "discharging_time": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        }
+      },
+      "default": {
+        "charging": true,
+        "level": 1,
+        "charging_time": 0,
+        "discharging_time": null
+      }
+    },
+    "webrtc_transport_policy": {
+      "type": "string",
+      "enum": [
+        "native",
+        "relay-only"
+      ],
+      "default": "relay-only"
+    },
+    "canvas_export_budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bytes",
+        "operations"
+      ],
+      "properties": {
+        "bytes": {
+          "type": "integer",
+          "minimum": 4096,
+          "maximum": 1073741824
+        },
+        "operations": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32
+        }
+      },
+      "default": {
+        "bytes": 268435456,
+        "operations": 4
+      },
+      "x-runtime": "observation"
+    },
+    "canvas_readback_mode": {
+      "type": "string",
+      "enum": [
+        "noise",
+        "redacted"
+      ],
+      "default": "noise",
+      "x-runtime": "observation"
+    },
+    "canvas_redaction_color": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 255
+      },
+      "default": [
+        0,
+        0,
+        0,
+        255
+      ],
+      "x-runtime": "observation"
+    },
+    "webrtc_observation_policy": {
+      "type": "string",
+      "enum": [
+        "mask-all",
+        "preserve-relay-routing"
+      ],
+      "default": "mask-all",
+      "x-runtime": "partial",
+      "description": "mask-all obscures even usable relay signaling; preserve-relay-routing retains only TURN relay endpoints, with related/native addresses still masked and relay-only transport required."
+    },
+    "font_inventory_policy": {
+      "type": "string",
+      "enum": [
+        "profile-allowlist",
+        "native"
+      ],
+      "default": "profile-allowlist",
+      "x-runtime": "partial",
+      "description": "FontFaceSet.check policy only when fonts are configured; does not install fonts or normalize glyph rendering."
+    },
+    "pdf_inventory_policy": {
+      "type": "string",
+      "enum": [
+        "standardized-native",
+        "deny"
+      ],
+      "default": "standardized-native",
+      "x-runtime": "partial",
+      "description": "Keep a genuine matching native cohort or explicitly deny collections uniformly. Neither implements a PDF viewer or absent native collection brands."
+    },
+    "timezone_legacy_policy": {
+      "type": "string",
+      "enum": [
+        "normalize",
+        "deny",
+        "native"
+      ],
+      "default": "normalize",
+      "x-runtime": "partial",
+      "description": "Normalize engine-recognized legacy local strings into profile time; deny unsupported normalization, or explicitly opt into native legacy parsing."
+    }
+  },
+  "anyOf": [
+    {
+      "required": [
+        "browser_variant"
+      ]
+    },
+    {
+      "required": [
+        "profile_variant"
+      ]
+    },
+    {
+      "required": [
+        "browser_type"
+      ]
+    }
+  ],
+  "x-variant-families": {
+    "chrome": "chromium-like",
+    "chromium": "chromium-like",
+    "edge": "chromium-like",
+    "brave": "chromium-like",
+    "vivaldi": "chromium-like",
+    "opera": "chromium-like",
+    "firefox": "firefox-like",
+    "gecko": "firefox-like",
+    "tor": "firefox-like",
+    "mullvad": "firefox-like"
+  }
+}

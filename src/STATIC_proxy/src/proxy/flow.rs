@@ -205,6 +205,10 @@ pub struct FlowMetadata {
 
     pub script_injected: bool,
 
+    pub worker_injected: bool,
+
+    pub worker_coverage: Option<String>,
+
     pub alt_svc_mutations: Vec<String>,
 
     pub client_protocol: Option<String>,

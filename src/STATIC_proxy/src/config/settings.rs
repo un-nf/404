@@ -45,6 +45,14 @@ static MANAGED_CACHE_DIR: OnceLock<PathBuf> = OnceLock::new();
 
 fn managed_data_dir() -> &'static PathBuf {
     MANAGED_DATA_DIR.get_or_init(|| {
+        // Integration tests isolate CA/cache/control state. Release binaries
+        // always retain the OS-managed directory and ignore this variable.
+        #[cfg(debug_assertions)]
+        if let Some(directory) = std::env::var_os("STATIC_TEST_DATA_DIR") {
+            let directory = PathBuf::from(directory);
+            assert!(directory.is_absolute(), "STATIC_TEST_DATA_DIR must be absolute");
+            return directory;
+        }
         ProjectDirs::from(APP_QUALIFIER, APP_ORGANIZATION, APP_NAME)
             .expect("STATIC requires an OS app-data directory")
             .data_local_dir()
@@ -142,6 +150,7 @@ impl StaticConfig {
                 },
             },
             pipeline: PipelineConfig {
+                advertised_storage: Default::default(),
                 profiles_path,
                 default_profile: None,
                 js_debug: false,
@@ -296,6 +305,9 @@ impl Default for TlsConfig {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct PipelineConfig {
+    /// Explicit advertised browser storage; physical capacity is never queried.
+    #[serde(default)]
+    pub advertised_storage: crate::profile_overrides::StorageOverrides,
     /// Path to the fingerprint profile directory or JSON bundle (relative paths resolve beside the config file).
     pub profiles_path: PathBuf,
     /// Profile name applied when routing logic does not override the fingerprint plan.

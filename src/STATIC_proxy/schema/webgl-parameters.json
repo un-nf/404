@@ -1,0 +1,303 @@
+{
+  "MAX_TEXTURE_MAX_ANISOTROPY_EXT": {
+    "enum": 34047,
+    "versions": [
+      "webgl1",
+      "webgl2"
+    ],
+    "extension": "EXT_texture_filter_anisotropic"
+  },
+  "MAX_DRAW_BUFFERS_WEBGL": {
+    "enum": 34852,
+    "versions": [
+      "webgl1",
+      "webgl2"
+    ],
+    "extension": "WEBGL_draw_buffers"
+  },
+  "MAX_COLOR_ATTACHMENTS_WEBGL": {
+    "enum": 36063,
+    "versions": [
+      "webgl1",
+      "webgl2"
+    ],
+    "extension": "WEBGL_draw_buffers"
+  },
+  "MAX_VERTEX_ATTRIBS": {
+    "enum": 34921,
+    "versions": [
+      "webgl1",
+      "webgl2"
+    ]
+  },
+  "MAX_VERTEX_UNIFORM_VECTORS": {
+    "enum": 36347,
+    "versions": [
+      "webgl1",
+      "webgl2"
+    ]
+  },
+  "MAX_VERTEX_TEXTURE_IMAGE_UNITS": {
+    "enum": 35660,
+    "versions": [
+      "webgl1",
+      "webgl2"
+    ]
+  },
+  "MAX_VARYING_VECTORS": {
+    "enum": 36348,
+    "versions": [
+      "webgl1",
+      "webgl2"
+    ]
+  },
+  "ALIASED_LINE_WIDTH_RANGE": {
+    "enum": 33902,
+    "versions": [
+      "webgl1",
+      "webgl2"
+    ]
+  },
+  "ALIASED_POINT_SIZE_RANGE": {
+    "enum": 33901,
+    "versions": [
+      "webgl1",
+      "webgl2"
+    ]
+  },
+  "MAX_FRAGMENT_UNIFORM_VECTORS": {
+    "enum": 36349,
+    "versions": [
+      "webgl1",
+      "webgl2"
+    ]
+  },
+  "MAX_TEXTURE_IMAGE_UNITS": {
+    "enum": 34930,
+    "versions": [
+      "webgl1",
+      "webgl2"
+    ]
+  },
+  "MAX_RENDERBUFFER_SIZE": {
+    "enum": 34024,
+    "versions": [
+      "webgl1",
+      "webgl2"
+    ]
+  },
+  "MAX_VIEWPORT_DIMS": {
+    "enum": 3386,
+    "versions": [
+      "webgl1",
+      "webgl2"
+    ]
+  },
+  "RED_BITS": {
+    "enum": 3410,
+    "versions": [
+      "webgl1",
+      "webgl2"
+    ]
+  },
+  "GREEN_BITS": {
+    "enum": 3411,
+    "versions": [
+      "webgl1",
+      "webgl2"
+    ]
+  },
+  "BLUE_BITS": {
+    "enum": 3412,
+    "versions": [
+      "webgl1",
+      "webgl2"
+    ]
+  },
+  "ALPHA_BITS": {
+    "enum": 3413,
+    "versions": [
+      "webgl1",
+      "webgl2"
+    ]
+  },
+  "DEPTH_BITS": {
+    "enum": 3414,
+    "versions": [
+      "webgl1",
+      "webgl2"
+    ]
+  },
+  "STENCIL_BITS": {
+    "enum": 3415,
+    "versions": [
+      "webgl1",
+      "webgl2"
+    ]
+  },
+  "MAX_TEXTURE_SIZE": {
+    "enum": 3379,
+    "versions": [
+      "webgl1",
+      "webgl2"
+    ]
+  },
+  "MAX_CUBE_MAP_TEXTURE_SIZE": {
+    "enum": 34076,
+    "versions": [
+      "webgl1",
+      "webgl2"
+    ]
+  },
+  "MAX_COMBINED_TEXTURE_IMAGE_UNITS": {
+    "enum": 35661,
+    "versions": [
+      "webgl1",
+      "webgl2"
+    ]
+  },
+  "MAX_TEXTURE_LOD_BIAS": {
+    "enum": 34045,
+    "versions": [
+      "webgl2"
+    ]
+  },
+  "MAX_VERTEX_UNIFORM_COMPONENTS": {
+    "enum": 35658,
+    "versions": [
+      "webgl2"
+    ]
+  },
+  "MAX_VERTEX_UNIFORM_BLOCKS": {
+    "enum": 35371,
+    "versions": [
+      "webgl2"
+    ]
+  },
+  "MAX_VERTEX_OUTPUT_COMPONENTS": {
+    "enum": 37154,
+    "versions": [
+      "webgl2"
+    ]
+  },
+  "MAX_VARYING_COMPONENTS": {
+    "enum": 35659,
+    "versions": [
+      "webgl2"
+    ]
+  },
+  "MAX_TRANSFORM_FEEDBACK_INTERLEAVED_COMPONENTS": {
+    "enum": 35978,
+    "versions": [
+      "webgl2"
+    ]
+  },
+  "MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS": {
+    "enum": 35979,
+    "versions": [
+      "webgl2"
+    ]
+  },
+  "MAX_TRANSFORM_FEEDBACK_SEPARATE_COMPONENTS": {
+    "enum": 35968,
+    "versions": [
+      "webgl2"
+    ]
+  },
+  "MAX_FRAGMENT_UNIFORM_COMPONENTS": {
+    "enum": 35657,
+    "versions": [
+      "webgl2"
+    ]
+  },
+  "MAX_FRAGMENT_UNIFORM_BLOCKS": {
+    "enum": 35373,
+    "versions": [
+      "webgl2"
+    ]
+  },
+  "MAX_FRAGMENT_INPUT_COMPONENTS": {
+    "enum": 37157,
+    "versions": [
+      "webgl2"
+    ]
+  },
+  "MIN_PROGRAM_TEXEL_OFFSET": {
+    "enum": 35076,
+    "versions": [
+      "webgl2"
+    ]
+  },
+  "MAX_PROGRAM_TEXEL_OFFSET": {
+    "enum": 35077,
+    "versions": [
+      "webgl2"
+    ]
+  },
+  "MAX_DRAW_BUFFERS": {
+    "enum": 34852,
+    "versions": [
+      "webgl2"
+    ]
+  },
+  "MAX_COLOR_ATTACHMENTS": {
+    "enum": 36063,
+    "versions": [
+      "webgl2"
+    ]
+  },
+  "MAX_SAMPLES": {
+    "enum": 36183,
+    "versions": [
+      "webgl2"
+    ]
+  },
+  "MAX_3D_TEXTURE_SIZE": {
+    "enum": 32883,
+    "versions": [
+      "webgl2"
+    ]
+  },
+  "MAX_ARRAY_TEXTURE_LAYERS": {
+    "enum": 35071,
+    "versions": [
+      "webgl2"
+    ]
+  },
+  "MAX_UNIFORM_BUFFER_BINDINGS": {
+    "enum": 35375,
+    "versions": [
+      "webgl2"
+    ]
+  },
+  "MAX_UNIFORM_BLOCK_SIZE": {
+    "enum": 35376,
+    "versions": [
+      "webgl2"
+    ]
+  },
+  "UNIFORM_BUFFER_OFFSET_ALIGNMENT": {
+    "enum": 35380,
+    "versions": [
+      "webgl2"
+    ]
+  },
+  "MAX_COMBINED_UNIFORM_BLOCKS": {
+    "enum": 35374,
+    "versions": [
+      "webgl2"
+    ]
+  },
+  "MAX_COMBINED_VERTEX_UNIFORM_COMPONENTS": {
+    "enum": 35377,
+    "versions": [
+      "webgl2"
+    ]
+  },
+  "MAX_COMBINED_FRAGMENT_UNIFORM_COMPONENTS": {
+    "enum": 35379,
+    "versions": [
+      "webgl2"
+    ]
+  }
+}

@@ -1,0 +1,65 @@
+const {test}=require('node:test'), assert=require('node:assert/strict'),vm=require('node:vm'),path=require('node:path')
+const esbuild=require('../build/node_modules/esbuild')
+const root=path.resolve(__dirname,'..')
+const source=esbuild.build({stdin:{contents:`export * from './assets/js/src/core/guard.js';export * from './assets/js/src/core/patches.js';export * from './assets/js/src/core/installer.js';`,resolveDir:root},bundle:true,format:'cjs',write:false}).then(r=>r.outputFiles[0].text)
+async function setup(){const context=vm.createContext({module:{exports:{}}});vm.runInContext(await source,context);const api=context.module.exports;api.initRuntime();return api}
+test('successful nested transactions roll back with a later outer installer failure',async()=>{
+  const api=await setup(),target={},cleanups=[]
+  api.installModule('nested',true,()=>{
+    api.transaction(()=>{api.definePatch(target,'inner',{value:1,configurable:true});api.onRollback(()=>cleanups.push('inner'))})
+    api.definePatch(target,'outer',{value:2,configurable:true});throw Error('later failure')
+  })
+  assert.deepEqual(Object.keys(target),[]);assert.equal('inner' in target,false);assert.equal('outer' in target,false)
+  assert.deepEqual(cleanups,['inner']);assert.equal(api.getRuntime().outcomes.nested.rolledBack,true)
+})
+test('module failure rolls descriptors back, continues other modules and retries originals exactly once',async()=>{
+  const api=await setup(),target={value:1},original=Object.getOwnPropertyDescriptor(target,'value')
+  const installer=()=>{api.definePatch(target,'value',{...original,value:2});throw Error('fault')}
+  api.installModule('first',true,installer)
+  assert.deepEqual(Object.getOwnPropertyDescriptor(target,'value'),original)
+  assert.equal(api.getRuntime().outcomes.first.rolledBack,true)
+  api.installModule('second',true,()=>api.definePatch(target,'other',{value:4,configurable:true}))
+  api.finishRuntime();assert.equal(api.getRuntime().state,'failed');assert.equal(target.other,4)
+  assert.equal(api.initRuntime(),true)
+  api.installModule('first',true,()=>api.definePatch(target,'value',{...original,value:3}))
+  api.installModule('second',true,()=>{throw Error('must not reinstall')})
+  api.finishRuntime();assert.equal(api.getRuntime().state,'ready');assert.equal(target.value,3)
+  assert.equal(api.initRuntime(),false)
+})
+test('swallowed descriptor failures cannot create false success and resources are unwound',async()=>{
+  const api=await setup(),target={},events=[]
+  Object.defineProperty(target,'fixed',{value:1})
+  api.installModule('fault',true,()=>{
+    api.onRollback(()=>events.push('cleanup'))
+    api.definePatch(target,'earlier',{value:3,configurable:true})
+    try{api.definePatch(target,'fixed',{value:2})}catch{}
+    api.markModule('fault')
+  })
+  assert.equal('earlier' in target,false);assert.deepEqual(events,['cleanup'])
+  assert.equal(api.getRuntime().outcomes.fault.status,'failed')
+  assert.equal(api.getRuntime().modules.fault,false)
+})
+test('disabled and unavailable surfaces are explicit and frozen errors are safely recorded',async()=>{
+  const api=await setup()
+  api.installModule('off',false,()=>{throw Error('must not run')})
+  api.installModule('missing',true,()=>{})
+  api.installModule('frozen',true,()=>{throw Object.freeze(Error('frozen fault'))})
+  assert.equal(api.getRuntime().outcomes.off.status,'disabled')
+  assert.equal(api.getRuntime().outcomes.missing.status,'unavailable')
+  assert.equal(api.getRuntime().outcomes.frozen.error,'frozen fault')
+})
+test('implicit nonconfigurable additions are rejected before they can defeat rollback',async()=>{
+  const api=await setup(),target={}
+  api.installModule('implicit',true,()=>api.definePatch(target,'locked',{value:1}))
+  assert.equal('locked' in target,false)
+  assert.equal(api.getRuntime().outcomes.implicit.status,'failed')
+  assert.equal(api.getRuntime().outcomes.implicit.rolledBack,true)
+  Object.defineProperty(target,'nativeFixed',{value:2,writable:true})
+  api.installModule('lockExisting',true,()=>api.definePatch(target,'nativeFixed',{value:3,writable:false}))
+  assert.equal(target.nativeFixed,2)
+  assert.equal(Object.getOwnPropertyDescriptor(target,'nativeFixed').writable,true)
+  assert.equal(api.getRuntime().outcomes.lockExisting.rolledBack,true)
+  api.installModule('fixed',true,()=>{api.deletePatch(target,'nativeFixed');api.markModule('fixed')})
+  assert.equal(api.getRuntime().outcomes.fixed.status,'partial')
+  assert.deepEqual(Array.from(api.getRuntime().outcomes.fixed.skipped),['nativeFixed'])
+})

@@ -1,0 +1,3 @@
+# Downloaded profile hashes cover these exact UTF-8/LF Git blob bytes.
+src/STATIC_proxy/profiles/**/*.json text eol=lf
+src/STATIC_proxy/profiles/*.json text eol=lf

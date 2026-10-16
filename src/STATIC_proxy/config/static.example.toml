@@ -11,6 +11,8 @@ profiles_path = "../profiles"
 js_debug = false
 alt_svc_strategy = "normalize"
 body_limits = { max_request_body_bytes = 16777216, max_response_body_bytes = 33554432, max_decompressed_html_bytes = 16777216 }
+# Advertised browser storage, not physical disk size. CLI overrides take precedence.
+# advertised_storage = { preset = "standard", quota = 53687091200, usage = 1048576 }
 
 [http3]
 enabled = false

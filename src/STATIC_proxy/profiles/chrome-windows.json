@@ -13,7 +13,7 @@
   "replace": [
     [
       "User-Agent",
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36"
     ],
     [
       "Accept-Language",
@@ -21,7 +21,7 @@
     ],
     [
       "sec-ch-ua",
-      "\"Google Chrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\""
+      "\"Google Chrome\";v=\"155\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"155\""
     ],
     [
       "sec-ch-ua-mobile",
@@ -33,11 +33,11 @@
     ],
     [
       "sec-ch-ua-full-version",
-      "\"147.0.7727.102\""
+      "\"155.0.8059.40\""
     ],
     [
       "sec-ch-ua-platform-version",
-      "\"15.0.0\""
+      "\"10.0.0\""
     ],
     [
       "sec-ch-ua-bitness",
@@ -91,14 +91,14 @@
     "access-control-request-method"
   ],
   "fingerprint": {
-    "name": "Chrome 147 - Windows 10",
+    "name": "Chrome 155 - Windows 10",
     "browser_family": "chromium-like",
     "browser_variant": "chrome",
     "browser_type": "chrome",
-    "browser_version": "147.0.7727.102",
+    "browser_version": "155.0.8059.40",
     "os": "Windows",
     "os_version": "10.0",
-    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
     "platform": "Win32",
     "vendor": "Google Inc.",
     "vendor_flavors": [
@@ -107,20 +107,44 @@
     ],
     "ua_data": {
       "brands": [
-        {"brand": "Google Chrome", "version": "147"},
-        {"brand": "Not.A/Brand", "version": "8"},
-        {"brand": "Chromium", "version": "147"}
+        {
+          "brand": "Google Chrome",
+          "version": "155"
+        },
+        {
+          "brand": "Not.A/Brand",
+          "version": "8"
+        },
+        {
+          "brand": "Chromium",
+          "version": "155"
+        }
       ],
       "full_version_list": [
-        {"brand": "Google Chrome", "version": "147.0.7727.102"},
-        {"brand": "Not.A/Brand", "version": "8.0.0.0"},
-        {"brand": "Chromium", "version": "147.0.7727.102"}
+        {
+          "brand": "Google Chrome",
+          "version": "155.0.8059.40"
+        },
+        {
+          "brand": "Not.A/Brand",
+          "version": "8.0.0.0"
+        },
+        {
+          "brand": "Chromium",
+          "version": "155.0.8059.40"
+        }
       ],
       "platform": "Windows",
-      "platform_version": "15.0.0",
+      "platform_version": "10.0.0",
       "architecture": "x86",
       "bitness": "64",
-      "ua_full_version": "147.0.7727.102"
+      "ua_full_version": "155.0.8059.40",
+      "mobile": false,
+      "model": "",
+      "wow64": false,
+      "form_factors": [
+        "Desktop"
+      ]
     },
     "vendorSub": "",
     "productSub": "20030107",
@@ -137,7 +161,7 @@
     "screen_orientation_type": "landscape-primary",
     "screen_orientation_angle": 0,
     "screen_is_extended": false,
-    "device_pixel_ratio": 1.0,
+    "device_pixel_ratio": 1,
     "timezone": "America/New_York",
     "languages": [
       "en-US",
@@ -158,53 +182,6 @@
     "webgl_vendor": "Google Inc. (Intel)",
     "webgl_renderer": "ANGLE (Intel, Intel(R) UHD Graphics 620 Direct3D11 vs_5_0 ps_5_0)",
     "webgl_hash": "chrome_win10_webgl_v1",
-    "webgl_parameters": {
-      "MAX_VERTEX_ATTRIBS": 16,
-      "MAX_VERTEX_UNIFORM_VECTORS": 4095,
-      "MAX_VERTEX_TEXTURE_IMAGE_UNITS": 16,
-      "MAX_VARYING_VECTORS": 30,
-      "MAX_VERTEX_UNIFORM_COMPONENTS": 16380,
-      "MAX_VERTEX_UNIFORM_BLOCKS": 12,
-      "MAX_VERTEX_OUTPUT_COMPONENTS": 120,
-      "MAX_VARYING_COMPONENTS": 120,
-      "MAX_TRANSFORM_FEEDBACK_INTERLEAVED_COMPONENTS": 120,
-      "MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS": 4,
-      "MAX_TRANSFORM_FEEDBACK_SEPARATE_COMPONENTS": 4,
-      "ALIASED_LINE_WIDTH_RANGE": [1, 1],
-      "ALIASED_POINT_SIZE_RANGE": [1, 1024],
-      "MAX_FRAGMENT_UNIFORM_VECTORS": 1024,
-      "MAX_FRAGMENT_UNIFORM_COMPONENTS": 4096,
-      "MAX_TEXTURE_IMAGE_UNITS": 16,
-      "MAX_FRAGMENT_UNIFORM_BLOCKS": 12,
-      "MAX_FRAGMENT_INPUT_COMPONENTS": 120,
-      "MIN_PROGRAM_TEXEL_OFFSET": -8,
-      "MAX_PROGRAM_TEXEL_OFFSET": 7,
-      "MAX_DRAW_BUFFERS": 8,
-      "MAX_COLOR_ATTACHMENTS": 8,
-      "MAX_DRAW_BUFFERS_WEBGL": 8,
-      "MAX_SAMPLES": 8,
-      "MAX_RENDERBUFFER_SIZE": 16384,
-      "MAX_VIEWPORT_DIMS": [32767, 32767],
-      "RED_BITS": 8,
-      "GREEN_BITS": 8,
-      "BLUE_BITS": 8,
-      "ALPHA_BITS": 8,
-      "DEPTH_BITS": 24,
-      "STENCIL_BITS": 0,
-      "MAX_TEXTURE_SIZE": 16384,
-      "MAX_CUBE_MAP_TEXTURE_SIZE": 16384,
-      "MAX_COMBINED_TEXTURE_IMAGE_UNITS": 32,
-      "MAX_TEXTURE_MAX_ANISOTROPY_EXT": 16,
-      "MAX_3D_TEXTURE_SIZE": 2048,
-      "MAX_ARRAY_TEXTURE_LAYERS": 2048,
-      "MAX_TEXTURE_LOD_BIAS": 2,
-      "MAX_UNIFORM_BUFFER_BINDINGS": 24,
-      "MAX_UNIFORM_BLOCK_SIZE": 65536,
-      "UNIFORM_BUFFER_OFFSET_ALIGNMENT": 256,
-      "MAX_COMBINED_UNIFORM_BLOCKS": 24,
-      "MAX_COMBINED_VERTEX_UNIFORM_COMPONENTS": 212988,
-      "MAX_COMBINED_FRAGMENT_UNIFORM_COMPONENTS": 200704
-    },
     "audio_hash": "chrome_win10_audio_v1",
     "audio_context": {
       "sample_rate": 48000,
@@ -221,12 +198,60 @@
       "application/pdf"
     ],
     "storage_quota": 107374182400,
-    "sec_ch_ua": "\"Not_A Brand\";v=\"8\", \"Chromium\";v=\"147\", \"Google Chrome\";v=\"147\"",
+    "storage_usage": 1048576,
+    "media_capabilities": {
+      "smooth": true,
+      "power_efficient": true,
+      "decoding_types": [
+        "file",
+        "media-source"
+      ],
+      "encoding_types": [
+        "record"
+      ],
+      "audio_content_types": [
+        "audio/webm;codecs=opus",
+        "audio/ogg;codecs=opus",
+        "audio/ogg;codecs=vorbis",
+        "audio/mp4;codecs=mp4a.40.2",
+        "audio/mpeg",
+        "audio/wav"
+      ],
+      "video_content_types": [
+        "video/webm;codecs=vp8",
+        "video/webm;codecs=vp9",
+        "video/mp4;codecs=avc1.42e01e"
+      ],
+      "key_systems": [],
+      "max_width": 3840,
+      "max_height": 2160,
+      "max_bitrate": 50000000,
+      "max_framerate": 60,
+      "max_sample_rate": 48000,
+      "max_channels": 2
+    },
+    "permission_states": {
+      "notifications": "denied",
+      "push": "denied",
+      "geolocation": "denied",
+      "camera": "denied",
+      "microphone": "denied",
+      "background-sync": "denied",
+      "clipboard-read": "denied",
+      "clipboard-write": "denied"
+    },
+    "speech_languages": [
+      "en-US"
+    ],
+    "speech_voice_limit": 2,
+    "media_devices_per_kind": 1,
+    "save_data": false,
+    "sec_ch_ua": "\"Google Chrome\";v=\"155\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"155\"",
     "sec_ch_ua_mobile": "?0",
     "sec_ch_ua_platform": "\"Windows\"",
-    "sec_ch_ua_full_version": "\"147.0.7727.102\"",
+    "sec_ch_ua_full_version": "\"155.0.8059.40\"",
     "sec_ch_ua_arch": "\"x86\"",
-    "sec_ch_ua_platform_version": "\"15.0.0\"",
+    "sec_ch_ua_platform_version": "\"10.0.0\"",
     "sec_ch_ua_bitness": "\"64\"",
     "enable_headers_spoof": true,
     "enable_canvas_spoof": true,
@@ -256,13 +281,296 @@
       "Arial Black",
       "Impact"
     ],
-    "debug": false
+    "debug": false,
+    "webgl_contexts": {
+      "webgl1": {
+        "vendor": "WebKit",
+        "renderer": "WebKit WebGL",
+        "debug_vendor": "Google Inc. (Intel)",
+        "debug_renderer": "ANGLE (Intel, Intel(R) UHD Graphics 620 Direct3D11 vs_5_0 ps_5_0)",
+        "version": "WebGL 1.0",
+        "shading_language_version": "WebGL GLSL ES 1.0",
+        "parameters": {
+          "MAX_VERTEX_ATTRIBS": 16,
+          "MAX_VERTEX_UNIFORM_VECTORS": 4095,
+          "MAX_VERTEX_TEXTURE_IMAGE_UNITS": 16,
+          "MAX_VARYING_VECTORS": 30,
+          "ALIASED_LINE_WIDTH_RANGE": [
+            1,
+            1
+          ],
+          "ALIASED_POINT_SIZE_RANGE": [
+            1,
+            1024
+          ],
+          "MAX_FRAGMENT_UNIFORM_VECTORS": 1024,
+          "MAX_TEXTURE_IMAGE_UNITS": 16,
+          "MAX_DRAW_BUFFERS_WEBGL": 8,
+          "MAX_RENDERBUFFER_SIZE": 16384,
+          "MAX_VIEWPORT_DIMS": [
+            32767,
+            32767
+          ],
+          "RED_BITS": 8,
+          "GREEN_BITS": 8,
+          "BLUE_BITS": 8,
+          "ALPHA_BITS": 8,
+          "DEPTH_BITS": 24,
+          "STENCIL_BITS": 0,
+          "MAX_TEXTURE_SIZE": 16384,
+          "MAX_CUBE_MAP_TEXTURE_SIZE": 16384,
+          "MAX_COMBINED_TEXTURE_IMAGE_UNITS": 32,
+          "MAX_TEXTURE_MAX_ANISOTROPY_EXT": 16,
+          "MAX_COLOR_ATTACHMENTS_WEBGL": 8
+        },
+        "extensions": [
+          "ANGLE_instanced_arrays",
+          "EXT_blend_minmax",
+          "EXT_color_buffer_float",
+          "EXT_color_buffer_half_float",
+          "EXT_disjoint_timer_query",
+          "EXT_float_blend",
+          "EXT_frag_depth",
+          "EXT_shader_texture_lod",
+          "EXT_sRGB",
+          "EXT_texture_filter_anisotropic",
+          "OES_element_index_uint",
+          "OES_standard_derivatives",
+          "OES_texture_float",
+          "OES_texture_float_linear",
+          "OES_texture_half_float",
+          "OES_texture_half_float_linear",
+          "OES_vertex_array_object",
+          "WEBGL_color_buffer_float",
+          "WEBGL_compressed_texture_s3tc",
+          "WEBGL_compressed_texture_s3tc_srgb",
+          "WEBGL_debug_renderer_info",
+          "WEBGL_depth_texture",
+          "WEBGL_draw_buffers",
+          "WEBGL_lose_context"
+        ],
+        "shader_precision": {
+          "35632:36336": {
+            "rangeMin": 8,
+            "rangeMax": 8,
+            "precision": 8
+          },
+          "35632:36337": {
+            "rangeMin": 14,
+            "rangeMax": 14,
+            "precision": 10
+          },
+          "35632:36338": {
+            "rangeMin": 127,
+            "rangeMax": 127,
+            "precision": 23
+          },
+          "35632:36339": {
+            "rangeMin": 31,
+            "rangeMax": 31,
+            "precision": 0
+          },
+          "35632:36340": {
+            "rangeMin": 31,
+            "rangeMax": 31,
+            "precision": 0
+          },
+          "35632:36341": {
+            "rangeMin": 31,
+            "rangeMax": 31,
+            "precision": 0
+          },
+          "35633:36336": {
+            "rangeMin": 8,
+            "rangeMax": 8,
+            "precision": 8
+          },
+          "35633:36337": {
+            "rangeMin": 14,
+            "rangeMax": 14,
+            "precision": 10
+          },
+          "35633:36338": {
+            "rangeMin": 127,
+            "rangeMax": 127,
+            "precision": 23
+          },
+          "35633:36339": {
+            "rangeMin": 31,
+            "rangeMax": 31,
+            "precision": 0
+          },
+          "35633:36340": {
+            "rangeMin": 31,
+            "rangeMax": 31,
+            "precision": 0
+          },
+          "35633:36341": {
+            "rangeMin": 31,
+            "rangeMax": 31,
+            "precision": 0
+          }
+        }
+      },
+      "webgl2": {
+        "vendor": "WebKit",
+        "renderer": "WebKit WebGL",
+        "debug_vendor": "Google Inc. (Intel)",
+        "debug_renderer": "ANGLE (Intel, Intel(R) UHD Graphics 620 Direct3D11 vs_5_0 ps_5_0)",
+        "version": "WebGL 2.0",
+        "shading_language_version": "WebGL GLSL ES 3.00",
+        "parameters": {
+          "MAX_VERTEX_ATTRIBS": 16,
+          "MAX_VERTEX_UNIFORM_VECTORS": 4095,
+          "MAX_VERTEX_TEXTURE_IMAGE_UNITS": 16,
+          "MAX_VARYING_VECTORS": 30,
+          "MAX_VERTEX_UNIFORM_COMPONENTS": 16380,
+          "MAX_VERTEX_UNIFORM_BLOCKS": 12,
+          "MAX_VERTEX_OUTPUT_COMPONENTS": 120,
+          "MAX_VARYING_COMPONENTS": 120,
+          "MAX_TRANSFORM_FEEDBACK_INTERLEAVED_COMPONENTS": 120,
+          "MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS": 4,
+          "MAX_TRANSFORM_FEEDBACK_SEPARATE_COMPONENTS": 4,
+          "ALIASED_LINE_WIDTH_RANGE": [
+            1,
+            1
+          ],
+          "ALIASED_POINT_SIZE_RANGE": [
+            1,
+            1024
+          ],
+          "MAX_FRAGMENT_UNIFORM_VECTORS": 1024,
+          "MAX_FRAGMENT_UNIFORM_COMPONENTS": 4096,
+          "MAX_TEXTURE_IMAGE_UNITS": 16,
+          "MAX_FRAGMENT_UNIFORM_BLOCKS": 12,
+          "MAX_FRAGMENT_INPUT_COMPONENTS": 120,
+          "MIN_PROGRAM_TEXEL_OFFSET": -8,
+          "MAX_PROGRAM_TEXEL_OFFSET": 7,
+          "MAX_DRAW_BUFFERS": 8,
+          "MAX_COLOR_ATTACHMENTS": 8,
+          "MAX_DRAW_BUFFERS_WEBGL": 8,
+          "MAX_SAMPLES": 8,
+          "MAX_RENDERBUFFER_SIZE": 16384,
+          "MAX_VIEWPORT_DIMS": [
+            32767,
+            32767
+          ],
+          "RED_BITS": 8,
+          "GREEN_BITS": 8,
+          "BLUE_BITS": 8,
+          "ALPHA_BITS": 8,
+          "DEPTH_BITS": 24,
+          "STENCIL_BITS": 0,
+          "MAX_TEXTURE_SIZE": 16384,
+          "MAX_CUBE_MAP_TEXTURE_SIZE": 16384,
+          "MAX_COMBINED_TEXTURE_IMAGE_UNITS": 32,
+          "MAX_TEXTURE_MAX_ANISOTROPY_EXT": 16,
+          "MAX_3D_TEXTURE_SIZE": 2048,
+          "MAX_ARRAY_TEXTURE_LAYERS": 2048,
+          "MAX_TEXTURE_LOD_BIAS": 2,
+          "MAX_UNIFORM_BUFFER_BINDINGS": 24,
+          "MAX_UNIFORM_BLOCK_SIZE": 65536,
+          "UNIFORM_BUFFER_OFFSET_ALIGNMENT": 256,
+          "MAX_COMBINED_UNIFORM_BLOCKS": 24,
+          "MAX_COMBINED_VERTEX_UNIFORM_COMPONENTS": 212988,
+          "MAX_COMBINED_FRAGMENT_UNIFORM_COMPONENTS": 200704
+        },
+        "extensions": [
+          "EXT_blend_minmax",
+          "EXT_color_buffer_float",
+          "EXT_color_buffer_half_float",
+          "EXT_disjoint_timer_query_webgl2",
+          "EXT_float_blend",
+          "EXT_texture_filter_anisotropic",
+          "OES_texture_float",
+          "OES_texture_float_linear",
+          "OES_texture_half_float",
+          "OES_texture_half_float_linear",
+          "WEBGL_color_buffer_float",
+          "WEBGL_compressed_texture_s3tc",
+          "WEBGL_compressed_texture_s3tc_srgb",
+          "WEBGL_debug_renderer_info",
+          "WEBGL_lose_context"
+        ],
+        "shader_precision": {
+          "35632:36336": {
+            "rangeMin": 8,
+            "rangeMax": 8,
+            "precision": 8
+          },
+          "35632:36337": {
+            "rangeMin": 14,
+            "rangeMax": 14,
+            "precision": 10
+          },
+          "35632:36338": {
+            "rangeMin": 127,
+            "rangeMax": 127,
+            "precision": 23
+          },
+          "35632:36339": {
+            "rangeMin": 31,
+            "rangeMax": 31,
+            "precision": 0
+          },
+          "35632:36340": {
+            "rangeMin": 31,
+            "rangeMax": 31,
+            "precision": 0
+          },
+          "35632:36341": {
+            "rangeMin": 31,
+            "rangeMax": 31,
+            "precision": 0
+          },
+          "35633:36336": {
+            "rangeMin": 8,
+            "rangeMax": 8,
+            "precision": 8
+          },
+          "35633:36337": {
+            "rangeMin": 14,
+            "rangeMax": 14,
+            "precision": 10
+          },
+          "35633:36338": {
+            "rangeMin": 127,
+            "rangeMax": 127,
+            "precision": 23
+          },
+          "35633:36339": {
+            "rangeMin": 31,
+            "rangeMax": 31,
+            "precision": 0
+          },
+          "35633:36340": {
+            "rangeMin": 31,
+            "rangeMax": 31,
+            "precision": 0
+          },
+          "35633:36341": {
+            "rangeMin": 31,
+            "rangeMax": 31,
+            "precision": 0
+          }
+        }
+      }
+    },
+    "app_version": "5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+    "pdf_viewer_enabled": true,
+    "webrtc_transport_policy": "relay-only",
+    "battery": {
+      "charging": true,
+      "level": 1,
+      "charging_time": 0,
+      "discharging_time": null
+    }
   },
   "seeded_overlays": {
     "hardware_profiles": [
       {
         "id": "desktop_8c_8gb",
-        "weight": 0.50,
+        "weight": 0.5,
         "fingerprint": {
           "hardware_concurrency": 8,
           "device_memory": 8,
@@ -279,11 +587,11 @@
         }
       },
       {
-        "id": "desktop_16c_16gb",
+        "id": "desktop_16c_8gb",
         "weight": 0.25,
         "fingerprint": {
           "hardware_concurrency": 16,
-          "device_memory": 16,
+          "device_memory": 8,
           "max_touch_points": 0
         }
       }
@@ -325,7 +633,7 @@
       },
       {
         "id": "hd_1366",
-        "weight": 0.30,
+        "weight": 0.3,
         "fingerprint": {
           "screen_resolution": "1366x768",
           "screen_avail_width": 1366,
@@ -390,7 +698,7 @@
       },
       {
         "id": "audio_only_dock",
-        "weight": 0.30,
+        "weight": 0.3,
         "fingerprint": {
           "media_device_count": 2,
           "media_devices": [
@@ -409,7 +717,7 @@
     "packet_device_profiles": [
       {
         "id": "win11_ethernet_native",
-        "weight": 0.50,
+        "weight": 0.5,
         "packet_profile": {
           "tcp_window": 64240,
           "tcp_mss": 1460
@@ -417,7 +725,7 @@
       },
       {
         "id": "win11_wifi_native",
-        "weight": 0.30,
+        "weight": 0.3,
         "packet_profile": {
           "tcp_window": 65535,
           "tcp_mss": 1460
@@ -425,7 +733,7 @@
       },
       {
         "id": "win11_vpn_tunnel",
-        "weight": 0.20,
+        "weight": 0.2,
         "packet_profile": {
           "tcp_window": 64240,
           "tcp_mss": 1380
@@ -442,28 +750,57 @@
     },
     "cipher_catalog": {
       "tls13": [
-        {"name": "TLS_AES_128_GCM_SHA256"},
-        {"name": "TLS_AES_256_GCM_SHA384"},
-        {"name": "TLS_CHACHA20_POLY1305_SHA256"}
+        {
+          "name": "TLS_AES_128_GCM_SHA256"
+        },
+        {
+          "name": "TLS_AES_256_GCM_SHA384"
+        },
+        {
+          "name": "TLS_CHACHA20_POLY1305_SHA256"
+        }
       ],
       "tls12": [
-        {"name": "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256"},
-        {"name": "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"},
-        {"name": "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"},
-        {"name": "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"},
-        {"name": "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256"},
-        {"name": "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256"},
-        {"name": "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA"},
-        {"name": "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA"},
-        {"name": "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA"},
-        {"name": "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA"}
+        {
+          "name": "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256"
+        },
+        {
+          "name": "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+        },
+        {
+          "name": "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"
+        },
+        {
+          "name": "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+        },
+        {
+          "name": "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256"
+        },
+        {
+          "name": "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256"
+        },
+        {
+          "name": "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA"
+        },
+        {
+          "name": "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA"
+        },
+        {
+          "name": "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA"
+        },
+        {
+          "name": "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA"
+        }
       ]
     },
     "hello_variants": [
       {
         "id": "ch_h2_release_a",
         "weight": 0.5,
-        "alpn": ["h2", "http/1.1"],
+        "alpn": [
+          "h2",
+          "http/1.1"
+        ],
         "cipher_order": {
           "mode": "catalog",
           "tls13": [
@@ -496,23 +833,72 @@
           "seed": "flow_id"
         },
         "extension_sequence": [
-          {"code": "6a6a", "name": "GREASE"},
-          {"code": "0000", "name": "server_name"},
-          {"code": "0010", "name": "application_layer_protocol_negotiation"},
-          {"code": "445c", "name": "application_settings"},
-          {"code": "000a", "name": "supported_groups"},
-          {"code": "000b", "name": "ec_point_formats"},
-          {"code": "000d", "name": "signature_algorithms"},
-          {"code": "002b", "name": "supported_versions"},
-          {"code": "002d", "name": "psk_key_exchange_modes"},
-          {"code": "0033", "name": "key_share"},
-          {"code": "0023", "name": "session_ticket"},
-          {"code": "0017", "name": "extended_master_secret"},
-          {"code": "0012", "name": "signed_certificate_timestamp"},
-          {"code": "0005", "name": "status_request"},
-          {"code": "fe0d", "name": "padding"}
+          {
+            "code": "6a6a",
+            "name": "GREASE"
+          },
+          {
+            "code": "0000",
+            "name": "server_name"
+          },
+          {
+            "code": "0010",
+            "name": "application_layer_protocol_negotiation"
+          },
+          {
+            "code": "445c",
+            "name": "application_settings"
+          },
+          {
+            "code": "000a",
+            "name": "supported_groups"
+          },
+          {
+            "code": "000b",
+            "name": "ec_point_formats"
+          },
+          {
+            "code": "000d",
+            "name": "signature_algorithms"
+          },
+          {
+            "code": "002b",
+            "name": "supported_versions"
+          },
+          {
+            "code": "002d",
+            "name": "psk_key_exchange_modes"
+          },
+          {
+            "code": "0033",
+            "name": "key_share"
+          },
+          {
+            "code": "0023",
+            "name": "session_ticket"
+          },
+          {
+            "code": "0017",
+            "name": "extended_master_secret"
+          },
+          {
+            "code": "0012",
+            "name": "signed_certificate_timestamp"
+          },
+          {
+            "code": "0005",
+            "name": "status_request"
+          },
+          {
+            "code": "fe0d",
+            "name": "padding"
+          }
         ],
-        "supported_groups": ["x25519", "secp256r1", "secp384r1"],
+        "supported_groups": [
+          "x25519",
+          "secp256r1",
+          "secp384r1"
+        ],
         "signature_algorithms": [
           "ecdsa_secp256r1_sha256",
           "rsa_pss_rsae_sha256",
@@ -523,8 +909,13 @@
           "rsa_pss_rsae_sha512",
           "rsa_pkcs1_sha512"
         ],
-        "key_share_order": ["x25519", "secp256r1"],
-        "psk_key_exchange_modes": ["psk_dhe_ke"],
+        "key_share_order": [
+          "x25519",
+          "secp256r1"
+        ],
+        "psk_key_exchange_modes": [
+          "psk_dhe_ke"
+        ],
         "session_resumption": {
           "enable_tickets": true
         },
@@ -535,7 +926,10 @@
       {
         "id": "ch_h2_release_b",
         "weight": 0.3,
-        "alpn": ["h2", "http/1.1"],
+        "alpn": [
+          "h2",
+          "http/1.1"
+        ],
         "cipher_order": {
           "mode": "catalog",
           "tls13": [
@@ -568,22 +962,68 @@
           "seed": "flow_id"
         },
         "extension_sequence": [
-          {"code": "6a6a", "name": "GREASE"},
-          {"code": "0023", "name": "session_ticket"},
-          {"code": "445c", "name": "application_settings"},
-          {"code": "000a", "name": "supported_groups"},
-          {"code": "0005", "name": "status_request"},
-          {"code": "000b", "name": "ec_point_formats"},
-          {"code": "000d", "name": "signature_algorithms"},
-          {"code": "0012", "name": "signed_certificate_timestamp"},
-          {"code": "002b", "name": "supported_versions"},
-          {"code": "002d", "name": "psk_key_exchange_modes"},
-          {"code": "0033", "name": "key_share"},
-          {"code": "0010", "name": "application_layer_protocol_negotiation"},
-          {"code": "0000", "name": "server_name"},
-          {"code": "fe0d", "name": "padding"}
+          {
+            "code": "6a6a",
+            "name": "GREASE"
+          },
+          {
+            "code": "0023",
+            "name": "session_ticket"
+          },
+          {
+            "code": "445c",
+            "name": "application_settings"
+          },
+          {
+            "code": "000a",
+            "name": "supported_groups"
+          },
+          {
+            "code": "0005",
+            "name": "status_request"
+          },
+          {
+            "code": "000b",
+            "name": "ec_point_formats"
+          },
+          {
+            "code": "000d",
+            "name": "signature_algorithms"
+          },
+          {
+            "code": "0012",
+            "name": "signed_certificate_timestamp"
+          },
+          {
+            "code": "002b",
+            "name": "supported_versions"
+          },
+          {
+            "code": "002d",
+            "name": "psk_key_exchange_modes"
+          },
+          {
+            "code": "0033",
+            "name": "key_share"
+          },
+          {
+            "code": "0010",
+            "name": "application_layer_protocol_negotiation"
+          },
+          {
+            "code": "0000",
+            "name": "server_name"
+          },
+          {
+            "code": "fe0d",
+            "name": "padding"
+          }
         ],
-        "supported_groups": ["x25519", "secp256r1", "secp384r1"],
+        "supported_groups": [
+          "x25519",
+          "secp256r1",
+          "secp384r1"
+        ],
         "signature_algorithms": [
           "ecdsa_secp256r1_sha256",
           "rsa_pss_rsae_sha256",
@@ -594,8 +1034,12 @@
           "rsa_pss_rsae_sha512",
           "rsa_pkcs1_sha512"
         ],
-        "key_share_order": ["x25519"],
-        "psk_key_exchange_modes": ["psk_dhe_ke"],
+        "key_share_order": [
+          "x25519"
+        ],
+        "psk_key_exchange_modes": [
+          "psk_dhe_ke"
+        ],
         "session_resumption": {
           "enable_tickets": true
         },
@@ -606,7 +1050,9 @@
       {
         "id": "ch_h1_fallback",
         "weight": 0.2,
-        "alpn": ["http/1.1"],
+        "alpn": [
+          "http/1.1"
+        ],
         "cipher_order": {
           "mode": "explicit",
           "sequence": [
@@ -622,22 +1068,68 @@
           ]
         },
         "extension_sequence": [
-          {"code": "6a6a", "name": "GREASE"},
-          {"code": "0000", "name": "server_name"},
-          {"code": "0010", "name": "application_layer_protocol_negotiation"},
-          {"code": "000a", "name": "supported_groups"},
-          {"code": "000b", "name": "ec_point_formats"},
-          {"code": "000d", "name": "signature_algorithms"},
-          {"code": "002b", "name": "supported_versions"},
-          {"code": "002d", "name": "psk_key_exchange_modes"},
-          {"code": "0033", "name": "key_share"},
-          {"code": "0023", "name": "session_ticket"},
-          {"code": "0017", "name": "extended_master_secret"},
-          {"code": "0012", "name": "signed_certificate_timestamp"},
-          {"code": "0005", "name": "status_request"},
-          {"code": "fe0d", "name": "padding"}
+          {
+            "code": "6a6a",
+            "name": "GREASE"
+          },
+          {
+            "code": "0000",
+            "name": "server_name"
+          },
+          {
+            "code": "0010",
+            "name": "application_layer_protocol_negotiation"
+          },
+          {
+            "code": "000a",
+            "name": "supported_groups"
+          },
+          {
+            "code": "000b",
+            "name": "ec_point_formats"
+          },
+          {
+            "code": "000d",
+            "name": "signature_algorithms"
+          },
+          {
+            "code": "002b",
+            "name": "supported_versions"
+          },
+          {
+            "code": "002d",
+            "name": "psk_key_exchange_modes"
+          },
+          {
+            "code": "0033",
+            "name": "key_share"
+          },
+          {
+            "code": "0023",
+            "name": "session_ticket"
+          },
+          {
+            "code": "0017",
+            "name": "extended_master_secret"
+          },
+          {
+            "code": "0012",
+            "name": "signed_certificate_timestamp"
+          },
+          {
+            "code": "0005",
+            "name": "status_request"
+          },
+          {
+            "code": "fe0d",
+            "name": "padding"
+          }
         ],
-        "supported_groups": ["x25519", "secp256r1", "secp384r1"],
+        "supported_groups": [
+          "x25519",
+          "secp256r1",
+          "secp384r1"
+        ],
         "signature_algorithms": [
           "ecdsa_secp256r1_sha256",
           "rsa_pss_rsae_sha256",
@@ -648,8 +1140,12 @@
           "rsa_pss_rsae_sha512",
           "rsa_pkcs1_sha512"
         ],
-        "key_share_order": ["x25519"],
-        "psk_key_exchange_modes": ["psk_dhe_ke"],
+        "key_share_order": [
+          "x25519"
+        ],
+        "psk_key_exchange_modes": [
+          "psk_dhe_ke"
+        ],
         "session_resumption": {
           "enable_tickets": true
         },
@@ -658,7 +1154,7 @@
         }
       }
     ],
-        "http2": {
+    "http2": {
       "initial_stream_id": 1,
       "header_table_size": 65536,
       "enable_push": false,

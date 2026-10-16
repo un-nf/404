@@ -139,10 +139,10 @@ pub(crate) fn rewrite_policy_for_injected_nonce(csp: &str, nonce: &str) -> Strin
     let nonce_token = format!("'nonce-{nonce}'");
     let mut rewritten = Vec::new();
     let mut default_tokens: Option<Vec<String>> = None;
-    let mut child_tokens: Option<Vec<String>> = None;
-    let mut script_tokens: Option<Vec<String>> = None;
+
+
     let mut saw_script_src = false;
-    let mut saw_worker_src = false;
+
 
     for directive in csp.split(';') {
         let directive = directive.trim();
@@ -165,13 +165,12 @@ pub(crate) fn rewrite_policy_for_injected_nonce(csp: &str, nonce: &str) -> Strin
                 rewritten.push(directive.to_string());
             }
             "child-src" => {
-                child_tokens = Some(tokens[1..].to_vec());
                 rewritten.push(directive.to_string());
             }
             "script-src" => {
                 saw_script_src = true;
                 append_csp_token_if_missing(&mut tokens, &nonce_token);
-                script_tokens = Some(tokens[1..].to_vec());
+
                 rewritten.push(tokens.join(" "));
             }
             "script-src-elem" => {
@@ -179,8 +178,7 @@ pub(crate) fn rewrite_policy_for_injected_nonce(csp: &str, nonce: &str) -> Strin
                 rewritten.push(tokens.join(" "));
             }
             "worker-src" => {
-                saw_worker_src = true;
-                append_csp_token_if_missing(&mut tokens, "blob:");
+
                 rewritten.push(tokens.join(" "));
             }
             _ => rewritten.push(directive.to_string()),
@@ -192,23 +190,9 @@ pub(crate) fn rewrite_policy_for_injected_nonce(csp: &str, nonce: &str) -> Strin
             let mut tokens = vec!["script-src".to_string()];
             tokens.extend(default_tokens.clone());
             append_csp_token_if_missing(&mut tokens, &nonce_token);
-            script_tokens = Some(tokens[1..].to_vec());
+
             rewritten.push(tokens.join(" "));
         }
-    }
-
-    if !saw_worker_src {
-        let inherited_tokens = child_tokens
-            .as_deref()
-            .or(script_tokens.as_deref())
-            .or(default_tokens.as_deref())
-            .map(filter_worker_source_tokens)
-            .unwrap_or_else(|| vec!["'self'".to_string()]);
-
-        let mut tokens = vec!["worker-src".to_string()];
-        tokens.extend(inherited_tokens);
-        append_csp_token_if_missing(&mut tokens, "blob:");
-        rewritten.push(tokens.join(" "));
     }
 
     rewritten.join("; ")
@@ -224,35 +208,6 @@ fn append_csp_token_if_missing(tokens: &mut Vec<String>, expected: &str) {
     }
 
     tokens.push(expected.to_string());
-}
-
-fn filter_worker_source_tokens(tokens: &[String]) -> Vec<String> {
-    tokens
-        .iter()
-        .filter(|token| should_retain_worker_source_token(token))
-        .cloned()
-        .collect()
-}
-
-fn should_retain_worker_source_token(token: &str) -> bool {
-    let normalized = token.trim().trim_matches('"').to_ascii_lowercase();
-
-    if normalized.is_empty() {
-        return false;
-    }
-
-    if is_none_token(&normalized) {
-        return true;
-    }
-
-    if normalized.starts_with("'nonce-") || normalized.starts_with("'sha") {
-        return false;
-    }
-
-    !matches!(
-        normalized.as_str(),
-        "'unsafe-inline'" | "'unsafe-eval'" | "'strict-dynamic'" | "'report-sample'" | "'wasm-unsafe-eval'"
-    )
 }
 
 fn is_none_token(token: &str) -> bool {
@@ -350,7 +305,8 @@ mod tests {
             .and_then(|value| value.to_str().ok())
             .unwrap();
         assert!(rewritten.contains("script-src 'self' 'unsafe-inline' https://cdn.example 'nonce-fresh123'"));
-        assert!(rewritten.contains("worker-src 'self' https://cdn.example blob:"));
+        assert!(!rewritten.contains("worker-src"));
+        assert!(!rewritten.contains("blob:"));
         assert!(!rewritten.contains("script-src-elem 'nonce-fresh123'"));
     }
 
@@ -406,12 +362,13 @@ mod tests {
             .unwrap();
         assert!(rewritten.contains("default-src 'self' https://cdn.example"));
         assert!(rewritten.contains("script-src 'self' https://cdn.example 'nonce-fresh123'"));
-        assert!(rewritten.contains("worker-src 'self' https://cdn.example blob:"));
+        assert!(!rewritten.contains("worker-src"));
+        assert!(!rewritten.contains("blob:"));
         assert!(!rewritten.contains("script-src-elem 'nonce-fresh123'"));
     }
 
     #[tokio::test]
-    async fn on_response_finalized_appends_blob_to_existing_worker_src() {
+    async fn on_response_finalized_preserves_existing_worker_sources() {
         let mut flow = Flow::new(RequestParts::default());
         flow.metadata.script_injected = true;
         flow.metadata.csp_nonce = Some("fresh123".to_string());
@@ -434,7 +391,8 @@ mod tests {
             .get(CONTENT_SECURITY_POLICY)
             .and_then(|value| value.to_str().ok())
             .unwrap();
-        assert!(rewritten.contains("worker-src 'self' https://workers.example blob:"));
+        assert!(rewritten.contains("worker-src 'self' https://workers.example"));
+        assert!(!rewritten.contains("blob:"));
     }
 
     #[test]
